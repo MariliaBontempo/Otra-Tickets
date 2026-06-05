@@ -1,0 +1,764 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+
+<link rel="icon" type="image/png" href="favicon.png" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Otra Tickets — Events</title>
+<style>
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap");
+
+:root {
+  --ink: #07080a;
+  --ink-2: #0c0e12;
+  --ink-3: #12151b;
+  --line: #1c212a;
+  --silver-text: #dfe3e8;
+  --fog: #9aa1ab;
+  --fog-2: #5d646e;
+  --steel: #3f7cc4;
+  --steel-soft: rgba(74,140,214,0.72);
+  --steel-glow: rgba(63,124,196,0.30);
+  --header-h: 128px;
+  --font-display: "Inter", sans-serif;
+  --font-body: "Inter", sans-serif;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: var(--font-body);
+  color: var(--fog);
+  background: #000;
+  min-height: 100vh;
+  /* Otra black texture, held still behind the scroll */
+  background-image: linear-gradient(rgba(7,8,10,0.55), rgba(7,8,10,0.78)), url("uploads/BG_Otra_Black_Texture.jpeg");
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ============ HEADER ============ */
+.header {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: var(--header-h);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 40px;
+  padding: 0 clamp(28px, 4vw, 64px);
+  background: linear-gradient(180deg, rgba(7,8,10,0.92), rgba(7,8,10,0.72));
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--line);
+}
+
+.brand { display: flex; align-items: center; gap: 20px; flex-shrink: 0; }
+.brand img { width: 84px; height: 84px; display: block; }
+.brand .wordmark {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 28px;
+  letter-spacing: 0.05em;
+  color: var(--silver-text);
+  text-transform: uppercase;
+  line-height: 1;
+}
+
+.nav { display: flex; align-items: center; gap: 38px; margin-left: 16px; }
+.nav a {
+  font-size: 17px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--fog);
+  text-decoration: none;
+  transition: color 0.25s ease;
+  white-space: nowrap;
+}
+.nav a:hover, .nav a.active { color: var(--silver-text); }
+
+.header-actions { margin-left: auto; display: flex; align-items: center; gap: 20px; flex-shrink: 0; }
+.icon-btn {
+  display: grid; place-items: center;
+  width: 46px; height: 46px;
+  color: var(--fog);
+  background: none; border: none; cursor: pointer;
+  transition: color 0.25s ease;
+}
+.icon-btn:hover { color: var(--silver-text); }
+.icon-btn svg { width: 23px; height: 23px; stroke-width: 1.5; }
+.signin {
+  font-family: var(--font-body);
+  font-size: 14.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--silver-text);
+  background: transparent;
+  border: 1px solid var(--line);
+  padding: 12px 24px;
+  cursor: pointer;
+  transition: border-color 0.25s ease, color 0.25s ease;
+  white-space: nowrap;
+}
+.signin:hover { border-color: var(--steel-soft); }
+
+/* ============ HEADER DROPDOWNS ============ */
+.hdr-item { position: relative; display: flex; align-items: center; }
+.hdr-trigger {
+  display: flex; align-items: center; gap: 9px;
+  font-family: var(--font-body);
+  font-size: 14.5px;
+  font-weight: 500;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--fog);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 12px 14px;
+  white-space: nowrap;
+  transition: color 0.25s ease;
+}
+.hdr-trigger:hover,
+.hdr-item.open .hdr-trigger { color: var(--silver-text); }
+.hdr-trigger > svg { width: 19px; height: 19px; stroke-width: 1.6; flex-shrink: 0; }
+.hdr-trigger .caret { width: 12px; height: 12px; stroke-width: 2; opacity: 0.7; transition: transform 0.28s var(--ease, cubic-bezier(.22,1,.36,1)); }
+.hdr-item.open .caret { transform: rotate(180deg); }
+.hdr-trigger .loc-flag { font-size: 14.5px; letter-spacing: 0.13em; text-transform: uppercase; color: var(--fog); }
+.hdr-trigger:hover .loc-flag, .hdr-item.open .loc-flag { color: var(--silver-text); }
+
+/* Panel */
+.dd-panel {
+  position: absolute;
+  top: calc(100% + 16px);
+  right: 0;
+  min-width: 278px;
+  background: rgba(11,13,17,0.97);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: 0 18px 50px rgba(0,0,0,0.6);
+  padding: 8px;
+  opacity: 0; visibility: hidden;
+  transform: translateY(-10px);
+  transition: opacity 0.24s ease, transform 0.24s var(--ease, cubic-bezier(.22,1,.36,1)), visibility 0.24s;
+  z-index: 200;
+}
+.hdr-item.open > .dd-panel { opacity: 1; visibility: visible; transform: translateY(0); }
+.dd-panel::before {
+  content: "";
+  position: absolute;
+  top: -6px; right: 22px;
+  width: 11px; height: 11px;
+  background: rgba(11,13,17,0.97);
+  border-left: 1px solid var(--line);
+  border-top: 1px solid var(--line);
+  transform: rotate(45deg);
+}
+
+.dd-link {
+  display: flex; align-items: center; justify-content: space-between; gap: 18px;
+  padding: 13px 16px;
+  border-radius: 9px;
+  font-family: var(--font-body);
+  font-size: 15.5px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--fog);
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.18s ease, color 0.18s ease;
+  position: relative;
+}
+.dd-link:hover { background: var(--ink-3); color: var(--silver-text); }
+.dd-link.active { color: var(--silver-text); }
+.dd-link.active::after { content: "✓"; color: var(--steel-text, #8fbce9); font-size: 14px; }
+.dd-link .sub { font-size: 13px; color: var(--fog-2); letter-spacing: 0; }
+.dd-sep { height: 1px; background: var(--line); margin: 7px 6px; }
+.dd-head {
+  padding: 10px 16px 7px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--fog-2);
+}
+
+/* Menu dropdown - slightly wider with a highlighted CTA */
+.dd-menu { min-width: 300px; }
+.dd-link.cta {
+  margin-top: 4px;
+  color: var(--silver-text);
+  border: 1px solid var(--line);
+  justify-content: center;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 13.5px;
+}
+.dd-link.cta:hover { border-color: var(--steel-soft); background: transparent; }
+
+/* Profile dropdown - accordion groups */
+.dd-profile { min-width: 320px; padding: 10px; }
+.profile-id {
+  display: flex; align-items: center; gap: 14px;
+  padding: 8px 8px 16px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 8px;
+}
+.profile-id .avatar {
+  width: 48px; height: 48px; border-radius: 50%;
+  background: linear-gradient(160deg, #2a3441, #11151b);
+  border: 1px solid var(--steel-soft);
+  display: grid; place-items: center;
+  color: var(--silver-text);
+  font-weight: 700; font-size: 18px; letter-spacing: 0.02em;
+  flex-shrink: 0;
+}
+.profile-id .who { display: flex; flex-direction: column; gap: 3px; }
+.profile-id .who b { color: var(--silver-text); font-size: 15.5px; font-weight: 600; }
+.profile-id .who span { color: var(--fog-2); font-size: 13px; }
+
+.acc-group { border-radius: 9px; }
+.acc-trigger {
+  width: 100%;
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 13px 16px;
+  border-radius: 9px;
+  background: transparent; border: none; cursor: pointer;
+  font-family: var(--font-body);
+  font-size: 15.5px; font-weight: 500; letter-spacing: 0.01em;
+  color: var(--fog);
+  transition: background 0.18s ease, color 0.18s ease;
+}
+.acc-trigger:hover { background: var(--ink-3); color: var(--silver-text); }
+.acc-trigger .caret { width: 11px; height: 11px; stroke-width: 2; opacity: 0.6; transition: transform 0.26s ease; }
+.acc-group.open .acc-trigger { color: var(--silver-text); }
+.acc-group.open .acc-trigger .caret { transform: rotate(180deg); }
+.acc-body {
+  overflow: hidden;
+  max-height: 0;
+  transition: max-height 0.3s var(--ease, cubic-bezier(.22,1,.36,1));
+}
+.acc-group.open .acc-body { max-height: 240px; }
+.acc-body .dd-link {
+  padding: 10px 14px 10px 32px;
+  font-size: 14.5px;
+  color: var(--fog-2);
+}
+.acc-body .dd-link::before {
+  content: "";
+  position: absolute; left: 17px; top: 50%;
+  width: 5px; height: 1px; background: var(--fog-2);
+}
+.acc-body .dd-link:hover { color: var(--silver-text); }
+.dd-link.signout { color: var(--fog); }
+.dd-link.signout:hover { color: #e8a0a0; }
+
+/* Search dropdown */
+.dd-search { min-width: 400px; padding: 12px; }
+.dd-search .search-field {
+  display: flex; align-items: center; gap: 11px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--ink);
+  transition: border-color 0.2s ease;
+}
+.dd-search .search-field:focus-within { border-color: var(--steel-soft); }
+.dd-search .search-field svg { width: 18px; height: 18px; stroke-width: 1.6; color: var(--fog); flex-shrink: 0; }
+.dd-search input {
+  flex: 1; background: transparent; border: none; outline: none;
+  font-family: var(--font-body); font-size: 15px; color: var(--silver-text);
+  letter-spacing: 0.01em;
+}
+.dd-search input::placeholder { color: var(--fog-2); }
+.dd-search .hint { padding: 11px 4px 3px; font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--fog-2); }
+.dd-search .chips { display: flex; flex-wrap: wrap; gap: 8px; padding: 4px; }
+.dd-search .chip {
+  padding: 7px 13px; border-radius: 999px;
+  border: 1px solid var(--line); background: transparent;
+  font-size: 13px; color: var(--fog); cursor: pointer;
+  transition: border-color 0.18s ease, color 0.18s ease;
+}
+.dd-search .chip:hover { border-color: var(--steel-soft); color: var(--silver-text); }
+
+/* ============ MAIN ============ */
+main { padding-top: calc(var(--header-h) + 22px); padding-bottom: 80px; }
+
+.page-intro {
+  padding: 10px clamp(20px, 4vw, 56px) 2px;
+  display: flex; align-items: flex-end; justify-content: space-between; gap: 24px;
+}
+.page-intro h1 {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: clamp(26px, 3.4vw, 44px);
+  letter-spacing: -0.02em;
+  line-height: 0.98;
+  color: var(--silver-text);
+  text-transform: uppercase;
+}
+.page-intro p { font-size: 15px; color: var(--fog); max-width: 360px; text-align: right; }
+
+/* ---- Category row ---- */
+.row { margin-top: 28px; position: relative; }
+.row-head {
+  display: flex; align-items: baseline; gap: 16px;
+  padding: 0 clamp(20px, 4vw, 56px);
+  margin-bottom: 16px;
+}
+.row-head h2 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 22px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--silver-text);
+}
+.row-head .count { font-size: 13px; color: var(--fog-2); letter-spacing: 0.08em; }
+.row-head .see-all {
+  margin-left: auto;
+  font-size: 13px; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--fog); text-decoration: none; transition: color 0.25s ease;
+}
+.row-head .see-all:hover { color: var(--steel); }
+
+.track-wrap { position: relative; }
+.track {
+  display: flex;
+  gap: 22px;
+  overflow-x: auto;
+  scroll-behavior: smooth;
+  scroll-snap-type: x proximity;
+  padding: 6px clamp(20px, 4vw, 56px) 14px;
+  scrollbar-width: none;
+}
+.track::-webkit-scrollbar { display: none; }
+
+/* ---- Card (cinematic, photo-first) ---- */
+.card {
+  flex: 0 0 auto;
+  width: clamp(300px, 22.5vw, 452px);
+  scroll-snap-align: start;
+  background: #050507;
+  border: 2px solid var(--steel-soft);
+  border-radius: 26px;
+  padding: 20px;
+  overflow: hidden;
+  cursor: pointer;
+  text-align: center;
+  box-shadow: 0 0 16px var(--steel-glow);
+  transition: transform 0.35s cubic-bezier(.22,1,.36,1), box-shadow 0.35s ease, border-color 0.35s ease;
+}
+.card:hover {
+  transform: translateY(-6px);
+  border-color: #6fa8e8;
+  box-shadow: 0 14px 40px rgba(0,0,0,0.55), 0 0 28px rgba(74,140,214,0.55);
+}
+.card-img {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  display: block;
+  border-radius: 22px;
+  background: #000;
+}
+.card-body { padding: 30px 12px 30px; }
+.card-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 26px;
+  letter-spacing: 0.005em;
+  text-transform: uppercase;
+  color: #B8B8B8;
+  line-height: 1.12;
+  text-wrap: balance;
+}
+.card-venue {
+  margin-top: 12px;
+  font-weight: 600;
+  font-size: 18px;
+  color: #9b9999;
+}
+.card-date { margin-top: 7px; font-size: 18px; font-weight: 700; color: #b8bec7; }
+
+/* ---- Row arrows ---- */
+.arrow {
+  position: absolute; top: 0; bottom: 14px;
+  width: clamp(20px, 4vw, 56px);
+  display: grid; place-items: center;
+  background: none; border: none; cursor: pointer;
+  color: var(--silver-text);
+  opacity: 0; transition: opacity 0.25s ease;
+  z-index: 5;
+}
+.arrow.left { left: 0; background: linear-gradient(90deg, rgba(7,8,10,0.85), transparent); }
+.arrow.right { right: 0; background: linear-gradient(270deg, rgba(7,8,10,0.85), transparent); }
+.track-wrap:hover .arrow { opacity: 1; }
+.arrow svg { width: 30px; height: 30px; stroke-width: 1.5; }
+.arrow:hover { color: var(--steel); }
+
+footer {
+  text-align: center;
+  padding: 48px 20px 24px;
+  color: var(--fog-2);
+}
+footer .pb { font-family: var(--font-display); font-style: italic; font-size: 14px; color: var(--fog); }
+footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-transform: uppercase; }
+
+@media (max-width: 720px) {
+  .nav, .page-intro p { display: none; }
+  .brand .wordmark { display: none; }
+}
+</style>
+</head>
+<body>
+  <header class="header">
+    <a class="brand" href="index.html" style="text-decoration:none;color:inherit">
+      <img src="uploads/Otra Tickets Logo.png" alt="Otra Tickets" />
+      <span class="wordmark">Otra Tickets</span>
+    </a>
+
+    <div class="header-actions">
+
+      <!-- SEARCH -->
+      <div class="hdr-item" data-dd>
+        <button class="icon-btn" aria-label="Search" data-dd-trigger>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.5" y2="16.5"/></svg>
+        </button>
+        <div class="dd-panel dd-search">
+          <div class="search-field">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.5" y2="16.5"/></svg>
+            <input type="text" placeholder="Search events, venues, artists, tours…" />
+          </div>
+          <div class="hint">Popular searches</div>
+          <div class="chips">
+            <button class="chip">Live Music</button>
+            <button class="chip">Boat Tours</button>
+            <button class="chip">Carnival</button>
+            <button class="chip">Nightlife</button>
+            <button class="chip">This Weekend</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- MENU -->
+      <div class="hdr-item" data-dd>
+        <button class="hdr-trigger" data-dd-trigger>
+          Menu
+          <svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <div class="dd-panel dd-menu">
+          <a class="dd-link active" href="#">Home</a>
+          <a class="dd-link" href="#">Events</a>
+          <a class="dd-link" href="#">Tours &amp; Experiences</a>
+          <a class="dd-link" href="#">Live Music</a>
+          <a class="dd-link" href="#">Festivals</a>
+          <a class="dd-link" href="#">Nightlife</a>
+          <a class="dd-link" href="#">Food &amp; Drink Events</a>
+          <a class="dd-link" href="#">Family Events</a>
+          <a class="dd-link" href="#">Free Events</a>
+          <a class="dd-link" href="#">Event Calendar</a>
+          <div class="dd-sep"></div>
+          <a class="dd-link cta" href="#">Create an Event →</a>
+        </div>
+      </div>
+
+      <!-- LOCATION -->
+      <div class="hdr-item" data-dd>
+        <button class="hdr-trigger" data-dd-trigger>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 21s7-5.5 7-11a7 7 0 0 0-14 0c0 5.5 7 11 7 11Z"/><circle cx="12" cy="10" r="2.5"/></svg>
+          <span data-loc-label>Curaçao</span>
+          <svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <div class="dd-panel" style="min-width:200px;">
+          <div class="dd-head">Buy tickets in</div>
+          <a class="dd-link active" href="#" data-loc>Curaçao</a>
+          <a class="dd-link" href="#" data-loc>Bonaire</a>
+          <a class="dd-link" href="#" data-loc>Aruba</a>
+        </div>
+      </div>
+
+      <!-- LANGUAGE -->
+      <div class="hdr-item" data-dd>
+        <button class="hdr-trigger" data-dd-trigger>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.7 2.5 15.3 0 18M12 3c-2.5 2.7-2.5 15.3 0 18"/></svg>
+          <span class="loc-flag" data-lang-label>EN</span>
+          <svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <div class="dd-panel" style="min-width:220px;">
+          <div class="dd-head">Language</div>
+          <a class="dd-link active" href="#" data-lang="EN">English</a>
+          <a class="dd-link" href="#" data-lang="PAP">Papiamento</a>
+          <a class="dd-link" href="#" data-lang="NL">Dutch</a>
+          <a class="dd-link" href="#" data-lang="ES">Spanish</a>
+          <a class="dd-link" href="#" data-lang="PT">Portuguese <span class="sub">(Brazilian)</span></a>
+        </div>
+      </div>
+
+      <!-- PROFILE -->
+      <div class="hdr-item" data-dd>
+        <button class="icon-btn" aria-label="Profile" data-dd-trigger>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
+        </button>
+        <div class="dd-panel dd-profile">
+          <div class="profile-id">
+            <div class="avatar">A</div>
+            <div class="who"><b>Your Account</b><span>Sign in to manage tickets</span></div>
+          </div>
+
+          <div class="acc-group">
+            <button class="acc-trigger" data-acc>My Tickets
+              <svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            <div class="acc-body">
+              <a class="dd-link" href="#">Upcoming Tickets</a>
+              <a class="dd-link" href="#">Past Tickets</a>
+            </div>
+          </div>
+
+          <div class="acc-group">
+            <button class="acc-trigger" data-acc>My Favorites
+              <svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            <div class="acc-body">
+              <a class="dd-link" href="#">Saved Events</a>
+              <a class="dd-link" href="#">Saved Venues</a>
+              <a class="dd-link" href="#">Saved Tours</a>
+            </div>
+          </div>
+
+          <div class="acc-group">
+            <button class="acc-trigger" data-acc>My Account
+              <svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            <div class="acc-body">
+              <a class="dd-link" href="#">Name</a>
+              <a class="dd-link" href="#">Email</a>
+              <a class="dd-link" href="#">Password</a>
+            </div>
+          </div>
+
+          <div class="acc-group">
+            <button class="acc-trigger" data-acc>Notifications
+              <svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            <div class="acc-body">
+              <a class="dd-link" href="#">Ticket Alerts</a>
+              <a class="dd-link" href="#">Favorite Venue Alerts</a>
+            </div>
+          </div>
+
+          <a class="dd-link" href="#">Payment Methods</a>
+          <div class="dd-sep"></div>
+          <a class="dd-link signout" href="#">Sign Out</a>
+        </div>
+      </div>
+
+    </div>
+  </header>
+
+  <main>
+    <div id="rows"></div>
+    <footer>
+      <div class="pb">Powered by Otra Guide.</div>
+      <div class="loc">Aruba · Bonaire · Curaçao · Caribbean · Global</div>
+    </footer>
+  </main>
+
+  <script>
+    const U = (f) => "uploads/" + encodeURIComponent(f);
+    const P = (f) => "photos/" + f;
+
+    // Row 1 = the 6 uploaded events (placeholder venue/date — easy to swap).
+    const featured = [
+      { img: U("Kome Halloween.jpg"),        title: "Kome Halloween",      venue: "Fort Church",        date: "Friday Oct 31 · 9PM" },
+      { img: U("We Love R&B .jpg"),           title: "We Love R&B",         venue: "World Trade Center", date: "Saturday July 4 · 10PM" },
+      { img: U("Landing Strip 70's Jam .jpeg"), title: "Landing Strip 70's Jam", venue: "Mambo Beach",   date: "Saturday July 4 · 8PM" },
+      { img: U("Iguana Scooter Tours.jpg"),   title: "Iguana Scooter Tours",venue: "Pietermaai Boulevard", date: "Daily · 6PM" },
+      { img: U("Clearboat Tours.jpeg"),       title: "Clearboat Tours",     venue: "Spanish Water",      date: "Daily · 10AM", link: "clearboat.html" },
+      { img: U("Karaoke Night.jpeg"),         title: "Karaoke Night",       venue: "Que Pas Bar",        date: "Thursday · 8PM" },
+    ];
+
+    const rows = [
+      { cat: "This Weekend", items: featured },
+      { cat: "Concerts & Live Music", items: [
+        { img: U("We Love R&B .jpg"), title: "We Love R&B", venue: "World Trade Center", date: "Saturday July 4 · 10PM" },
+        { img: P("concert-crowd.jpg"), title: "Seal — Live", venue: "World Trade Center", date: "Saturday July 4 · 8PM" },
+        { img: P("festival-lights.jpg"), title: "Mondi Beachfest", venue: "Mondi Beach Club", date: "Saturday July 11 · 9PM" },
+        { img: P("club-dj.jpg"), title: "Flag Day", venue: "Brion Plein", date: "Thursday July 9 · 8PM" },
+        { img: U("Landing Strip 70's Jam .jpeg"), title: "Landing Strip 70's Jam", venue: "Mambo Beach", date: "Saturday July 4 · 8PM" },
+      ]},
+      { cat: "Tours & Adventures", items: [
+        { img: U("Clearboat Tours.jpeg"), title: "Clearboat Tours", venue: "Spanish Water", date: "Daily · 10AM", link: "clearboat.html" },
+        { img: P("scooter-tour.jpg"), title: "Iguana Scooter Tours", venue: "Pietermaai Boulevard", date: "Daily · 6PM" },
+        { img: P("zipline.jpg"), title: "Christoffel Zipline", venue: "Christoffel Park", date: "Daily · 9AM" },
+        { img: P("flamingos.jpg"), title: "Flamingo Sanctuary", venue: "Jan Kok Salt Flats", date: "Daily · 7AM" },
+        { img: P("beach.jpg"), title: "Klein Curaçao Day Sail", venue: "Caracas Bay", date: "Sunday · 7AM" },
+      ]},
+      { cat: "Nightlife", items: [
+        { img: P("club-dj.jpg"), title: "Anabay Rum Run", venue: "Harbor Hotel", date: "Sunday July 5 · 9PM" },
+        { img: U("Karaoke Night.jpeg"), title: "Karaoke Night", venue: "Que Pas Bar", date: "Thursday · 8PM" },
+        { img: P("festival-lights.jpg"), title: "Fuik Day Party", venue: "Fuik Bay", date: "Sunday July 5 · 10AM" },
+        { img: U("We Love R&B .jpg"), title: "We Love R&B", venue: "World Trade Center", date: "Saturday July 4 · 10PM" },
+      ]},
+      { cat: "Culture & Carnival", items: [
+        { img: P("carnival.jpg"), title: "Cocco Jambo Jam", venue: "Que Pas – Piscadera", date: "Saturday July 4 · 10PM" },
+        { img: P("curacao-street.jpg"), title: "Punda Vibes Walk", venue: "Handelskade", date: "Thursday · 6PM" },
+        { img: P("curacao-sign.jpg"), title: "Willemstad Heritage Tour", venue: "Otrobanda", date: "Daily · 11AM" },
+        { img: P("portrait-redhat.jpg"), title: "Lloyd De Mesa — Brunch", venue: "Airport Hotel", date: "Saturday July 4 · 4PM" },
+        { img: U("Kome Halloween.jpg"), title: "Kome Halloween", venue: "Fort Church", date: "Friday Oct 31 · 9PM" },
+      ]},
+    ];
+
+    // Build nav from categories
+    // (Category navigation now lives in the header MENU dropdown)
+
+    // Build rows
+    const ICON_L = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="15 5 8 12 15 19"/></svg>';
+    const ICON_R = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="9 5 16 12 9 19"/></svg>';
+    const container = document.getElementById("rows");
+
+    rows.forEach((r, i) => {
+      const sec = document.createElement("section");
+      sec.className = "row";
+      sec.id = "row-" + i;
+
+      const head = document.createElement("div");
+      head.className = "row-head";
+      head.innerHTML = '<h2>' + r.cat + '</h2><span class="count">' + r.items.length + ' events</span>' +
+        '<a class="see-all" href="#">See all →</a>';
+      sec.append(head);
+
+      const wrap = document.createElement("div");
+      wrap.className = "track-wrap";
+      const track = document.createElement("div");
+      track.className = "track";
+
+      r.items.forEach((ev) => {
+        const card = document.createElement("article");
+        card.className = "card";
+        const img = document.createElement("img");
+        img.className = "card-img";
+        img.src = ev.img; img.alt = ev.title; img.loading = "lazy";
+        const body = document.createElement("div");
+        body.className = "card-body";
+        body.innerHTML = '<div class="card-title">' + ev.title + '</div>' +
+          '<div class="card-venue">' + ev.venue + '</div>' +
+          '<div class="card-date">' + ev.date + '</div>';
+        card.append(img, body);
+        if (ev.link) {
+          card.style.cursor = "pointer";
+          card.setAttribute("role", "link");
+          card.setAttribute("tabindex", "0");
+          card.addEventListener("click", () => { location.href = ev.link; });
+          card.addEventListener("keydown", (e) => {
+            if (e.key === "Enter" || e.key === " ") { e.preventDefault(); location.href = ev.link; }
+          });
+        }
+        track.append(card);
+      });
+
+      const aL = document.createElement("button");
+      aL.className = "arrow left"; aL.innerHTML = ICON_L; aL.setAttribute("aria-label", "Scroll left");
+      const aR = document.createElement("button");
+      aR.className = "arrow right"; aR.innerHTML = ICON_R; aR.setAttribute("aria-label", "Scroll right");
+      const step = () => Math.round(track.clientWidth * 0.8);
+      aL.onclick = () => track.scrollBy({ left: -step(), behavior: "smooth" });
+      aR.onclick = () => track.scrollBy({ left: step(), behavior: "smooth" });
+
+      wrap.append(aL, track, aR);
+      sec.append(wrap);
+      container.append(sec);
+    });
+
+    /* ============ HEADER DROPDOWNS ============ */
+    (function () {
+      const items = [...document.querySelectorAll(".hdr-item[data-dd]")];
+
+      function closeAll(except) {
+        items.forEach((it) => { if (it !== except) it.classList.remove("open"); });
+      }
+
+      items.forEach((item) => {
+        const trigger = item.querySelector("[data-dd-trigger]");
+        trigger.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const isOpen = item.classList.contains("open");
+          closeAll(item);
+          item.classList.toggle("open", !isOpen);
+          if (!isOpen) {
+            const input = item.querySelector("input");
+            if (input) setTimeout(() => input.focus(), 60);
+          }
+        });
+        // keep panel open when interacting inside it
+        const panel = item.querySelector(".dd-panel");
+        if (panel) panel.addEventListener("click", (e) => e.stopPropagation());
+      });
+
+      // Accordion groups inside profile
+      document.querySelectorAll("[data-acc]").forEach((btn) => {
+        btn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const group = btn.closest(".acc-group");
+          const open = group.classList.contains("open");
+          group.parentElement.querySelectorAll(".acc-group").forEach((g) => g.classList.remove("open"));
+          group.classList.toggle("open", !open);
+        });
+      });
+
+      // Location selector
+      document.querySelectorAll("[data-loc]").forEach((a) => {
+        a.addEventListener("click", (e) => {
+          e.preventDefault();
+          document.querySelectorAll("[data-loc]").forEach((x) => x.classList.remove("active"));
+          a.classList.add("active");
+          document.querySelector("[data-loc-label]").textContent = a.textContent.trim();
+          closeAll();
+        });
+      });
+
+      // Language selector
+      document.querySelectorAll("[data-lang]").forEach((a) => {
+        a.addEventListener("click", (e) => {
+          e.preventDefault();
+          document.querySelectorAll("[data-lang]").forEach((x) => x.classList.remove("active"));
+          a.classList.add("active");
+          document.querySelector("[data-lang-label]").textContent = a.getAttribute("data-lang");
+          closeAll();
+        });
+      });
+
+      // Search chips fill the field
+      document.querySelectorAll(".dd-search .chip").forEach((chip) => {
+        chip.addEventListener("click", () => {
+          const input = document.querySelector(".dd-search input");
+          input.value = chip.textContent.trim();
+          input.focus();
+        });
+      });
+
+      // Menu links — mark active
+      document.querySelectorAll(".dd-menu .dd-link:not(.cta)").forEach((a) => {
+        a.addEventListener("click", (e) => {
+          e.preventDefault();
+          document.querySelectorAll(".dd-menu .dd-link").forEach((x) => x.classList.remove("active"));
+          a.classList.add("active");
+          closeAll();
+        });
+      });
+
+      // Close on outside click / Esc
+      document.addEventListener("click", () => closeAll());
+      document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeAll(); });
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+
+<link rel="icon" type="image/png" href="favicon.png" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Otra Tickets — Events Mosaic</title>
+<style>
+@import url("https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800;900&display=swap");
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  background: #000;
+  overflow: hidden;
+}
+
+/* full-viewport stage that letterboxes the fixed canvas on black */
+.viewport {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: #000;
+}
+
+/* FIXED design canvas — everything inside is in absolute 1920×1080 pixels,
+   so the composition is locked. The whole canvas scales as one unit to fit. */
+.canvas {
+  position: relative;
+  width: 1920px;
+  height: 1080px;
+  background: #000;
+  transform: scale(var(--s, 1));
+  transform-origin: center center;
+  overflow: hidden;
+}
+
+/* ---- photo mosaic ---- */
+.mosaic {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  grid-template-rows: repeat(5, 1fr);
+  /* fixed black gutters + outer margin, matched to the original */
+  gap: 20px;
+  background: #000;
+  padding: 27px;
+}
+
+.cell {
+  position: relative;
+  overflow: hidden;
+  background: #0c0e12;
+}
+
+.cell img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  filter: none; /* full brightness — originals untouched */
+}
+
+/* ---- wordmark: the user's exported Canva PNG, dropped over the grid ---- */
+.wordmark-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: fill; /* PNG is the same 16:9 as the canvas → pixel-exact placement */
+  pointer-events: none;
+}
+
+/* ---- the whole splash is a doorway into the storefront ---- */
+.enter {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  align-items: end;
+  justify-items: center;
+  text-decoration: none;
+  cursor: pointer;
+}
+.enter-cta {
+  margin-bottom: 64px;
+  padding: 18px 40px;
+  font-family: "Poppins", system-ui, sans-serif;
+  font-weight: 700;
+  font-size: 26px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #f4f6f8;
+  background: rgba(7, 8, 10, 0.55);
+  border: 1px solid rgba(244, 246, 248, 0.55);
+  backdrop-filter: blur(6px);
+  transition: background 0.25s ease, border-color 0.25s ease, transform 0.25s ease;
+}
+.enter:hover .enter-cta {
+  background: #3f7cc4;
+  border-color: #3f7cc4;
+  transform: translateY(-2px);
+}
+</style>
+</head>
+<body>
+  <div class="viewport">
+    <div class="canvas" id="canvas" data-screen-label="Events Mosaic">
+      <div class="mosaic" id="mosaic"></div>
+      <img class="wordmark-img" src="uploads/OTRA TICKETING Words.png" alt="OTRA TICKETS" />
+      <a class="enter" href="events.html" aria-label="Enter Otra Tickets events">
+        <span class="enter-cta">Enter Events</span>
+      </a>
+    </div>
+  </div>
+
+  <script>
+    // 25 cells (5×5) — the real uploaded photos, in their labeled grid order
+    // (R1C1 → R5C5, left-to-right, top-to-bottom). Mixed file extensions.
+    const photos = [
+      "R1C1.jpg", "R1C2.jpeg", "R1C3.jpg", "R1C4.jpg", "R1C5.jpg",
+      "R2C1.jpg", "R2C2.jpg", "R2C3.jpg", "R2C4.jpg", "R2C5.jpg",
+      "R3C1.jpg", "R3C2.jpg", "R3C3.jpg", "R3C4.jpg", "R3C5.jpg",
+      "R4C1.jpg", "R4C2.jpeg", "R4C3.jpeg", "R4C4.jpg", "R4C5.jpeg",
+      "R5C1.jpg", "R5C2.jpg", "R5C3.jpg", "R5C4-12a0ab94.jpeg", "R5C5-bd08b3a9.jpeg"
+    ];
+    const frag = document.createDocumentFragment();
+    photos.forEach((file) => {
+      const cell = document.createElement("div");
+      cell.className = "cell";
+      const img = document.createElement("img");
+      img.src = "uploads/" + file;
+      img.alt = "";
+      cell.append(img);
+      frag.append(cell);
+    });
+    document.getElementById("mosaic").append(frag);
+
+    // Scale the fixed canvas to fit the viewport (uniform, letterboxed).
+    const canvas = document.getElementById("canvas");
+    function fit() {
+      const s = Math.min(window.innerWidth / 1920, window.innerHeight / 1080);
+      canvas.style.setProperty("--s", s);
+    }
+    window.addEventListener("resize", fit);
+    fit();
+  </script>
+</body>
+</html>
