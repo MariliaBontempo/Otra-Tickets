@@ -417,31 +417,39 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
   .brand .wordmark { display: none; }
 }
 
-/* ===== Events Mosaic splash — header on top, mosaic in the middle, footer below ===== */
+/* ===== Events Mosaic splash — full-bleed, fills the entire first fold ===== */
 html, body { height: 100%; }
 body {
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;            /* splash: locked, no scroll */
-}
-.header { position: static; }  /* flow inside the flex column instead of fixed overlay */
-
-.mosaic-main {
-  flex: 1 1 auto;
-  min-height: 0;
-  position: relative;
-  display: grid;
-  place-items: center;
+  margin: 0;
   background: #000;
-  padding: 24px;
+  overflow: hidden;            /* the splash is exactly one fold — no scroll */
 }
-/* FIXED 1920×1080 design canvas — scales as one unit to fit the space between header and footer */
+/* header overlays the splash instead of taking its own row, so the mosaic
+   reaches the very top of the fold */
+.header {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  z-index: 100;
+}
+/* the splash stage fills the whole first fold (100vw × 100vh) */
+.mosaic-main {
+  position: fixed;
+  inset: 0;
+  padding: 0;                  /* override the storefront's main { padding-top } */
+  background: #000;
+  overflow: hidden;
+}
+/* FIXED 1920×1080 design canvas — absolutely centered and scaled to COVER the
+   full fold (overflow cropped), so the locked composition always fills width
+   and height with no margins. */
 .canvas {
-  position: relative;
+  position: absolute;
+  top: 50%;
+  left: 50%;
   width: 1920px;
   height: 1080px;
   background: #000;
-  transform: scale(var(--s, 1));
+  transform: translate(-50%, -50%) scale(var(--s, 1));
   transform-origin: center center;
   overflow: hidden;
 }
@@ -453,7 +461,7 @@ body {
   grid-template-rows: repeat(5, 1fr);
   gap: 20px;
   background: #000;
-  padding: 27px;
+  padding: 0;                  /* no outer frame — photos bleed to the canvas edge */
 }
 .cell { position: relative; overflow: hidden; background: #0c0e12; }
 .cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -476,7 +484,7 @@ body {
   cursor: pointer;
 }
 .enter-cta {
-  margin-bottom: 64px;
+  margin-bottom: 104px;
   padding: 18px 40px;
   font-family: var(--font-display);
   font-weight: 800;
@@ -491,6 +499,15 @@ body {
   transition: background 0.25s ease, border-color 0.25s ease, transform 0.25s ease;
 }
 .enter:hover .enter-cta { background: var(--steel); border-color: var(--steel); transform: translateY(-2px); }
+
+/* footer overlays the bottom of the splash, with a readability gradient */
+footer {
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  z-index: 100;
+  padding: 22px 20px 18px;
+  background: linear-gradient(to top, rgba(7,8,10,0.92), rgba(7,8,10,0));
+}
 </style>
 </head>
 <body>
@@ -643,10 +660,11 @@ body {
     <div class="canvas" id="canvas" data-screen-label="Events Mosaic">
       <div class="mosaic" id="mosaic"></div>
       <img class="wordmark-img" src="uploads/OTRA TICKETING Words.png" alt="OTRA TICKETS" />
-      <a class="enter" href="events.html" aria-label="Enter Otra Tickets events">
-        <span class="enter-cta">Enter Events</span>
-      </a>
     </div>
+    <!-- pinned to the viewport (not the canvas) so it stays visible after the cover-crop -->
+    <a class="enter" href="events.html" aria-label="Enter Otra Tickets events">
+      <span class="enter-cta">Enter Events</span>
+    </a>
   </main>
     <footer>
       <div class="pb">Powered by Otra Guide.</div>
@@ -674,15 +692,14 @@ body {
     });
     document.getElementById("mosaic").append(frag);
 
-    // Scale the fixed canvas to fit the space between header and footer (uniform, letterboxed).
+    // Scale the fixed canvas to COVER the whole first fold (uniform, overflow cropped),
+    // so the locked composition always fills the viewport in both width and height.
     const canvas = document.getElementById("canvas");
-    const stage = document.querySelector(".mosaic-main");
     function fit() {
-      const s = Math.min(stage.clientWidth / 1920, stage.clientHeight / 1080);
+      const s = Math.max(window.innerWidth / 1920, window.innerHeight / 1080);
       canvas.style.setProperty("--s", s);
     }
     window.addEventListener("resize", fit);
-    if (window.ResizeObserver) new ResizeObserver(fit).observe(stage);
     fit();
 
     /* ============ HEADER DROPDOWNS ============ */
