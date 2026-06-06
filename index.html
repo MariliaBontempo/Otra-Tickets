@@ -292,7 +292,7 @@ body {
 main { padding-top: calc(var(--header-h) + 22px); padding-bottom: 80px; }
 
 .page-intro {
-  padding: 10px clamp(16px, 2vw, 28px) 2px;
+  padding: 10px 0 2px;
   display: flex; align-items: flex-end; justify-content: space-between; gap: 24px;
 }
 .page-intro h1 {
@@ -310,7 +310,7 @@ main { padding-top: calc(var(--header-h) + 22px); padding-bottom: 80px; }
 .row { margin-top: 28px; position: relative; }
 .row-head {
   display: flex; align-items: baseline; gap: 16px;
-  padding: 0 clamp(16px, 2vw, 28px);
+  padding: 0;
   margin-bottom: 16px;
 }
 .row-head h2 {
@@ -336,7 +336,7 @@ main { padding-top: calc(var(--header-h) + 22px); padding-bottom: 80px; }
   overflow-x: auto;
   scroll-behavior: smooth;
   scroll-snap-type: x proximity;
-  padding: 6px clamp(16px, 2vw, 28px) 14px;
+  padding: 6px 0 14px;
   scrollbar-width: none;
 }
 .track::-webkit-scrollbar { display: none; }
@@ -391,7 +391,7 @@ main { padding-top: calc(var(--header-h) + 22px); padding-bottom: 80px; }
 /* ---- Row arrows ---- */
 .arrow {
   position: absolute; top: 0; bottom: 14px;
-  width: clamp(16px, 2vw, 28px);
+  width: 48px;
   display: grid; place-items: center;
   background: none; border: none; cursor: pointer;
   color: var(--silver-text);
