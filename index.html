@@ -485,22 +485,43 @@ body {
   text-decoration: none;
   cursor: pointer;
 }
-.enter-cta {
-  margin-bottom: 104px;
-  padding: 18px 40px;
-  font-family: var(--font-display);
-  font-weight: 800;
-  font-size: 22px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
+.enter-arrow {
+  margin-bottom: 72px;
+  width: 60px;
+  height: 60px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
   color: #f4f6f8;
-  background: rgba(7, 8, 10, 0.55);
-  border: 1px solid rgba(244, 246, 248, 0.55);
+  background: rgba(7, 8, 10, 0.42);
+  border: 1px solid rgba(244, 246, 248, 0.5);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
-  transition: background 0.25s ease, border-color 0.25s ease, transform 0.25s ease;
+  transition: background 0.25s ease, border-color 0.25s ease, color 0.25s ease;
+  animation: enterBounce 2.2s cubic-bezier(0.45, 0, 0.55, 1) infinite;
 }
-.enter:hover .enter-cta { background: var(--steel); border-color: var(--steel); transform: translateY(-2px); }
+.enter-arrow svg {
+  width: 28px;
+  height: 28px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  display: block;
+}
+.enter:hover .enter-arrow {
+  background: var(--steel);
+  border-color: var(--steel);
+  color: #fff;
+}
+@keyframes enterBounce {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(9px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .enter-arrow { animation: none; }
+}
 
 /* footer overlays the bottom of the splash, with a readability gradient */
 footer {
@@ -665,7 +686,9 @@ footer {
     </div>
     <!-- pinned to the viewport (not the canvas) so it stays visible after the cover-crop -->
     <a class="enter" href="events.html" aria-label="Enter Otra Tickets events">
-      <span class="enter-cta">Enter Events</span>
+      <span class="enter-arrow">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+      </span>
     </a>
   </main>
     <footer>
