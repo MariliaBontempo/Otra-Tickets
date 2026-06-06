@@ -417,28 +417,26 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
   .brand .wordmark { display: none; }
 }
 
-/* ===== Events Mosaic splash — full-bleed, fills the entire first fold ===== */
-html, body { height: 100%; }
-body {
-  margin: 0;
-  background: #000;
-  overflow: hidden;            /* the splash is exactly one fold — no scroll */
-}
-/* header overlays the splash instead of taking its own row, so the mosaic
-   reaches the very top of the fold */
+/* ===== Events Mosaic splash hero, then the events rows below (one scroll) ===== */
+body { margin: 0; }            /* scrolls: full-bleed hero first, event rows after */
+/* header stays fixed over both the hero and the scrolled rows */
 .header {
-  position: absolute;
+  position: fixed;
   top: 0; left: 0; right: 0;
   z-index: 100;
 }
-/* the splash stage fills the whole first fold (100vw × 100vh) */
+/* the splash hero fills the first fold (100vw × 100vh), then content follows */
 .mosaic-main {
-  position: fixed;
-  inset: 0;
+  position: relative;
+  height: 100vh;
+  width: 100%;
   padding: 0;                  /* override the storefront's main { padding-top } */
   background: #000;
   overflow: hidden;
 }
+/* the events storefront, revealed by scrolling down from the hero */
+.store { padding-top: 64px; }  /* trims the inherited main padding to a clean gap */
+#rows { scroll-margin-top: var(--header-h); }
 /* FIXED 1920×1080 design canvas — absolutely centered and scaled to COVER the
    full fold (overflow cropped), so the locked composition always fills width
    and height with no margins. */
@@ -565,14 +563,6 @@ body {
   .enter-arrow { animation: none; }
 }
 
-/* footer overlays the bottom of the splash, with a readability gradient */
-footer {
-  position: fixed;
-  bottom: 0; left: 0; right: 0;
-  z-index: 100;
-  padding: 22px 20px 18px;
-  background: linear-gradient(to top, rgba(7,8,10,0.92), rgba(7,8,10,0));
-}
 </style>
 </head>
 <body>
@@ -721,7 +711,7 @@ footer {
     </div>
   </header>
 
-  <main class="mosaic-main">
+  <section class="mosaic-main">
     <div class="canvas" id="canvas" data-screen-label="Events Mosaic">
       <div class="mosaic" id="mosaic"></div>
       <div class="hero-wordmark">
@@ -729,13 +719,18 @@ footer {
         <span class="wordmark-sheen" aria-hidden="true"></span>
       </div>
     </div>
-    <!-- pinned to the viewport (not the canvas) so it stays visible after the cover-crop -->
-    <a class="enter" href="events.html" aria-label="Enter Otra Tickets events">
+    <!-- pinned to the hero bottom; scrolls down to the events rows -->
+    <a class="enter" href="#rows" aria-label="Scroll down to the events">
       <span class="enter-arrow">
         <svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
       </span>
     </a>
+  </section>
+
+  <main class="store">
+    <div id="rows"></div>
   </main>
+
     <footer>
       <div class="pb">Powered by Otra Guide.</div>
       <div class="loc">Aruba · Bonaire · Curaçao · Caribbean · Global</div>
@@ -771,6 +766,114 @@ footer {
     }
     window.addEventListener("resize", fit);
     fit();
+
+    /* ===== events storefront rows — revealed by scrolling down from the hero ===== */
+    (function () {
+    const U = (f) => "uploads/" + encodeURIComponent(f);
+    const P = (f) => "photos/" + f;
+
+    // Row 1 = the 6 uploaded events (placeholder venue/date — easy to swap).
+    const featured = [
+      { img: U("Kome Halloween.jpg"),        title: "Kome Halloween",      venue: "Fort Church",        date: "Friday Oct 31 · 9PM" },
+      { img: U("We Love R&B .jpg"),           title: "We Love R&B",         venue: "World Trade Center", date: "Saturday July 4 · 10PM" },
+      { img: U("Landing Strip 70's Jam .jpeg"), title: "Landing Strip 70's Jam", venue: "Mambo Beach",   date: "Saturday July 4 · 8PM" },
+      { img: U("Iguana Scooter Tours.jpg"),   title: "Iguana Scooter Tours",venue: "Pietermaai Boulevard", date: "Daily · 6PM" },
+      { img: U("Clearboat Tours.jpeg"),       title: "Clearboat Tours",     venue: "Spanish Water",      date: "Daily · 10AM", link: "clearboat.html" },
+      { img: U("Karaoke Night.jpeg"),         title: "Karaoke Night",       venue: "Que Pas Bar",        date: "Thursday · 8PM" },
+    ];
+
+    const rows = [
+      { cat: "This Weekend", items: featured },
+      { cat: "Concerts & Live Music", items: [
+        { img: U("We Love R&B .jpg"), title: "We Love R&B", venue: "World Trade Center", date: "Saturday July 4 · 10PM" },
+        { img: P("concert-crowd.jpg"), title: "Seal — Live", venue: "World Trade Center", date: "Saturday July 4 · 8PM" },
+        { img: P("festival-lights.jpg"), title: "Mondi Beachfest", venue: "Mondi Beach Club", date: "Saturday July 11 · 9PM" },
+        { img: P("club-dj.jpg"), title: "Flag Day", venue: "Brion Plein", date: "Thursday July 9 · 8PM" },
+        { img: U("Landing Strip 70's Jam .jpeg"), title: "Landing Strip 70's Jam", venue: "Mambo Beach", date: "Saturday July 4 · 8PM" },
+      ]},
+      { cat: "Tours & Adventures", items: [
+        { img: U("Clearboat Tours.jpeg"), title: "Clearboat Tours", venue: "Spanish Water", date: "Daily · 10AM", link: "clearboat.html" },
+        { img: P("scooter-tour.jpg"), title: "Iguana Scooter Tours", venue: "Pietermaai Boulevard", date: "Daily · 6PM" },
+        { img: P("zipline.jpg"), title: "Christoffel Zipline", venue: "Christoffel Park", date: "Daily · 9AM" },
+        { img: P("flamingos.jpg"), title: "Flamingo Sanctuary", venue: "Jan Kok Salt Flats", date: "Daily · 7AM" },
+        { img: P("beach.jpg"), title: "Klein Curaçao Day Sail", venue: "Caracas Bay", date: "Sunday · 7AM" },
+      ]},
+      { cat: "Nightlife", items: [
+        { img: P("club-dj.jpg"), title: "Anabay Rum Run", venue: "Harbor Hotel", date: "Sunday July 5 · 9PM" },
+        { img: U("Karaoke Night.jpeg"), title: "Karaoke Night", venue: "Que Pas Bar", date: "Thursday · 8PM" },
+        { img: P("festival-lights.jpg"), title: "Fuik Day Party", venue: "Fuik Bay", date: "Sunday July 5 · 10AM" },
+        { img: U("We Love R&B .jpg"), title: "We Love R&B", venue: "World Trade Center", date: "Saturday July 4 · 10PM" },
+      ]},
+      { cat: "Culture & Carnival", items: [
+        { img: P("carnival.jpg"), title: "Cocco Jambo Jam", venue: "Que Pas – Piscadera", date: "Saturday July 4 · 10PM" },
+        { img: P("curacao-street.jpg"), title: "Punda Vibes Walk", venue: "Handelskade", date: "Thursday · 6PM" },
+        { img: P("curacao-sign.jpg"), title: "Willemstad Heritage Tour", venue: "Otrobanda", date: "Daily · 11AM" },
+        { img: P("portrait-redhat.jpg"), title: "Lloyd De Mesa — Brunch", venue: "Airport Hotel", date: "Saturday July 4 · 4PM" },
+        { img: U("Kome Halloween.jpg"), title: "Kome Halloween", venue: "Fort Church", date: "Friday Oct 31 · 9PM" },
+      ]},
+    ];
+
+    // Build nav from categories
+    // (Category navigation now lives in the header MENU dropdown)
+
+    // Build rows
+    const ICON_L = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="15 5 8 12 15 19"/></svg>';
+    const ICON_R = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="9 5 16 12 9 19"/></svg>';
+    const container = document.getElementById("rows");
+
+    rows.forEach((r, i) => {
+      const sec = document.createElement("section");
+      sec.className = "row";
+      sec.id = "row-" + i;
+
+      const head = document.createElement("div");
+      head.className = "row-head";
+      head.innerHTML = '<h2>' + r.cat + '</h2><span class="count">' + r.items.length + ' events</span>' +
+        '<a class="see-all" href="#">See all →</a>';
+      sec.append(head);
+
+      const wrap = document.createElement("div");
+      wrap.className = "track-wrap";
+      const track = document.createElement("div");
+      track.className = "track";
+
+      r.items.forEach((ev) => {
+        const card = document.createElement("article");
+        card.className = "card";
+        const img = document.createElement("img");
+        img.className = "card-img";
+        img.src = ev.img; img.alt = ev.title; img.loading = "lazy";
+        const body = document.createElement("div");
+        body.className = "card-body";
+        body.innerHTML = '<div class="card-title">' + ev.title + '</div>' +
+          '<div class="card-venue">' + ev.venue + '</div>' +
+          '<div class="card-date">' + ev.date + '</div>';
+        card.append(img, body);
+        if (ev.link) {
+          card.style.cursor = "pointer";
+          card.setAttribute("role", "link");
+          card.setAttribute("tabindex", "0");
+          card.addEventListener("click", () => { location.href = ev.link; });
+          card.addEventListener("keydown", (e) => {
+            if (e.key === "Enter" || e.key === " ") { e.preventDefault(); location.href = ev.link; }
+          });
+        }
+        track.append(card);
+      });
+
+      const aL = document.createElement("button");
+      aL.className = "arrow left"; aL.innerHTML = ICON_L; aL.setAttribute("aria-label", "Scroll left");
+      const aR = document.createElement("button");
+      aR.className = "arrow right"; aR.innerHTML = ICON_R; aR.setAttribute("aria-label", "Scroll right");
+      const step = () => Math.round(track.clientWidth * 0.8);
+      aL.onclick = () => track.scrollBy({ left: -step(), behavior: "smooth" });
+      aR.onclick = () => track.scrollBy({ left: step(), behavior: "smooth" });
+
+      wrap.append(aL, track, aR);
+      sec.append(wrap);
+      container.append(sec);
+    });
+    })();
 
     /* ============ HEADER DROPDOWNS ============ */
     (function () {
