@@ -29,6 +29,14 @@
 
 html { scroll-behavior: smooth; }
 
+/* dark, thin scrollbar so the page chrome blends with the near-black design
+   (prevents the default gray scrollbar band on the right edge) */
+html { scrollbar-width: thin; scrollbar-color: #2a3340 #07080a; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: #07080a; }
+::-webkit-scrollbar-thumb { background: #2a3340; border-radius: 8px; border: 2px solid #07080a; }
+::-webkit-scrollbar-thumb:hover { background: #3f7cc4; }
+
 body {
   font-family: var(--font-body);
   color: var(--fog);
