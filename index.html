@@ -315,7 +315,7 @@ main { padding-top: calc(var(--header-h) + 22px); padding-bottom: 80px; }
 .page-intro p { font-size: 15px; color: var(--fog); max-width: 360px; text-align: right; }
 
 /* ---- Category row ---- */
-.row { margin-top: 28px; position: relative; }
+.row { margin-top: 28px; position: relative; padding: 0 clamp(24px, 4vw, 56px); }
 .row-head {
   display: flex; align-items: baseline; gap: 16px;
   padding: 0;
@@ -399,7 +399,7 @@ main { padding-top: calc(var(--header-h) + 22px); padding-bottom: 80px; }
 /* ---- Row arrows ---- */
 .arrow {
   position: absolute; top: 0; bottom: 14px;
-  width: 48px;
+  width: clamp(24px, 4vw, 56px);
   display: grid; place-items: center;
   background: none; border: none; cursor: pointer;
   color: var(--silver-text);
