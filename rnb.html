@@ -603,9 +603,6 @@ main.detail { padding: 0; }
 .ev-paid h4 { font-family: var(--font-display); font-weight: 700; font-size: 19px; color: var(--silver-text); letter-spacing: 0.04em; }
 .ev-paid p { margin-top: 8px; font-size: 14px; color: var(--fog); }
 
-/* ---- RELATED ---- */
-.ev-related { padding-top: clamp(48px, 7vh, 96px); }
-.ev-related .row-head { max-width: 1240px; margin-left: auto; margin-right: auto; }
 .card-tag { display: inline-block; font-size: 11px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--steel-text, #8fbce9); margin-bottom: 10px; }
 
 /* real-photo helpers */
@@ -694,17 +691,6 @@ main.detail { padding: 0; }
 .ev-video.is-live { cursor: default; }
 .ev-video.is-live::after { display: none; }
 .ev-video.is-live .play, .ev-video.is-live .vlabel { display: none; }
-/* Otra Guide listing card (placeholder template — dev wires image + title + href) */
-.rel-card { flex: 0 0 auto; width: clamp(280px, 23vw, 384px); background: #050608; border: 1.5px solid #1C9EBD; border-radius: 22px; padding: 13px 13px 18px; scroll-snap-align: start; text-decoration: none; display: block; transition: transform .35s var(--ease, cubic-bezier(.22,1,.36,1)), box-shadow .35s var(--ease, cubic-bezier(.22,1,.36,1)); }
-.rel-card:hover { transform: translateY(-6px); box-shadow: 0 14px 40px rgba(0,0,0,.5); }
-.rel-ph { position: relative; aspect-ratio: 16 / 10; border-radius: 14px; overflow: hidden; background: radial-gradient(120% 120% at 50% 0%, #161b22, #0a0d12 72%); display: grid; place-items: center; }
-.rel-ph::after { content: ""; position: absolute; inset: 0; border-radius: 14px; border: 1px solid rgba(255,255,255,.05); pointer-events: none; }
-.rel-glyph { width: 38px; height: 38px; color: var(--fog-2, #5d646e); opacity: .85; }
-.rel-glyph svg { width: 100%; height: 100%; }
-.rel-heart { position: absolute; top: 12px; right: 12px; width: 26px; height: 26px; color: #fff; filter: drop-shadow(0 1px 3px rgba(0,0,0,.6)); z-index: 2; }
-.rel-heart svg { width: 100%; height: 100%; }
-.rel-cat { margin-top: 14px; font-size: 10.5px; font-weight: 600; letter-spacing: .2em; text-transform: uppercase; color: #1C9EBD; }
-.rel-title { margin-top: 6px; color: var(--fog); font-weight: 700; font-size: clamp(17px, 1.5vw, 21px); letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 @media (max-width: 980px) {
   .ev-story, .ev-book-lower { grid-template-columns: 1fr; }
@@ -1002,18 +988,6 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
       </div>
     </section>
 
-    <!-- ============ RELATED ============ -->
-    <section class="ev-related reveal">
-      <div class="row-head">
-        <h2>Pairs Well With</h2>
-        <span class="count">Otra Guide picks near Punda</span>
-        <a class="see-all" href="#">See all →</a>
-      </div>
-      <div class="track-wrap">
-        <div class="track" id="relTrack"></div>
-      </div>
-    </section>
-
     <footer>
       <div class="pb">Powered by Otra Guide.</div>
       <div class="loc">Aruba · Bonaire · Curaçao · Caribbean · Global</div>
@@ -1021,49 +995,6 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
   </main>
 
   <script>
-    const U = (f) => "uploads/" + encodeURIComponent(f);
-    const P = (f) => "photos/" + f;
-    const ICON_L = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="15 5 8 12 15 19"/></svg>';
-    const ICON_R = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="9 5 16 12 9 19"/></svg>';
-
-    /* ---------- RELATED ROW ---------- */
-    // Placeholder Otra Guide listing cards. Dev: set each card's href to the
-    // real Otra Guide listing URL, drop the listing image into .rel-ph, and set
-    // the title text. The category tag is just a slot hint and can be removed.
-    const related = [
-      { cat: "Beach" }, { cat: "Restaurant" }, { cat: "Restaurant" },
-      { cat: "Tour" }, { cat: "Watersports" }, { cat: "Nature" },
-      { cat: "Tour" }, { cat: "Car Rental" }, { cat: "Beach" },
-    ];
-    const REL_IMG_GLYPH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>';
-    const REL_HEART_GLYPH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>';
-    (function buildRelated() {
-      const track = document.getElementById("relTrack");
-      related.forEach((item) => {
-        const a = document.createElement("a");
-        a.className = "rel-card";
-        a.href = "#";                       // dev: real Otra Guide listing URL goes here
-        a.setAttribute("data-otra-guide", item.cat);
-        a.innerHTML =
-          '<div class="rel-ph">' +
-            '<span class="rel-heart">' + REL_HEART_GLYPH + '</span>' +
-            '<span class="rel-glyph">' + REL_IMG_GLYPH + '</span>' +
-          '</div>' +
-          '<div class="rel-cat">' + item.cat + '</div>' +
-          '<div class="rel-title">Otra Guide listing</div>';
-        track.append(a);
-      });
-      const wrap = track.closest(".track-wrap");
-      const aL = document.createElement("button");
-      aL.className = "arrow left"; aL.innerHTML = ICON_L; aL.setAttribute("aria-label", "Scroll left");
-      const aR = document.createElement("button");
-      aR.className = "arrow right"; aR.innerHTML = ICON_R; aR.setAttribute("aria-label", "Scroll right");
-      const step = () => Math.round(track.clientWidth * 0.8);
-      aL.onclick = () => track.scrollBy({ left: -step(), behavior: "smooth" });
-      aR.onclick = () => track.scrollBy({ left: step(), behavior: "smooth" });
-      wrap.prepend(aL); wrap.append(aR);
-    })();
-
     /* ---------- REVEAL ON SCROLL ---------- */
     (function reveal() {
       const io = new IntersectionObserver((entries) => {
