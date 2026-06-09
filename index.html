@@ -866,15 +866,15 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
           '<div class="card-venue">' + ev.venue + '</div>' +
           '<div class="card-date">' + ev.date + '</div>';
         card.append(img, body);
-        if (ev.link) {
-          card.style.cursor = "pointer";
-          card.setAttribute("role", "link");
-          card.setAttribute("tabindex", "0");
-          card.addEventListener("click", () => { location.href = ev.link; });
-          card.addEventListener("keydown", (e) => {
-            if (e.key === "Enter" || e.key === " ") { e.preventDefault(); location.href = ev.link; }
-          });
-        }
+        // Every event card opens the event template.
+        const href = "event.html";
+        card.style.cursor = "pointer";
+        card.setAttribute("role", "link");
+        card.setAttribute("tabindex", "0");
+        card.addEventListener("click", () => { location.href = href; });
+        card.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" || e.key === " ") { e.preventDefault(); location.href = href; }
+        });
         track.append(card);
       });
 
