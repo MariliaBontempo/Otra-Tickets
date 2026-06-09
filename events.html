@@ -661,15 +661,16 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
           '<div class="card-venue">' + ev.venue + '</div>' +
           '<div class="card-date">' + ev.date + '</div>';
         card.append(img, body);
-        // Every event card opens the event template.
-        const href = "event.html";
-        card.style.cursor = "pointer";
-        card.setAttribute("role", "link");
-        card.setAttribute("tabindex", "0");
-        card.addEventListener("click", () => { location.href = href; });
-        card.addEventListener("keydown", (e) => {
-          if (e.key === "Enter" || e.key === " ") { e.preventDefault(); location.href = href; }
-        });
+        // For now, only the We Love R&B card opens the event template.
+        if (ev.title === "We Love R&B") {
+          card.style.cursor = "pointer";
+          card.setAttribute("role", "link");
+          card.setAttribute("tabindex", "0");
+          card.addEventListener("click", () => { location.href = "event.html"; });
+          card.addEventListener("keydown", (e) => {
+            if (e.key === "Enter" || e.key === " ") { e.preventDefault(); location.href = "event.html"; }
+          });
+        }
         track.append(card);
       });
 
