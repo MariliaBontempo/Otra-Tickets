@@ -787,7 +787,7 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
     /* ===== events storefront rows — revealed by scrolling down from the hero ===== */
     (async function () {
     // Events on this site that have their own page (keyed by Otra Guide event id).
-    const LOCAL_PAGES = { 7275: "rnb" };
+    const LOCAL_PAGES = { 7275: "rnb", 6113: "clearboat" };
 
     // The track is fed by the Otra Guide API (category 339, ticketed events
     // only) through the same-origin /api/homepage-events Pages Function.
@@ -848,10 +848,13 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
         const titleEl = document.createElement("div");
         titleEl.className = "card-title";
         titleEl.textContent = ev.title;
-        const dateEl = document.createElement("div");
-        dateEl.className = "card-date";
-        dateEl.textContent = ev.date;
-        body.append(titleEl, dateEl);
+        body.append(titleEl);
+        if (ev.date) {
+          const dateEl = document.createElement("div");
+          dateEl.className = "card-date";
+          dateEl.textContent = ev.date;
+          body.append(dateEl);
+        }
         card.append(img, body);
         // A card links to its Otra Guide event page (slug) when it has one.
         if (ev.slug) {
