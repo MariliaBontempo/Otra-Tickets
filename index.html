@@ -838,23 +838,25 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
     const ICON_R = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="9 5 16 12 9 19"/></svg>';
     const container = document.getElementById("rows");
 
-    rows.forEach((r, i) => {
+    // Single unified track with every event (categories removed), deduped by title.
+    const seen = new Set();
+    const allItems = rows.flatMap((r) => r.items).filter((ev) => {
+      if (seen.has(ev.title)) return false;
+      seen.add(ev.title);
+      return true;
+    });
+
+    {
       const sec = document.createElement("section");
       sec.className = "row";
-      sec.id = "row-" + i;
-
-      const head = document.createElement("div");
-      head.className = "row-head";
-      head.innerHTML = '<h2>' + r.cat + '</h2><span class="count">' + r.items.length + ' events</span>' +
-        '<a class="see-all" href="#">See all →</a>';
-      sec.append(head);
+      sec.id = "row-0";
 
       const wrap = document.createElement("div");
       wrap.className = "track-wrap";
       const track = document.createElement("div");
       track.className = "track";
 
-      r.items.forEach((ev) => {
+      allItems.forEach((ev) => {
         const card = document.createElement("article");
         card.className = "card";
         const img = document.createElement("img");
@@ -923,7 +925,7 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
       requestAnimationFrame(updateArrows);
       sec.append(wrap);
       container.append(sec);
-    });
+    }
     })();
 
     /* ============ HEADER DROPDOWNS ============ */
