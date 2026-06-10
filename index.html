@@ -5,6 +5,10 @@
 <link rel="icon" type="image/png" href="favicon.png" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Otra Tickets — Events Mosaic</title>
+<!-- Kick off the events fetch at the very start of parsing, in parallel with
+     the stylesheet, fonts and hero artwork, so the row data is already in
+     flight (often arrived) by the time the render script runs. -->
+<script>window.__eventsPromise = fetch("/api/homepage-events").then(function (r) { return r.json(); });</script>
 <style>
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap");
 
@@ -813,9 +817,10 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
     // only) through the same-origin /api/homepage-events Pages Function.
     let events = [];
     try {
-      const resp = await fetch("/api/homepage-events");
-      if (!resp.ok) throw new Error("HTTP " + resp.status);
-      events = (await resp.json()).events || [];
+      // Reuse the fetch started in <head>; fall back to a fresh one if needed.
+      const data = await (window.__eventsPromise ||
+        fetch("/api/homepage-events").then((r) => r.json()));
+      events = (data && data.events) || [];
     } catch (err) {
       console.error("Could not load homepage events:", err);
       return;
