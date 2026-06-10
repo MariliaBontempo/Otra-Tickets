@@ -984,6 +984,28 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
             baseUrl: 'https://otraguide.com',
             isRecurring: false
           });
+
+          // The embed library pins the iframe at a fixed 800px and ignores the
+          // checkout's own resize messages, which forces an inner scrollbar once
+          // the content is taller. Honor those messages here so the iframe grows
+          // to its full content height and never scrolls internally.
+          (function () {
+            var container = document.getElementById('otra-checkout-container');
+            function fit(px) {
+              var iframe = container && container.querySelector('iframe');
+              if (!iframe) return;
+              iframe.setAttribute('scrolling', 'no');
+              iframe.style.height = px + 'px';
+              iframe.style.overflow = 'hidden';
+            }
+            window.addEventListener('message', function (e) {
+              if (e.origin !== 'https://otraguide.com') return;
+              var d = e.data;
+              if (d && d.type === 'OTRA_IFRAME_RESIZE' && d.height) {
+                fit(Math.ceil(d.height));
+              }
+            });
+          })();
         </script>
       </div>
     </section>
