@@ -785,66 +785,47 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
     fit();
 
     /* ===== events storefront rows — revealed by scrolling down from the hero ===== */
-    (function () {
-    const U = (f) => "uploads/" + encodeURIComponent(f);
-    const P = (f) => "photos/" + f;
+    (async function () {
+    // Events on this site that have their own page (keyed by Otra Guide event id).
+    const LOCAL_PAGES = { 7275: "rnb" };
 
-    // Row 1 = the 6 uploaded events (placeholder venue/date — easy to swap).
-    const featured = [
-      { img: U("Kome Halloween.webp"),        title: "Kome Halloween",      venue: "Fort Church",        date: "Friday Oct 31 · 9PM" },
-      { img: U("We Love R&B July 4th TJ-5.webp"),           title: "We Love R&B",         venue: "World Trade Center", date: "Saturday July 4 · 10PM", slug: "rnb" },
-      { img: U("Landing Strip 70's Jam .webp"), title: "Landing Strip 70's Jam", venue: "Mambo Beach",   date: "Saturday July 4 · 8PM" },
-      { img: U("Iguana Scooter Tours.webp"),   title: "Iguana Scooter Tours",venue: "Pietermaai Boulevard", date: "Daily · 6PM" },
-      { img: U("Clearboat Tours.webp"),       title: "Clearboat Tours",     venue: "Spanish Water",      date: "Daily · 10AM", link: "clearboat.html" },
-      { img: U("Karaoke Night.webp"),         title: "Karaoke Night",       venue: "Que Pas Bar",        date: "Thursday · 8PM" },
-    ];
+    // The track is fed by the Otra Guide API (category 339, ticketed events
+    // only) through the same-origin /api/homepage-events Pages Function.
+    let events = [];
+    try {
+      const resp = await fetch("/api/homepage-events");
+      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      events = (await resp.json()).events || [];
+    } catch (err) {
+      console.error("Could not load homepage events:", err);
+      return;
+    }
+    if (!events.length) return;
 
-    const rows = [
-      { cat: "This Weekend", items: featured },
-      { cat: "Concerts & Live Music", items: [
-        { img: U("We Love R&B July 4th TJ-5.webp"), title: "We Love R&B", venue: "World Trade Center", date: "Saturday July 4 · 10PM", slug: "rnb" },
-        { img: P("concert-crowd.webp"), title: "Seal — Live", venue: "World Trade Center", date: "Saturday July 4 · 8PM" },
-        { img: P("festival-lights.webp"), title: "Mondi Beachfest", venue: "Mondi Beach Club", date: "Saturday July 11 · 9PM" },
-        { img: P("club-dj.webp"), title: "Flag Day", venue: "Brion Plein", date: "Thursday July 9 · 8PM" },
-        { img: U("Landing Strip 70's Jam .webp"), title: "Landing Strip 70's Jam", venue: "Mambo Beach", date: "Saturday July 4 · 8PM" },
-      ]},
-      { cat: "Tours & Adventures", items: [
-        { img: U("Clearboat Tours.webp"), title: "Clearboat Tours", venue: "Spanish Water", date: "Daily · 10AM", link: "clearboat.html" },
-        { img: P("scooter-tour.webp"), title: "Iguana Scooter Tours", venue: "Pietermaai Boulevard", date: "Daily · 6PM" },
-        { img: P("zipline.webp"), title: "Christoffel Zipline", venue: "Christoffel Park", date: "Daily · 9AM" },
-        { img: P("flamingos.webp"), title: "Flamingo Sanctuary", venue: "Jan Kok Salt Flats", date: "Daily · 7AM" },
-        { img: P("beach.webp"), title: "Klein Curaçao Day Sail", venue: "Caracas Bay", date: "Sunday · 7AM" },
-      ]},
-      { cat: "Nightlife", items: [
-        { img: P("club-dj.webp"), title: "Anabay Rum Run", venue: "Harbor Hotel", date: "Sunday July 5 · 9PM" },
-        { img: U("Karaoke Night.webp"), title: "Karaoke Night", venue: "Que Pas Bar", date: "Thursday · 8PM" },
-        { img: P("festival-lights.webp"), title: "Fuik Day Party", venue: "Fuik Bay", date: "Sunday July 5 · 10AM" },
-        { img: U("We Love R&B July 4th TJ-5.webp"), title: "We Love R&B", venue: "World Trade Center", date: "Saturday July 4 · 10PM", slug: "rnb" },
-      ]},
-      { cat: "Culture & Carnival", items: [
-        { img: P("carnival.webp"), title: "Cocco Jambo Jam", venue: "Que Pas – Piscadera", date: "Saturday July 4 · 10PM" },
-        { img: P("curacao-street.webp"), title: "Punda Vibes Walk", venue: "Handelskade", date: "Thursday · 6PM" },
-        { img: P("curacao-sign.webp"), title: "Willemstad Heritage Tour", venue: "Otrobanda", date: "Daily · 11AM" },
-        { img: P("portrait-redhat.webp"), title: "Lloyd De Mesa — Brunch", venue: "Airport Hotel", date: "Saturday July 4 · 4PM" },
-        { img: U("Kome Halloween.webp"), title: "Kome Halloween", venue: "Fort Church", date: "Friday Oct 31 · 9PM" },
-      ]},
-    ];
+    // "Saturday July 4 · 6PM" in Curaçao time, matching the old card style.
+    function fmtDate(iso) {
+      if (!iso) return "";
+      const d = new Date(iso);
+      const opts = { timeZone: "America/Curacao" };
+      const day = d.toLocaleDateString("en-US", { ...opts, weekday: "long" });
+      const month = d.toLocaleDateString("en-US", { ...opts, month: "long" });
+      const dayNum = d.toLocaleDateString("en-US", { ...opts, day: "numeric" });
+      let time = d.toLocaleTimeString("en-US", { ...opts, hour: "numeric", minute: "2-digit" });
+      time = time.replace(":00", "").replace(/\s/g, "");
+      return day + " " + month + " " + dayNum + " · " + time;
+    }
 
-    // Build nav from categories
-    // (Category navigation now lives in the header MENU dropdown)
+    const allItems = events.map((ev) => ({
+      img: ev.img,
+      title: ev.title,
+      date: fmtDate(ev.date),
+      slug: LOCAL_PAGES[ev.id],
+    }));
 
-    // Build rows
+    // Build the single track
     const ICON_L = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="15 5 8 12 15 19"/></svg>';
     const ICON_R = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="9 5 16 12 9 19"/></svg>';
     const container = document.getElementById("rows");
-
-    // Single unified track with every event (categories removed), deduped by title.
-    const seen = new Set();
-    const allItems = rows.flatMap((r) => r.items).filter((ev) => {
-      if (seen.has(ev.title)) return false;
-      seen.add(ev.title);
-      return true;
-    });
 
     {
       const sec = document.createElement("section");
@@ -864,9 +845,13 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
         img.src = ev.img; img.alt = ev.title; img.loading = "lazy";
         const body = document.createElement("div");
         body.className = "card-body";
-        body.innerHTML = '<div class="card-title">' + ev.title + '</div>' +
-          '<div class="card-venue">' + ev.venue + '</div>' +
-          '<div class="card-date">' + ev.date + '</div>';
+        const titleEl = document.createElement("div");
+        titleEl.className = "card-title";
+        titleEl.textContent = ev.title;
+        const dateEl = document.createElement("div");
+        dateEl.className = "card-date";
+        dateEl.textContent = ev.date;
+        body.append(titleEl, dateEl);
         card.append(img, body);
         // A card links to its Otra Guide event page (slug) when it has one.
         if (ev.slug) {
