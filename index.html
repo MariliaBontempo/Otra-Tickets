@@ -840,11 +840,13 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
       return day + " " + month + " " + dayNum + " · " + time;
     }
 
+    // Every card links somewhere: events with a bespoke page use its slug,
+    // all others open the generic template populated from the API by id.
     const allItems = events.map((ev) => ({
       img: ev.img,
       title: ev.title,
       date: fmtDate(ev.date),
-      slug: LOCAL_PAGES[ev.id],
+      href: LOCAL_PAGES[ev.id] || ("event?id=" + ev.id),
     }));
 
     // Build the single track
@@ -881,14 +883,14 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
           body.append(dateEl);
         }
         card.append(img, body);
-        // A card links to its Otra Guide event page (slug) when it has one.
-        if (ev.slug) {
+        // Every card opens its event page (bespoke slug, or the generic template).
+        if (ev.href) {
           card.style.cursor = "pointer";
           card.setAttribute("role", "link");
           card.setAttribute("tabindex", "0");
-          card.addEventListener("click", () => { location.href = ev.slug; });
+          card.addEventListener("click", () => { location.href = ev.href; });
           card.addEventListener("keydown", (e) => {
-            if (e.key === "Enter" || e.key === " ") { e.preventDefault(); location.href = ev.slug; }
+            if (e.key === "Enter" || e.key === " ") { e.preventDefault(); location.href = ev.href; }
           });
         }
         track.append(card);
