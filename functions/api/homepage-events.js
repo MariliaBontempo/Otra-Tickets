@@ -12,6 +12,8 @@
 
 const API = "https://otraguide.com/api";
 const CATEGORY_ID = 339;
+// We Love R&B is the headliner: it always leads the homepage row.
+const FEATURED_ID = 7275;
 const MAX_PAGES = 8;
 // Workers allow 50 subrequests per request; with ~3 page fetches this cap
 // keeps the ticket-type checks safely under the limit.
@@ -54,16 +56,30 @@ export async function onRequestGet(context) {
     })
   );
 
-  const events = candidates
-    .filter((_, i) => ticketCounts[i] > 0)
-    .map((ev) => ({
-      id: ev.id,
-      title: ev.title,
-      // Perennial top-shelf events recur (e.g. daily tours); a single start
-      // date would be misleading, so the card shows no date for them.
-      date: ev.is_perennial ? null : ev.start_date,
-      img: ev.half_web_image_url || ev.full_web_image_url || ev.card_image_url,
-    }));
+  const ticketed = candidates.filter((_, i) => ticketCounts[i] > 0);
+
+  // Order: We Love R&B first, then the other dated (non-perennial) events by
+  // date, then the perennial top-shelf tours (which carry no meaningful date).
+  const rank = (ev) => {
+    if (ev.id === FEATURED_ID) return 0;
+    return ev.is_perennial ? 2 : 1;
+  };
+  ticketed.sort((a, b) => {
+    const ra = rank(a);
+    const rb = rank(b);
+    if (ra !== rb) return ra - rb;
+    if (ra === 1) return new Date(a.start_date) - new Date(b.start_date);
+    return 0;
+  });
+
+  const events = ticketed.map((ev) => ({
+    id: ev.id,
+    title: ev.title,
+    // Perennial top-shelf events recur (e.g. daily tours); a single start
+    // date would be misleading, so the card shows no date for them.
+    date: ev.is_perennial ? null : ev.start_date,
+    img: ev.half_web_image_url || ev.full_web_image_url || ev.card_image_url,
+  }));
 
   const response = new Response(JSON.stringify({ events }), {
     headers: {
