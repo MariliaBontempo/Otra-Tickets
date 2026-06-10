@@ -532,6 +532,26 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
   .hero-wordmark { animation: none; }
   .wordmark-sheen { display: none; }
 }
+/* The hero wordmark normally stretches across the full 1920px design canvas,
+   which is then scaled to COVER the viewport — fine on wide screens, but on a
+   narrow phone the canvas is cropped left/right and the title spills off both
+   edges ("OTRA / CKE"). Decouple it from the canvas here: size it to the
+   viewport width (dividing by --s cancels the canvas scale) and centre it, so
+   the whole "OTRA TICKETS" reads on one line. The asset is 16:9 with the text
+   occupying ~71% of its width, so ~124vw of image lands the text at ~88vw.
+   Placed after the base .hero-wordmark rule so it wins on source order. */
+@media (max-width: 720px) {
+  .hero-wordmark {
+    inset: auto;
+    left: 50%;
+    top: 50%;
+    width: calc(124vw / var(--s, 1));
+    height: auto;
+    aspect-ratio: 6000 / 3375;
+    transform: translate(-50%, -50%);
+    animation: none;
+  }
+}
 /* the splash doubles as a doorway into the storefront */
 .enter {
   position: absolute;
