@@ -42,7 +42,7 @@ body {
   background: #000;
   min-height: 100vh;
   /* Otra black texture, held still behind the scroll */
-  background-image: linear-gradient(rgba(7,8,10,0.55), rgba(7,8,10,0.78)), url("uploads/BG_Otra_Black_Texture.jpeg");
+  background-image: linear-gradient(rgba(7,8,10,0.55), rgba(7,8,10,0.78)), url("uploads/BG_Otra_Black_Texture.webp");
   background-size: cover;
   background-position: center;
   background-attachment: fixed;
@@ -429,7 +429,7 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
 <body>
   <header class="header">
     <a class="brand" href="index.html" style="text-decoration:none;color:inherit">
-      <img src="uploads/Otra Tickets Logo.png" alt="Otra Tickets" />
+      <img src="uploads/Otra Tickets Logo.webp" alt="Otra Tickets" />
       <span class="wordmark">Otra Tickets</span>
     </a>
 
@@ -586,42 +586,42 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
 
     // Row 1 = the 6 uploaded events (placeholder venue/date — easy to swap).
     const featured = [
-      { img: U("Kome Halloween.jpg"),        title: "Kome Halloween",      venue: "Fort Church",        date: "Friday Oct 31 · 9PM" },
-      { img: U("We Love R&B .jpg"),           title: "We Love R&B",         venue: "World Trade Center", date: "Saturday July 4 · 10PM", slug: "rnb" },
-      { img: U("Landing Strip 70's Jam .jpeg"), title: "Landing Strip 70's Jam", venue: "Mambo Beach",   date: "Saturday July 4 · 8PM" },
-      { img: U("Iguana Scooter Tours.jpg"),   title: "Iguana Scooter Tours",venue: "Pietermaai Boulevard", date: "Daily · 6PM" },
-      { img: U("Clearboat Tours.jpeg"),       title: "Clearboat Tours",     venue: "Spanish Water",      date: "Daily · 10AM", link: "clearboat.html" },
-      { img: U("Karaoke Night.jpeg"),         title: "Karaoke Night",       venue: "Que Pas Bar",        date: "Thursday · 8PM" },
+      { img: U("Kome Halloween.webp"),        title: "Kome Halloween",      venue: "Fort Church",        date: "Friday Oct 31 · 9PM" },
+      { img: U("We Love R&B .webp"),           title: "We Love R&B",         venue: "World Trade Center", date: "Saturday July 4 · 10PM", slug: "rnb" },
+      { img: U("Landing Strip 70's Jam .webp"), title: "Landing Strip 70's Jam", venue: "Mambo Beach",   date: "Saturday July 4 · 8PM" },
+      { img: U("Iguana Scooter Tours.webp"),   title: "Iguana Scooter Tours",venue: "Pietermaai Boulevard", date: "Daily · 6PM" },
+      { img: U("Clearboat Tours.webp"),       title: "Clearboat Tours",     venue: "Spanish Water",      date: "Daily · 10AM", link: "clearboat.html" },
+      { img: U("Karaoke Night.webp"),         title: "Karaoke Night",       venue: "Que Pas Bar",        date: "Thursday · 8PM" },
     ];
 
     const rows = [
       { cat: "This Weekend", items: featured },
       { cat: "Concerts & Live Music", items: [
-        { img: U("We Love R&B .jpg"), title: "We Love R&B", venue: "World Trade Center", date: "Saturday July 4 · 10PM", slug: "rnb" },
-        { img: P("concert-crowd.jpg"), title: "Seal — Live", venue: "World Trade Center", date: "Saturday July 4 · 8PM" },
-        { img: P("festival-lights.jpg"), title: "Mondi Beachfest", venue: "Mondi Beach Club", date: "Saturday July 11 · 9PM" },
-        { img: P("club-dj.jpg"), title: "Flag Day", venue: "Brion Plein", date: "Thursday July 9 · 8PM" },
-        { img: U("Landing Strip 70's Jam .jpeg"), title: "Landing Strip 70's Jam", venue: "Mambo Beach", date: "Saturday July 4 · 8PM" },
+        { img: U("We Love R&B .webp"), title: "We Love R&B", venue: "World Trade Center", date: "Saturday July 4 · 10PM", slug: "rnb" },
+        { img: P("concert-crowd.webp"), title: "Seal — Live", venue: "World Trade Center", date: "Saturday July 4 · 8PM" },
+        { img: P("festival-lights.webp"), title: "Mondi Beachfest", venue: "Mondi Beach Club", date: "Saturday July 11 · 9PM" },
+        { img: P("club-dj.webp"), title: "Flag Day", venue: "Brion Plein", date: "Thursday July 9 · 8PM" },
+        { img: U("Landing Strip 70's Jam .webp"), title: "Landing Strip 70's Jam", venue: "Mambo Beach", date: "Saturday July 4 · 8PM" },
       ]},
       { cat: "Tours & Adventures", items: [
-        { img: U("Clearboat Tours.jpeg"), title: "Clearboat Tours", venue: "Spanish Water", date: "Daily · 10AM", link: "clearboat.html" },
-        { img: P("scooter-tour.jpg"), title: "Iguana Scooter Tours", venue: "Pietermaai Boulevard", date: "Daily · 6PM" },
-        { img: P("zipline.jpg"), title: "Christoffel Zipline", venue: "Christoffel Park", date: "Daily · 9AM" },
-        { img: P("flamingos.jpg"), title: "Flamingo Sanctuary", venue: "Jan Kok Salt Flats", date: "Daily · 7AM" },
-        { img: P("beach.jpg"), title: "Klein Curaçao Day Sail", venue: "Caracas Bay", date: "Sunday · 7AM" },
+        { img: U("Clearboat Tours.webp"), title: "Clearboat Tours", venue: "Spanish Water", date: "Daily · 10AM", link: "clearboat.html" },
+        { img: P("scooter-tour.webp"), title: "Iguana Scooter Tours", venue: "Pietermaai Boulevard", date: "Daily · 6PM" },
+        { img: P("zipline.webp"), title: "Christoffel Zipline", venue: "Christoffel Park", date: "Daily · 9AM" },
+        { img: P("flamingos.webp"), title: "Flamingo Sanctuary", venue: "Jan Kok Salt Flats", date: "Daily · 7AM" },
+        { img: P("beach.webp"), title: "Klein Curaçao Day Sail", venue: "Caracas Bay", date: "Sunday · 7AM" },
       ]},
       { cat: "Nightlife", items: [
-        { img: P("club-dj.jpg"), title: "Anabay Rum Run", venue: "Harbor Hotel", date: "Sunday July 5 · 9PM" },
-        { img: U("Karaoke Night.jpeg"), title: "Karaoke Night", venue: "Que Pas Bar", date: "Thursday · 8PM" },
-        { img: P("festival-lights.jpg"), title: "Fuik Day Party", venue: "Fuik Bay", date: "Sunday July 5 · 10AM" },
-        { img: U("We Love R&B .jpg"), title: "We Love R&B", venue: "World Trade Center", date: "Saturday July 4 · 10PM", slug: "rnb" },
+        { img: P("club-dj.webp"), title: "Anabay Rum Run", venue: "Harbor Hotel", date: "Sunday July 5 · 9PM" },
+        { img: U("Karaoke Night.webp"), title: "Karaoke Night", venue: "Que Pas Bar", date: "Thursday · 8PM" },
+        { img: P("festival-lights.webp"), title: "Fuik Day Party", venue: "Fuik Bay", date: "Sunday July 5 · 10AM" },
+        { img: U("We Love R&B .webp"), title: "We Love R&B", venue: "World Trade Center", date: "Saturday July 4 · 10PM", slug: "rnb" },
       ]},
       { cat: "Culture & Carnival", items: [
-        { img: P("carnival.jpg"), title: "Cocco Jambo Jam", venue: "Que Pas – Piscadera", date: "Saturday July 4 · 10PM" },
-        { img: P("curacao-street.jpg"), title: "Punda Vibes Walk", venue: "Handelskade", date: "Thursday · 6PM" },
-        { img: P("curacao-sign.jpg"), title: "Willemstad Heritage Tour", venue: "Otrobanda", date: "Daily · 11AM" },
-        { img: P("portrait-redhat.jpg"), title: "Lloyd De Mesa — Brunch", venue: "Airport Hotel", date: "Saturday July 4 · 4PM" },
-        { img: U("Kome Halloween.jpg"), title: "Kome Halloween", venue: "Fort Church", date: "Friday Oct 31 · 9PM" },
+        { img: P("carnival.webp"), title: "Cocco Jambo Jam", venue: "Que Pas – Piscadera", date: "Saturday July 4 · 10PM" },
+        { img: P("curacao-street.webp"), title: "Punda Vibes Walk", venue: "Handelskade", date: "Thursday · 6PM" },
+        { img: P("curacao-sign.webp"), title: "Willemstad Heritage Tour", venue: "Otrobanda", date: "Daily · 11AM" },
+        { img: P("portrait-redhat.webp"), title: "Lloyd De Mesa — Brunch", venue: "Airport Hotel", date: "Saturday July 4 · 4PM" },
+        { img: U("Kome Halloween.webp"), title: "Kome Halloween", venue: "Fort Church", date: "Friday Oct 31 · 9PM" },
       ]},
     ];
 
