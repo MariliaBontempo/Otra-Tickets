@@ -19,6 +19,8 @@ const API = "https://otraguide.com/api";
 const CATEGORY_ID = 339;
 // We Love R&B is the headliner: it always leads the homepage row.
 const FEATURED_ID = 7275;
+// Event ids to keep off the homepage even if they pass the ticket filter.
+const EXCLUDED_IDS = new Set([7012]); // Sinusta Tours & Transfers
 const PAGE_SIZE = 20;
 const MAX_PAGES = 8;
 // Pages fetched together in the first parallel round (covers the usual feed
@@ -134,7 +136,7 @@ async function buildEvents() {
   // (is_ticketed true) and the perennial top-shelf cards (whose is_ticketed is
   // forced false by the serializer, so the flag can't be trusted for them).
   const candidates = [...byId.values()]
-    .filter((ev) => ev.is_ticketed || ev.is_perennial)
+    .filter((ev) => !EXCLUDED_IDS.has(ev.id) && (ev.is_ticketed || ev.is_perennial))
     .slice(0, MAX_TICKET_CHECKS);
 
   // Confirm each candidate actually has ticket types configured.
