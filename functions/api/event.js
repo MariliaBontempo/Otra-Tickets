@@ -9,6 +9,13 @@ const API = "https://otraguide.com/api";
 const UPSTREAM_TTL = 300;
 const EDGE_TTL = 600;
 
+// Per-event accent overrides. By default the accent comes from the event's
+// calendar primary colour in the Otra Guide plugin theme. Listing an event id
+// here forces a colour that WINS over that theme colour — use it when the site
+// should look different from what's configured in otraguide. Format:
+//   "6113": "#fe8a15",   // Clearboat — force orange regardless of the theme
+const ACCENT_OVERRIDES = {};
+
 export async function onRequestGet(context) {
   const url = new URL(context.request.url);
   const id = (url.searchParams.get("id") || "").trim();
@@ -21,15 +28,19 @@ export async function onRequestGet(context) {
   const cached = await cache.match(cacheKey);
   if (cached) return cached;
 
-  const [detail, ticketData, accent] = await Promise.all([
+  // An override wins over the theme colour and lets us skip the calendar fetch.
+  const override = ACCENT_OVERRIDES[id] || null;
+  const [detail, ticketData, calendarAccent] = await Promise.all([
     fetchJson(`${API}/events/details/${id}/`),
     fetchJson(`${API}/ticket/purchase/tickets/${id}/`),
-    fetchCalendarPrimary(id),
+    override ? Promise.resolve(null) : fetchCalendarPrimary(id),
   ]);
 
   if (!detail) {
     return json({ error: "not found" }, 404);
   }
+
+  const accent = override || calendarAccent;
 
   const tickets = (ticketData && ticketData.results ? ticketData.results : []).map((t) => ({
     name: t.name,
