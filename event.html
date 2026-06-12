@@ -19,12 +19,16 @@
   --steel-text: #8fbce9;
   --steel-soft: rgba(74,140,214,0.72);
   --steel-glow: rgba(63,124,196,0.30);
-  /* We Love R&B page accent — Cascada purple */
-  --rnb: #a64de0;
-  --rnb-text: #d6a8f5;
-  --rnb-soft: rgba(166,77,224,0.6);
-  --rnb-glow: rgba(166,77,224,0.32);
-  --rnb-line: rgba(166,77,224,0.26);
+  /* Accent — sourced at runtime from the event's calendar primary colour in the
+     Otra Guide plugin theme (set by the fill script). Defaults to the Otra Guide
+     default calendar colour. The legacy --rnb* tokens derive from it, so every
+     accent rule on the page recolours from this single value. */
+  --accent: #1c9ebd;
+  --rnb: var(--accent);
+  --rnb-text: color-mix(in srgb, var(--accent) 62%, white);
+  --rnb-soft: color-mix(in srgb, var(--accent) 60%, transparent);
+  --rnb-glow: color-mix(in srgb, var(--accent) 32%, transparent);
+  --rnb-line: color-mix(in srgb, var(--accent) 26%, transparent);
   --header-h: 128px;
   --font-display: "Inter", sans-serif;
   --font-body: "Inter", sans-serif;
@@ -1071,6 +1075,13 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
 
       // ----- document + header -----
       document.title = "Otra Tickets — " + ev.title;
+
+      // ----- ACCENT -----
+      // Recolour the whole page from the event's calendar primary colour
+      // (Otra Guide plugin theme). Falls back to the CSS default when absent.
+      if (ev.accent && /^#[0-9A-Fa-f]{6}$/.test(ev.accent)) {
+        document.documentElement.style.setProperty("--accent", ev.accent);
+      }
 
       // ----- HERO -----
       if (ev.image) {

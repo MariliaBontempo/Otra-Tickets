@@ -21,9 +21,10 @@ export async function onRequestGet(context) {
   const cached = await cache.match(cacheKey);
   if (cached) return cached;
 
-  const [detail, ticketData] = await Promise.all([
+  const [detail, ticketData, accent] = await Promise.all([
     fetchJson(`${API}/events/details/${id}/`),
     fetchJson(`${API}/ticket/purchase/tickets/${id}/`),
+    fetchCalendarPrimary(id),
   ]);
 
   if (!detail) {
@@ -48,6 +49,9 @@ export async function onRequestGet(context) {
     image:
       detail.full_web_image_url || detail.half_web_image_url || detail.card_image_url || "",
     socialLinks: Array.isArray(detail.social_links) ? detail.social_links : [],
+    // Accent colour = the event's calendar primary colour from the Otra Guide
+    // plugin theme. null when the event has no custom theme (page uses default).
+    accent,
     tickets,
   };
 
@@ -74,6 +78,23 @@ async function fetchJson(url) {
     });
     if (!resp.ok) return null;
     return await resp.json();
+  } catch {
+    return null;
+  }
+}
+
+// The plugin theme's calendar colours aren't exposed as JSON, but they are
+// rendered into the calendar iframe as CSS variables. Pull the primary one
+// (`--theme-primary`) out of that HTML. Returns a hex string or null.
+async function fetchCalendarPrimary(id) {
+  try {
+    const resp = await fetch(`${API.replace(/\/api$/, "")}/ticketing/stripe-external-iframe/calendar/${id}/`, {
+      cf: { cacheTtl: UPSTREAM_TTL, cacheEverything: true },
+    });
+    if (!resp.ok) return null;
+    const html = await resp.text();
+    const m = html.match(/--theme-primary:\s*(#[0-9A-Fa-f]{6})/);
+    return m ? m[1] : null;
   } catch {
     return null;
   }

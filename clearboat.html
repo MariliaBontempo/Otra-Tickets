@@ -16,10 +16,15 @@
   --silver-text: #dfe3e8;
   --fog: #9aa1ab;
   --fog-2: #5d646e;
-  --steel: #3f7cc4;
-  --steel-text: #8fbce9;
-  --steel-soft: rgba(74,140,214,0.72);
-  --steel-glow: rgba(63,124,196,0.30);
+  /* Accent — sourced at runtime from the Clearboat event's calendar primary
+     colour in the Otra Guide plugin theme (set by the script at the bottom).
+     Defaults to that event's configured colour. The --steel* accent tokens
+     derive from it, so every accent rule recolours from this single value. */
+  --accent: #fe8a15;
+  --steel: var(--accent);
+  --steel-text: color-mix(in srgb, var(--accent) 62%, white);
+  --steel-soft: color-mix(in srgb, var(--accent) 60%, transparent);
+  --steel-glow: color-mix(in srgb, var(--accent) 32%, transparent);
   --header-h: 128px;
   --font-display: "Inter", sans-serif;
   --font-body: "Inter", sans-serif;
@@ -550,7 +555,7 @@ main.detail { padding: 0; }
   width: 100%;
   padding: 9px 11px;
   border: 1px solid var(--steel-soft);
-  background: rgba(63,124,196,0.16);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
   color: var(--steel-text);
   font-family: var(--font-body); font-size: 15px; font-weight: 500;
   letter-spacing: 0.01em; line-height: 1;
@@ -558,7 +563,7 @@ main.detail { padding: 0; }
   transition: background .16s, color .16s, border-color .16s;
 }
 .ev-slot::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--steel); flex-shrink: 0; transition: background .16s; }
-.ev-slot:hover { background: rgba(63,124,196,0.34); color: #fff; border-color: var(--steel); }
+.ev-slot:hover { background: color-mix(in srgb, var(--accent) 34%, transparent); color: #fff; border-color: var(--steel); }
 .ev-slot.sel { background: var(--steel); border-color: var(--steel); color: #fff; font-weight: 600; }
 .ev-slot.sel::before { background: #fff; }
 
@@ -1262,6 +1267,24 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
       // Close on outside click / Esc
       document.addEventListener("click", () => closeAll());
       document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeAll(); });
+    })();
+  </script>
+  <script>
+    /* Keep the page accent in sync with the Clearboat event's calendar primary
+       colour in the Otra Guide plugin theme (single source of truth). The CSS
+       already defaults to that colour, so this only matters if it's changed in
+       otraguide later. Served via the same-origin /api/event function. */
+    (async function () {
+      try {
+        const resp = await fetch("/api/event?id=6113");
+        if (!resp.ok) return;
+        const data = await resp.json();
+        if (data && /^#[0-9A-Fa-f]{6}$/.test(data.accent || "")) {
+          document.documentElement.style.setProperty("--accent", data.accent);
+        }
+      } catch (e) {
+        /* keep the CSS default */
+      }
     })();
   </script>
 </body>
