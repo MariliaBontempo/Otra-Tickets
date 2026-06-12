@@ -924,7 +924,7 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
     <!-- ============ BOOKING ============ -->
     <section class="section-pad reveal" id="book" hidden>
       <span class="ev-eyebrow">Tickets</span>
-      <h2 class="ev-h2" style="margin-top:18px;">Get your tickets</h2>
+      <h2 class="ev-h2" style="margin-top:18px;">Pick a date and a time</h2>
       <div class="ev-book-grid">
         <!-- Otra Guide Stripe Checkout Embed — created dynamically per event -->
         <div id="otra-checkout-container"></div>
@@ -1103,11 +1103,13 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
       renderMeta($("evMeta"), meta);
 
       const actions = $("evActions");
+      // The checkout embed is always mounted (it handles its own ticket state),
+      // so the "Get tickets" CTA always shows. hasTickets only drives the rate
+      // cards / "From $X", which need ticket data we may not have here.
       const hasTickets = ev.isTicketed && ev.tickets && ev.tickets.length > 0;
-      const aActions = [];
-      if (hasTickets) aActions.push('<a class="btn-metal" href="#book">Get tickets →</a>');
-      aActions.push('<a class="btn-ghost" href="#story">Read more</a>');
-      actions.innerHTML = aActions.join("");
+      actions.innerHTML =
+        '<a class="btn-metal" href="#book">Get tickets →</a>' +
+        '<a class="btn-ghost" href="#story">Read more</a>';
 
       // ----- STORY (description) -----
       const paras = paragraphs(ev.description);
@@ -1167,10 +1169,11 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
       }
 
       // ----- BOOKING (embedded checkout) -----
-      if (hasTickets) {
-        $("book").hidden = false;
-        loadCheckout(ev.id);
-      }
+      // Always mount the Otra Guide checkout embed for this event id — the
+      // embed renders its own date/time + ticket picker, so it must be present
+      // regardless of what the event-detail endpoint reported about tickets.
+      $("book").hidden = false;
+      loadCheckout(ev.id);
 
       // re-run the reveal observer for the now-visible sections
       revealAll();
