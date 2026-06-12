@@ -922,67 +922,39 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
       <span class="ev-eyebrow">Book</span>
       <h2 class="ev-h2" style="margin-top:18px;">Pick a date &amp; time</h2>
       <div class="ev-book-grid">
-        <div class="ev-cal">
-          <div class="ev-cal-head">
-            <span class="mo" id="calMonth">June 2026</span>
-            <div class="ev-cal-nav">
-              <button id="calPrev" aria-label="Previous month"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="15 5 8 12 15 19"/></svg></button>
-              <button id="calNext" aria-label="Next month"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="9 5 16 12 9 19"/></svg></button>
-            </div>
-          </div>
-          <div class="ev-cal-dows" id="calDows"></div>
-          <div class="ev-cal-grid" id="calGrid"></div>
-        </div>
+        <!-- Otra Guide Stripe Checkout Embed -->
+        <div id="otra-checkout-container"></div>
+        <script src="https://otraguide.com/embed/stripe-script.js"></script>
+        <script>
+          OtraStripeCheckoutEmbed.create({
+            eventId: 6113,
+            containerId: 'otra-checkout-container',
+            baseUrl: 'https://otraguide.com',
+            isRecurring: true
+          });
 
-        <div class="ev-book-lower">
-          <div>
-            <div class="ev-sub-h">Guests</div>
-            <div class="ev-tiers">
-              <div class="ev-tier" data-tier="adult" data-price="99">
-                <div class="tinfo"><b>Adult</b><span>Ages 13+</span></div>
-                <div class="tprice">$99</div>
-                <div class="stepper"><button data-step="-1">−</button><span class="qty">0</span><button data-step="1">+</button></div>
-              </div>
-              <div class="ev-tier" data-tier="child" data-price="50">
-                <div class="tinfo"><b>Child</b><span>Under 12</span></div>
-                <div class="tprice">$50</div>
-                <div class="stepper"><button data-step="-1">−</button><span class="qty">0</span><button data-step="1">+</button></div>
-              </div>
-              <div class="ev-tier" data-tier="radult" data-price="60">
-                <div class="tinfo"><b>Resident adult</b><span>Curaçao ID</span></div>
-                <div class="tprice">$60</div>
-                <div class="stepper"><button data-step="-1">−</button><span class="qty">0</span><button data-step="1">+</button></div>
-              </div>
-              <div class="ev-tier" data-tier="rchild" data-price="30">
-                <div class="tinfo"><b>Resident child</b><span>Under 12 · Curaçao ID</span></div>
-                <div class="tprice">$30</div>
-                <div class="stepper"><button data-step="-1">−</button><span class="qty">0</span><button data-step="1">+</button></div>
-              </div>
-            </div>
-          </div>
-
-          <aside class="ev-summary">
-            <h3>Your trip</h3>
-            <div class="when" id="sumWhen">Select a date &amp; time</div>
-            <div class="ev-lines" id="sumLines">
-              <div class="ev-line empty">No guests added yet</div>
-            </div>
-            <div class="ev-total"><span class="lab">Total</span><span class="amt" id="sumTotal">$0</span></div>
-            <button class="btn-metal" id="continueBtn" disabled>Continue to checkout →</button>
-            <p class="ev-fineprint">Free cancellation up to 24 hours before departure.</p>
-
-            <div class="ev-checkout" id="checkout">
-              <div class="ev-field"><label>Full name</label><input type="text" placeholder="Jane Marchena" /></div>
-              <div class="ev-field"><label>Email</label><input type="email" placeholder="you@email.com" /></div>
-              <div class="ev-field"><label>Card number</label><input type="text" placeholder="4242 4242 4242 4242" /></div>
-              <div class="ev-field row2">
-                <div><label>Expiry</label><input type="text" placeholder="06 / 28" /></div>
-                <div><label>CVC</label><input type="text" placeholder="123" /></div>
-              </div>
-              <button class="btn-metal" id="payBtn">Pay <span id="payAmt">$0</span> →</button>
-            </div>
-          </aside>
-        </div>
+          // The embed library pins the iframe at a fixed 800px and ignores the
+          // checkout's own resize messages, which forces an inner scrollbar once
+          // the content is taller. Honor those messages here so the iframe grows
+          // to its full content height and never scrolls internally.
+          (function () {
+            var container = document.getElementById('otra-checkout-container');
+            function fit(px) {
+              var iframe = container && container.querySelector('iframe');
+              if (!iframe) return;
+              iframe.setAttribute('scrolling', 'no');
+              iframe.style.height = px + 'px';
+              iframe.style.overflow = 'hidden';
+            }
+            window.addEventListener('message', function (e) {
+              if (e.origin !== 'https://otraguide.com') return;
+              var d = e.data;
+              if (d && d.type === 'OTRA_IFRAME_RESIZE' && d.height) {
+                fit(Math.ceil(d.height));
+              }
+            });
+          })();
+        </script>
       </div>
     </section>
 
@@ -1043,149 +1015,6 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
         entries.forEach((e) => { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } });
       }, { threshold: 0.12, rootMargin: "0px 0px -8% 0px" });
       document.querySelectorAll(".reveal").forEach((el) => io.observe(el));
-    })();
-
-    /* ---------- BOOKING ENGINE ---------- */
-    (function booking() {
-      const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
-      const DOW = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
-      const TIMES = [
-        { t: "09:00", name: "Morning Escape" },
-        { t: "11:00", name: "Midday Reef" },
-        { t: "13:00", name: "Afternoon Explorer" },
-      ];
-      const TIME_NAME = Object.fromEntries(TIMES.map((x) => [x.t, x.name]));
-      const TODAY = new Date(2026, 5, 4);            // 4 June 2026
-      TODAY.setHours(0,0,0,0);
-      let view = { y: 2026, m: 5 };                   // June 2026
-      const minMonth = TODAY.getFullYear() * 12 + TODAY.getMonth();
-
-      const state = { date: null, time: null, qty: { adult: 0, child: 0, radult: 0, rchild: 0 } };
-      const PRICE = { adult: 99, child: 50, radult: 60, rchild: 30 };
-      const LABEL = { adult: "Adult", child: "Child", radult: "Resident adult", rchild: "Resident child" };
-      const FEE_RATE = 0.09;
-
-      const grid = document.getElementById("calGrid");
-      const dowsEl = document.getElementById("calDows");
-      const monthEl = document.getElementById("calMonth");
-      const sumWhen = document.getElementById("sumWhen");
-      const sumLines = document.getElementById("sumLines");
-      const sumTotal = document.getElementById("sumTotal");
-      const continueBtn = document.getElementById("continueBtn");
-      const checkout = document.getElementById("checkout");
-      const payBtn = document.getElementById("payBtn");
-      const payAmt = document.getElementById("payAmt");
-      const money = (n) => "$" + n.toLocaleString("en-US");
-
-      function sameDay(a, b) { return a && b && a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate(); }
-
-      // weekday header row, built once
-      DOW.forEach((d) => { const h = document.createElement("div"); h.className = "ev-dow"; h.textContent = d; dowsEl.append(h); });
-
-      function renderCal() {
-        monthEl.textContent = MONTHS[view.m] + " " + view.y;
-        grid.innerHTML = "";
-        const first = new Date(view.y, view.m, 1).getDay();
-        const days = new Date(view.y, view.m + 1, 0).getDate();
-        for (let i = 0; i < first; i++) { const c = document.createElement("div"); c.className = "ev-day empty"; grid.append(c); }
-        for (let d = 1; d <= days; d++) {
-          const cell = document.createElement("div");
-          cell.className = "ev-day";
-          const date = new Date(view.y, view.m, d); date.setHours(0,0,0,0);
-          const isClosed = date.getDay() === 1;  // closed Mondays
-          const isPast = date < TODAY;
-
-          const num = document.createElement("div");
-          num.className = "dnum";
-          num.textContent = d;
-          cell.append(num);
-
-          if (sameDay(date, TODAY)) cell.classList.add("today");
-
-          if (isClosed || isPast) {
-            cell.classList.add("off");
-          } else {
-            TIMES.forEach((slot) => {
-              const btn = document.createElement("button");
-              btn.className = "ev-slot";
-              btn.textContent = slot.t;
-              if (sameDay(date, state.date) && state.time === slot.t) btn.classList.add("sel");
-              btn.onclick = () => { state.date = date; state.time = slot.t; renderCal(); update(); };
-              cell.append(btn);
-            });
-          }
-          grid.append(cell);
-        }
-      }
-
-      document.getElementById("calPrev").onclick = () => {
-        if (view.y * 12 + view.m <= minMonth) return;
-        view.m--; if (view.m < 0) { view.m = 11; view.y--; } renderCal();
-      };
-      document.getElementById("calNext").onclick = () => {
-        view.m++; if (view.m > 11) { view.m = 0; view.y++; } renderCal();
-      };
-
-      document.querySelectorAll(".ev-tier").forEach((tier) => {
-        const key = tier.dataset.tier;
-        const qtyEl = tier.querySelector(".qty");
-        tier.querySelectorAll("[data-step]").forEach((btn) => {
-          btn.onclick = () => {
-            const delta = parseInt(btn.dataset.step, 10);
-            state.qty[key] = Math.max(0, Math.min(10, state.qty[key] + delta));
-            qtyEl.textContent = state.qty[key];
-            update();
-          };
-        });
-      });
-
-      function update() {
-        if (state.date && state.time) {
-          const opts = { weekday: "short", month: "short", day: "numeric" };
-          sumWhen.textContent = state.date.toLocaleDateString("en-US", opts) + " · " + state.time + " · " + TIME_NAME[state.time];
-        } else {
-          sumWhen.textContent = "Select a date & time";
-        }
-        const items = Object.keys(state.qty).filter((k) => state.qty[k] > 0);
-        let subtotal = 0;
-        if (!items.length) {
-          sumLines.innerHTML = '<div class="ev-line empty">No guests added yet</div>';
-        } else {
-          let html = items.map((k) => {
-            const line = state.qty[k] * PRICE[k]; subtotal += line;
-            return '<div class="ev-line"><span>' + LABEL[k] + ' × ' + state.qty[k] + '</span><span class="v">' + money(line) + '</span></div>';
-          }).join("");
-          html += '<div class="ev-line"><span>Processing fee (9%)</span><span class="v">' + money(Math.round(subtotal * FEE_RATE)) + '</span></div>';
-          sumLines.innerHTML = html;
-        }
-        const fee = items.length ? Math.round(subtotal * FEE_RATE) : 0;
-        const total = subtotal + fee;
-        sumTotal.textContent = money(total);
-        payAmt.textContent = money(total);
-        const ready = state.date && state.time && subtotal > 0;
-        continueBtn.disabled = !ready;
-        return total;
-      }
-
-      continueBtn.onclick = () => {
-        if (continueBtn.disabled) return;
-        checkout.classList.add("show");
-        continueBtn.style.display = "none";
-        checkout.scrollIntoView ? null : null; // avoid scrollIntoView per guidance
-      };
-
-      payBtn.onclick = () => {
-        const total = update();
-        checkout.innerHTML =
-          '<div class="ev-paid">' +
-            '<div class="chk">✓</div>' +
-            '<h4>You\'re booked</h4>' +
-            '<p>' + sumWhen.textContent + ' · ' + money(total) + '<br/>A confirmation is on its way to your inbox.</p>' +
-          '</div>';
-      };
-
-      renderCal();
-      update();
     })();
 
     /* ============ HEADER DROPDOWNS ============ */
