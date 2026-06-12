@@ -14,7 +14,9 @@ const EDGE_TTL = 600;
 // here forces a colour that WINS over that theme colour — use it when the site
 // should look different from what's configured in otraguide. Format:
 //   "6113": "#fe8a15",   // Clearboat — force orange regardless of the theme
-const ACCENT_OVERRIDES = {};
+const ACCENT_OVERRIDES = {
+  "6113": "#1fa9a0", // Clearboat — turquoise from the original handoff design
+};
 
 export async function onRequestGet(context) {
   const url = new URL(context.request.url);
