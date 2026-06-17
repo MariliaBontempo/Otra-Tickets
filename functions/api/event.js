@@ -25,24 +25,33 @@ export async function onRequestGet(context) {
     return json({ error: "invalid id" }, 400);
   }
 
-  const cache = caches.default;
-  const cacheKey = new Request(new URL(`/api/event?id=${id}`, url));
-  const cached = await cache.match(cacheKey);
-  if (cached) return cached;
+  // The expensive Otra Guide data is cached; the per-event content override is
+  // read fresh on every request and merged last, so staff edits show up right
+  // away (no waiting for the cache to expire).
+  const base = await getBasePayload(context, id, url);
+  if (!base) return json({ error: "not found" }, 404);
 
-  // An override wins over the theme colour and lets us skip the calendar fetch.
-  const override = ACCENT_OVERRIDES[id] || null;
+  const ov = await readOverride(context.env, id);
+  const payload = ov ? { ...base, ...pickOverride(ov) } : base;
+
+  return json(payload, 200, 60);
+}
+
+// The Otra Guide-derived payload (no content override), edge-cached.
+async function getBasePayload(context, id, url) {
+  const cache = caches.default;
+  const cacheKey = new Request(new URL(`/api/event-base?id=${id}`, url));
+  const cached = await cache.match(cacheKey);
+  if (cached) return cached.json();
+
+  // An accent override wins over the theme colour and skips the calendar fetch.
+  const accentOverride = ACCENT_OVERRIDES[id] || null;
   const [detail, ticketData, calendarAccent] = await Promise.all([
     fetchJson(`${API}/events/details/${id}/`),
     fetchJson(`${API}/ticket/purchase/tickets/${id}/`),
-    override ? Promise.resolve(null) : fetchCalendarPrimary(id),
+    accentOverride ? Promise.resolve(null) : fetchCalendarPrimary(id),
   ]);
-
-  if (!detail) {
-    return json({ error: "not found" }, 404);
-  }
-
-  const accent = override || calendarAccent;
+  if (!detail) return null;
 
   const tickets = (ticketData && ticketData.results ? ticketData.results : []).map((t) => ({
     name: t.name,
@@ -51,7 +60,7 @@ export async function onRequestGet(context) {
     currency: (t.base_currency && t.base_currency.code) || "USD",
   }));
 
-  const payload = {
+  const base = {
     id: detail.id,
     title: detail.title,
     description: detail.description || "",
@@ -64,13 +73,33 @@ export async function onRequestGet(context) {
     socialLinks: Array.isArray(detail.social_links) ? detail.social_links : [],
     // Accent colour = the event's calendar primary colour from the Otra Guide
     // plugin theme. null when the event has no custom theme (page uses default).
-    accent,
+    accent: accentOverride || calendarAccent,
     tickets,
   };
 
-  const response = json(payload, 200, EDGE_TTL);
-  context.waitUntil(cache.put(cacheKey, response.clone()));
-  return response;
+  context.waitUntil(cache.put(cacheKey, json(base, 200, EDGE_TTL).clone()));
+  return base;
+}
+
+// Read the staff content override for an event from KV (if the namespace is
+// bound). Returns the parsed object or null.
+async function readOverride(env, id) {
+  const kv = env && env.OVERRIDES;
+  if (!kv) return null;
+  try {
+    const raw = await kv.get(`override:${id}`);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+// Only the fields a staff member may override are merged onto the payload.
+function pickOverride(ov) {
+  const out = {};
+  if (ov.description) out.description = ov.description;
+  if (ov.image) out.image = ov.image;
+  return out;
 }
 
 function json(obj, status = 200, maxAge = 0) {

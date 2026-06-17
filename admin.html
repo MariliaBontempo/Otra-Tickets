@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="robots" content="noindex, nofollow" />
+<title>Otra Tickets — Staff Editor</title>
+<style>
+  :root {
+    --ink: #07080a; --ink-2: #0e1014; --ink-3: #15181d;
+    --line: #23262d; --line-2: #2e323a;
+    --silver: #e7e9ee; --fog: #9aa1ab; --fog-2: #5d646e;
+    --accent: #3f7cc4; --accent-hi: #5a93d6;
+    --danger: #d6584f; --ok: #2ea66f;
+    --font: "Inter", system-ui, -apple-system, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--ink); color: var(--silver); font-family: var(--font); -webkit-font-smoothing: antialiased; }
+  button { font-family: inherit; cursor: pointer; }
+  input, textarea, select { font-family: inherit; }
+  .hidden { display: none !important; }
+
+  /* ---------- login ---------- */
+  .login-wrap { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+  .login-card { width: 100%; max-width: 380px; background: var(--ink-2); border: 1px solid var(--line); border-radius: 16px; padding: 34px 30px; }
+  .login-card h1 { margin: 0 0 4px; font-size: 22px; font-weight: 800; letter-spacing: -0.01em; }
+  .login-card .sub { margin: 0 0 24px; font-size: 14px; color: var(--fog); }
+  .field { margin-bottom: 16px; }
+  .field label { display: block; font-size: 12px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--fog-2); margin-bottom: 8px; }
+  .field input, .field textarea, .field select {
+    width: 100%; background: var(--ink-3); border: 1px solid var(--line-2); border-radius: 10px;
+    color: var(--silver); font-size: 15px; padding: 12px 14px; outline: none; transition: border-color .15s;
+  }
+  .field input:focus, .field textarea:focus, .field select:focus { border-color: var(--accent); }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: none; border-radius: 10px;
+    background: var(--accent); color: #fff; font-size: 15px; font-weight: 600; padding: 12px 18px; transition: background .15s, opacity .15s; }
+  .btn:hover { background: var(--accent-hi); }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .btn.ghost { background: transparent; border: 1px solid var(--line-2); color: var(--fog); }
+  .btn.ghost:hover { background: var(--ink-3); color: var(--silver); }
+  .btn.block { width: 100%; }
+  .msg { font-size: 13.5px; margin-top: 14px; min-height: 18px; }
+  .msg.err { color: var(--danger); }
+  .msg.ok { color: var(--ok); }
+
+  /* ---------- editor ---------- */
+  .topbar { display: flex; align-items: center; gap: 16px; padding: 14px 22px; background: var(--ink-2); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; }
+  .topbar .brand { font-weight: 800; letter-spacing: -0.01em; font-size: 16px; white-space: nowrap; }
+  .topbar .brand span { color: var(--fog-2); font-weight: 600; }
+  .topbar select { min-width: 240px; background: var(--ink-3); border: 1px solid var(--line-2); border-radius: 10px; color: var(--silver); font-size: 14px; padding: 9px 12px; }
+  .topbar .spacer { flex: 1; }
+  .who { font-size: 13px; color: var(--fog); }
+
+  .editor { display: grid; grid-template-columns: 1fr 420px; gap: 0; height: calc(100vh - 61px); }
+  .preview { background: #000; border-right: 1px solid var(--line); position: relative; }
+  .preview iframe { width: 100%; height: 100%; border: 0; display: block; }
+  .preview .empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--fog-2); font-size: 15px; }
+
+  .panel { overflow-y: auto; padding: 24px; }
+  .panel h2 { margin: 0 0 4px; font-size: 16px; font-weight: 700; }
+  .panel .hint { font-size: 12.5px; color: var(--fog-2); margin: 0 0 22px; line-height: 1.5; }
+  .panel textarea { min-height: 200px; resize: vertical; line-height: 1.55; }
+  .panel .row-label { display: flex; align-items: baseline; justify-content: space-between; }
+  .panel .row-label .revert { font-size: 12px; color: var(--accent-hi); background: none; border: none; padding: 0; }
+  .panel .row-label .revert:hover { text-decoration: underline; }
+
+  .img-current { margin-top: 10px; border: 1px solid var(--line-2); border-radius: 10px; overflow: hidden; background: var(--ink-3); aspect-ratio: 16/9; display: grid; place-items: center; }
+  .img-current img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .img-current .ph { color: var(--fog-2); font-size: 13px; }
+  .uploader { margin-top: 12px; display: flex; align-items: center; gap: 12px; }
+  .uploader input[type=file] { display: none; }
+  .badge { font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 999px; }
+  .badge.over { background: rgba(63,124,196,.18); color: var(--accent-hi); }
+  .badge.live { background: var(--ink-3); color: var(--fog-2); }
+
+  .actions { margin-top: 28px; display: flex; gap: 12px; }
+  .divider { height: 1px; background: var(--line); margin: 26px 0; }
+
+  @media (max-width: 900px) {
+    .editor { grid-template-columns: 1fr; height: auto; }
+    .preview { height: 60vh; border-right: 0; border-bottom: 1px solid var(--line); }
+  }
+</style>
+</head>
+<body>
+
+  <!-- ============ LOGIN ============ -->
+  <div class="login-wrap" id="loginView">
+    <div class="login-card">
+      <h1>Staff Editor</h1>
+      <p class="sub">Sign in with your Otra Guide account.</p>
+      <form id="loginForm">
+        <div class="field">
+          <label>Email</label>
+          <input type="email" id="email" autocomplete="username" required />
+        </div>
+        <div class="field">
+          <label>Password</label>
+          <input type="password" id="password" autocomplete="current-password" required />
+        </div>
+        <button class="btn block" type="submit" id="loginBtn">Sign in</button>
+        <div class="msg err" id="loginMsg"></div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ============ EDITOR ============ -->
+  <div class="hidden" id="editorView">
+    <div class="topbar">
+      <div class="brand">Otra Tickets <span>· Staff Editor</span></div>
+      <select id="pageSelect"><option value="">Loading…</option></select>
+      <div class="spacer"></div>
+      <span class="who" id="whoami"></span>
+      <button class="btn ghost" id="logoutBtn">Log out</button>
+    </div>
+
+    <div class="editor">
+      <div class="preview">
+        <iframe id="preview" title="Page preview"></iframe>
+        <div class="empty" id="previewEmpty">Pick a business above to preview its page.</div>
+      </div>
+
+      <div class="panel" id="panel">
+        <div id="panelEmpty" class="hint">Select a business to edit its description and image.</div>
+
+        <div id="panelForm" class="hidden">
+          <h2 id="panelTitle"></h2>
+          <p class="hint">Changes here only affect otratickets.com. Leave a field as-is (or revert) to keep the live Otra Guide content.</p>
+
+          <div class="field">
+            <div class="row-label">
+              <label>Description <span class="badge live" id="descBadge">live</span></label>
+              <button type="button" class="revert" id="descRevert">Revert to live</button>
+            </div>
+            <textarea id="descInput" placeholder="Event description…"></textarea>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="field">
+            <div class="row-label">
+              <label>Main image <span class="badge live" id="imgBadge">live</span></label>
+              <button type="button" class="revert" id="imgRevert">Revert to live</button>
+            </div>
+            <div class="img-current" id="imgPreview"><span class="ph">No image</span></div>
+            <div class="uploader">
+              <button type="button" class="btn ghost" id="uploadBtn">Upload image…</button>
+              <input type="file" id="imgFile" accept="image/*" />
+              <span class="hint" id="uploadStatus" style="margin:0;"></span>
+            </div>
+          </div>
+
+          <div class="actions">
+            <button class="btn" id="saveBtn">Save changes</button>
+            <button class="btn ghost" id="reloadBtn">Refresh preview</button>
+          </div>
+          <div class="msg" id="saveMsg"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function () {
+  const TOKEN_KEY = "otraAdminToken";
+  const BESPOKE = [
+    { id: 7275, title: "We Love R&B", url: "/rnb" },
+    { id: 6113, title: "Clearboat", url: "/clearboat" },
+  ];
+  const $ = (id) => document.getElementById(id);
+
+  let token = sessionStorage.getItem(TOKEN_KEY) || "";
+  let current = null;        // { id, title, url }
+  let liveData = null;       // /api/event payload for current
+  let pendingImage = null;   // uploaded image URL not yet saved
+
+  // ---------- auth ----------
+  function authHeaders(extra) {
+    return Object.assign({ authorization: "Bearer " + token }, extra || {});
+  }
+  function handle401(resp) {
+    if (resp.status === 401) { logout(); throw new Error("session expired"); }
+    return resp;
+  }
+
+  $("loginForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const msg = $("loginMsg"); msg.textContent = "";
+    const btn = $("loginBtn"); btn.disabled = true; btn.textContent = "Signing in…";
+    try {
+      const resp = await fetch("/admin/api/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: $("email").value, password: $("password").value }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || "login failed");
+      token = data.token;
+      sessionStorage.setItem(TOKEN_KEY, token);
+      showEditor();
+    } catch (err) {
+      msg.textContent = err.message;
+    } finally {
+      btn.disabled = false; btn.textContent = "Sign in";
+    }
+  });
+
+  function logout() {
+    token = "";
+    sessionStorage.removeItem(TOKEN_KEY);
+    $("editorView").classList.add("hidden");
+    $("loginView").classList.remove("hidden");
+  }
+  $("logoutBtn").addEventListener("click", logout);
+
+  // ---------- editor ----------
+  async function showEditor() {
+    $("loginView").classList.add("hidden");
+    $("editorView").classList.remove("hidden");
+    await loadPages();
+  }
+
+  async function loadPages() {
+    const sel = $("pageSelect");
+    let templateEvents = [];
+    try {
+      const r = await fetch("/api/homepage-events");
+      if (r.ok) templateEvents = (await r.json()).events || [];
+    } catch {}
+    const bespokeIds = new Set(BESPOKE.map((b) => b.id));
+    const pages = BESPOKE.concat(
+      templateEvents
+        .filter((e) => !bespokeIds.has(e.id))
+        .map((e) => ({ id: e.id, title: e.title, url: "/event?id=" + e.id }))
+    );
+    sel.innerHTML = '<option value="">Select a business…</option>' +
+      pages.map((p) => '<option value="' + p.id + '">' + escapeHtml(p.title) + "</option>").join("");
+    window._pages = pages;
+  }
+
+  $("pageSelect").addEventListener("change", (e) => {
+    const id = e.target.value;
+    const page = (window._pages || []).find((p) => String(p.id) === String(id));
+    if (page) selectPage(page);
+  });
+
+  async function selectPage(page) {
+    current = page;
+    pendingImage = null;
+    $("uploadStatus").textContent = "";
+    $("saveMsg").textContent = "";
+    $("previewEmpty").classList.add("hidden");
+    $("panelEmpty").classList.add("hidden");
+    $("panelForm").classList.remove("hidden");
+    $("panelTitle").textContent = page.title;
+    refreshPreview();
+
+    // Load the live event data + any saved override in parallel.
+    const [live, over] = await Promise.all([
+      fetch("/api/event?id=" + page.id).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+      fetch("/admin/api/overrides?id=" + page.id, { headers: authHeaders() })
+        .then(handle401).then((r) => (r.ok ? r.json() : { override: null })).catch(() => ({ override: null })),
+    ]);
+    liveData = live || {};
+    const ov = (over && over.override) || {};
+
+    // Description: show override if set, else the live text.
+    $("descInput").value = ov.description || liveData.description || "";
+    setBadge("desc", !!ov.description);
+
+    // Image: show override if set, else live image.
+    showImage(ov.image || liveData.image || "");
+    setBadge("img", !!ov.image);
+  }
+
+  function refreshPreview() {
+    if (!current) return;
+    const bust = (current.url.includes("?") ? "&" : "?") + "_=" + Date.now();
+    $("preview").src = current.url + bust;
+  }
+  $("reloadBtn").addEventListener("click", refreshPreview);
+
+  function setBadge(which, isOverride) {
+    const b = $(which + "Badge");
+    b.textContent = isOverride ? "override" : "live";
+    b.className = "badge " + (isOverride ? "over" : "live");
+  }
+
+  function showImage(url) {
+    const box = $("imgPreview");
+    if (url) box.innerHTML = '<img src="' + escapeAttr(url) + '" alt="" />';
+    else box.innerHTML = '<span class="ph">No image</span>';
+  }
+
+  // ---------- description revert ----------
+  $("descRevert").addEventListener("click", () => {
+    $("descInput").value = (liveData && liveData.description) || "";
+    setBadge("desc", false);
+  });
+  $("descInput").addEventListener("input", () => {
+    const live = (liveData && liveData.description) || "";
+    setBadge("desc", $("descInput").value.trim() !== live.trim());
+  });
+
+  // ---------- image upload ----------
+  $("uploadBtn").addEventListener("click", () => $("imgFile").click());
+  $("imgRevert").addEventListener("click", () => {
+    pendingImage = "";
+    showImage((liveData && liveData.image) || "");
+    setBadge("img", false);
+    $("uploadStatus").textContent = "Will revert to live image on save.";
+  });
+  $("imgFile").addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    if (!file || !current) return;
+    const st = $("uploadStatus"); st.textContent = "Uploading…";
+    const fd = new FormData(); fd.append("file", file);
+    try {
+      const resp = await fetch("/admin/api/upload?id=" + current.id, {
+        method: "POST", headers: authHeaders(), body: fd,
+      });
+      handle401(resp);
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || "upload failed");
+      pendingImage = data.url;
+      showImage(data.url);
+      setBadge("img", true);
+      st.textContent = "Uploaded — click Save to apply.";
+    } catch (err) {
+      st.textContent = err.message;
+    } finally {
+      e.target.value = "";
+    }
+  });
+
+  // ---------- save ----------
+  $("saveBtn").addEventListener("click", async () => {
+    if (!current) return;
+    const msg = $("saveMsg"); msg.className = "msg"; msg.textContent = "Saving…";
+    const btn = $("saveBtn"); btn.disabled = true;
+
+    const live = liveData || {};
+    const desc = $("descInput").value.trim();
+    const payload = {};
+    // Only send a field when it differs from live (so the override stays minimal).
+    if (desc && desc !== (live.description || "").trim()) payload.description = desc;
+    if (pendingImage === "") {
+      // explicit revert → omit image so the override drops it
+    } else if (pendingImage) {
+      payload.image = pendingImage;
+    } else {
+      // unchanged: keep whatever is currently shown if it's an override image
+      const shown = $("imgPreview").querySelector("img");
+      if (shown && shown.src.includes("/override-media/")) payload.image = shown.getAttribute("src");
+    }
+
+    try {
+      const resp = await fetch("/admin/api/overrides?id=" + current.id, {
+        method: "PUT", headers: authHeaders({ "content-type": "application/json" }),
+        body: JSON.stringify(payload),
+      });
+      handle401(resp);
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || "save failed");
+      msg.className = "msg ok"; msg.textContent = "Saved. Refreshing preview…";
+      pendingImage = null;
+      setTimeout(refreshPreview, 600);
+    } catch (err) {
+      msg.className = "msg err"; msg.textContent = err.message;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  // ---------- utils ----------
+  function escapeHtml(s) { return String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
+  function escapeAttr(s) { return String(s).replace(/"/g, "&quot;"); }
+
+  // ---------- boot ----------
+  if (token) showEditor();
+})();
+</script>
+</body>
+</html>
