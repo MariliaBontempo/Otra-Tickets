@@ -49,13 +49,13 @@ export async function onRequestGet(context) {
     const ageSeconds = (now - generatedAt) / 1000;
     if (ageSeconds >= FRESH_SECONDS) {
       // Stale: hand back the cached copy now, rebuild in the background.
-      context.waitUntil(rebuild(cache, cacheKey, now));
+      context.waitUntil(rebuild(cache, cacheKey, now, context.env));
     }
     return withClientHeaders(cached);
   }
 
   // Cold cache: build synchronously (the only time a visitor waits).
-  const fresh = await rebuild(cache, cacheKey, now);
+  const fresh = await rebuild(cache, cacheKey, now, context.env);
   return withClientHeaders(fresh);
 }
 
@@ -67,8 +67,8 @@ function withClientHeaders(response) {
 }
 
 // Build the events list, store it in the edge cache, and return the response.
-async function rebuild(cache, cacheKey, now) {
-  const events = await buildEvents();
+async function rebuild(cache, cacheKey, now, env) {
+  const events = await applyImageOverrides(await buildEvents(), env);
   const body = JSON.stringify({ events });
   // Stored with a long max-age so caches.default keeps it for SWR; freshness
   // is tracked by us via the x-generated-at timestamp.
@@ -170,4 +170,23 @@ async function buildEvents() {
     date: ev.is_perennial ? null : ev.start_date,
     img: ev.half_web_image_url || ev.full_web_image_url || ev.card_image_url,
   }));
+}
+
+async function applyImageOverrides(events, env) {
+  if (!env || !env.OVERRIDES || !events.length) return events;
+  const overrides = await Promise.all(
+    events.map(async (ev) => {
+      try {
+        return await env.OVERRIDES.get(`event:${ev.id}`, "json");
+      } catch {
+        return null;
+      }
+    })
+  );
+  return events.map((ev, i) => {
+    const override = overrides[i];
+    return override && typeof override.image === "string" && override.image
+      ? { ...ev, img: override.image }
+      : ev;
+  });
 }

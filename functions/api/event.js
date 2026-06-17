@@ -25,10 +25,13 @@ export async function onRequestGet(context) {
     return json({ error: "invalid id" }, 400);
   }
 
+  const siteOverride = await readOverride(context.env, id);
   const cache = caches.default;
   const cacheKey = new Request(new URL(`/api/event?id=${id}`, url));
-  const cached = await cache.match(cacheKey);
-  if (cached) return cached;
+  if (!siteOverride) {
+    const cached = await cache.match(cacheKey);
+    if (cached) return cached;
+  }
 
   // An override wins over the theme colour and lets us skip the calendar fetch.
   const override = ACCENT_OVERRIDES[id] || null;
@@ -51,16 +54,20 @@ export async function onRequestGet(context) {
     currency: (t.base_currency && t.base_currency.code) || "USD",
   }));
 
+  const originalImage =
+    detail.full_web_image_url || detail.half_web_image_url || detail.card_image_url || "";
+
   const payload = {
     id: detail.id,
     title: detail.title,
-    description: detail.description || "",
+    description: siteOverride && siteOverride.description
+      ? siteOverride.description
+      : detail.description || "",
     startDate: detail.start_date || null,
     endDate: detail.end_date || null,
     isTicketed: !!detail.is_ticketed,
     isPerennial: !!detail.is_perennial,
-    image:
-      detail.full_web_image_url || detail.half_web_image_url || detail.card_image_url || "",
+    image: siteOverride && siteOverride.image ? siteOverride.image : originalImage,
     socialLinks: Array.isArray(detail.social_links) ? detail.social_links : [],
     // Accent colour = the event's calendar primary colour from the Otra Guide
     // plugin theme. null when the event has no custom theme (page uses default).
@@ -68,8 +75,8 @@ export async function onRequestGet(context) {
     tickets,
   };
 
-  const response = json(payload, 200, EDGE_TTL);
-  context.waitUntil(cache.put(cacheKey, response.clone()));
+  const response = json(payload, 200, siteOverride ? 0 : EDGE_TTL);
+  if (!siteOverride) context.waitUntil(cache.put(cacheKey, response.clone()));
   return response;
 }
 
@@ -108,6 +115,20 @@ async function fetchCalendarPrimary(id) {
     const html = await resp.text();
     const m = html.match(/--theme-primary:\s*(#[0-9A-Fa-f]{6})/);
     return m ? m[1] : null;
+  } catch {
+    return null;
+  }
+}
+
+async function readOverride(env, id) {
+  if (!env || !env.OVERRIDES) return null;
+  try {
+    const data = await env.OVERRIDES.get(`event:${id}`, "json");
+    if (!data || typeof data !== "object") return null;
+    return {
+      description: typeof data.description === "string" ? data.description : null,
+      image: typeof data.image === "string" ? data.image : "",
+    };
   } catch {
     return null;
   }

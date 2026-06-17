@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Otra Tickets Admin</title>
+<link rel="icon" type="image/png" href="/favicon.png" />
+<style>
+  :root {
+    --bg: #08090b;
+    --panel: #111318;
+    --panel-2: #171a21;
+    --line: #282d36;
+    --text: #f1f3f5;
+    --muted: #969da8;
+    --accent: #1c9ebd;
+    --accent-dark: #157a99;
+    --danger: #e25c5c;
+    --ok: #44b885;
+    --radius: 8px;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    color: var(--text);
+    background: var(--bg);
+  }
+
+  button, input, textarea, select { font: inherit; }
+  button { cursor: pointer; }
+
+  .login {
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+  }
+
+  .login-box {
+    width: min(420px, 100%);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 28px;
+  }
+
+  h1, h2 { margin: 0; letter-spacing: 0; }
+  h1 { font-size: 24px; }
+  h2 { font-size: 18px; }
+  p { margin: 0; color: var(--muted); line-height: 1.45; }
+
+  label { display: grid; gap: 8px; color: var(--muted); font-size: 13px; }
+  input, textarea, select {
+    width: 100%;
+    color: var(--text);
+    background: #0b0d11;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 11px 12px;
+    outline: none;
+  }
+  textarea { min-height: 240px; resize: vertical; line-height: 1.5; }
+  input:focus, textarea:focus, select:focus { border-color: var(--accent); }
+
+  .stack { display: grid; gap: 16px; }
+  .row { display: flex; align-items: center; gap: 12px; }
+  .row.split { justify-content: space-between; }
+
+  .btn {
+    min-height: 42px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    color: var(--text);
+    background: var(--panel-2);
+    padding: 0 14px;
+  }
+  .btn.primary { border-color: var(--accent); background: var(--accent); color: #fff; }
+  .btn.primary:hover { border-color: var(--accent-dark); background: var(--accent-dark); }
+  .btn.ghost { background: transparent; }
+  .btn:disabled { opacity: 0.55; cursor: not-allowed; }
+
+  .app { min-height: 100vh; display: grid; grid-template-rows: auto 1fr; }
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    display: grid;
+    grid-template-columns: minmax(220px, 360px) 1fr auto;
+    gap: 16px;
+    align-items: center;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--line);
+    background: rgba(8, 9, 11, 0.94);
+    backdrop-filter: blur(12px);
+  }
+
+  .brand { display: grid; gap: 2px; }
+  .brand strong { font-size: 15px; text-transform: uppercase; letter-spacing: 0.08em; }
+  .brand span { color: var(--muted); font-size: 13px; }
+
+  .workspace { min-height: 0; }
+
+  .preview {
+    min-width: 0;
+    background: #050608;
+  }
+  iframe {
+    width: 100%;
+    height: calc(100vh - 71px);
+    border: 0;
+    display: block;
+    background: #000;
+  }
+
+  .image-preview {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    color: var(--muted);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: #0b0d11;
+  }
+  .image-preview img { width: 100%; height: 100%; object-fit: cover; display: none; }
+  .image-preview.has-image span { display: none; }
+  .image-preview.has-image img { display: block; }
+
+  .status { min-height: 20px; color: var(--muted); font-size: 13px; }
+  .status.error { color: var(--danger); }
+  .status.ok { color: var(--ok); }
+  .hidden { display: none !important; }
+
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    display: grid;
+    place-items: center;
+    padding: 20px;
+    background: rgba(0, 0, 0, 0.64);
+  }
+
+  .modal {
+    width: min(620px, 100%);
+    max-height: min(760px, calc(100vh - 40px));
+    overflow: auto;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
+    padding: 18px;
+  }
+
+  .icon-btn {
+    width: 42px;
+    height: 42px;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    color: var(--text);
+    background: transparent;
+  }
+  .icon-btn svg { width: 19px; height: 19px; stroke-width: 2; }
+
+  .top-status {
+    color: var(--muted);
+    font-size: 13px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  @media (max-width: 980px) {
+    .topbar { grid-template-columns: 1fr; }
+    iframe { height: calc(100vh - 155px); }
+    .top-status { white-space: normal; }
+  }
+</style>
+</head>
+<body>
+  <section class="login" id="loginView">
+    <form class="login-box stack" id="loginForm">
+      <div class="stack" style="gap:8px">
+        <h1>Otra Tickets Admin</h1>
+        <p>Use your Otra Guide staff/admin account.</p>
+      </div>
+      <label>Email
+        <input id="email" type="email" autocomplete="username" required />
+      </label>
+      <label>Password
+        <input id="password" type="password" autocomplete="current-password" required />
+      </label>
+      <button class="btn primary" id="loginBtn" type="submit">Sign in</button>
+      <div class="status" id="loginStatus"></div>
+    </form>
+  </section>
+
+  <section class="app hidden" id="appView">
+    <header class="topbar">
+      <div class="brand">
+        <strong>Otra Tickets Admin</strong>
+        <span>Overrides are stored on the site only.</span>
+      </div>
+      <select id="pageSelect" aria-label="Select page"></select>
+      <div class="row split">
+        <div class="top-status" id="status"></div>
+        <button class="btn ghost" id="logoutBtn" type="button">Sign out</button>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <section class="preview">
+        <iframe id="previewFrame" title="Public page preview"></iframe>
+      </section>
+    </main>
+  </section>
+
+  <div class="modal-backdrop hidden" id="editModal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <form class="modal stack" id="editForm">
+      <div class="row split">
+        <div>
+          <h2 id="modalTitle">Edit</h2>
+          <p id="modalMeta"></p>
+        </div>
+        <button class="icon-btn" id="closeModalBtn" type="button" aria-label="Close">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
+      </div>
+
+      <div class="stack hidden" id="textEditor">
+        <label>Description
+          <textarea id="description" placeholder="Public description override"></textarea>
+        </label>
+      </div>
+
+      <div class="stack hidden" id="imageEditor">
+        <label>Main image
+          <input id="imageInput" type="file" accept="image/png,image/jpeg,image/webp,image/avif" />
+        </label>
+        <div class="image-preview" id="imagePreview">
+          <span>No override image</span>
+          <img alt="" id="imagePreviewImg" />
+        </div>
+        <label>Image URL
+          <input id="imageUrl" type="text" placeholder="/override-images/..." />
+        </label>
+        <div class="row">
+          <button class="btn" id="uploadBtn" type="button">Upload image</button>
+          <button class="btn ghost" id="clearImageBtn" type="button">Clear image</button>
+        </div>
+      </div>
+
+      <div class="row split">
+        <button class="btn ghost" id="cancelBtn" type="button">Cancel</button>
+        <button class="btn primary" id="saveBtn" type="submit">Save</button>
+      </div>
+    </form>
+  </div>
+
+<script>
+  const tokenKey = "otra_admin_token";
+  let token = sessionStorage.getItem(tokenKey) || "";
+  let pages = [];
+  let selected = null;
+  let currentOverride = null;
+  let modalMode = "";
+  let activeField = null;
+
+  const $ = (id) => document.getElementById(id);
+  const loginView = $("loginView");
+  const appView = $("appView");
+  const statusEl = $("status");
+
+  function setStatus(text, type) {
+    statusEl.textContent = text || "";
+    statusEl.className = "status" + (type ? " " + type : "");
+  }
+
+  function authHeaders(extra) {
+    return Object.assign({ authorization: "Bearer " + token }, extra || {});
+  }
+
+  async function api(path, options) {
+    const resp = await fetch(path, options);
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(data.error || "Request failed");
+    return data;
+  }
+
+  $("loginForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const btn = $("loginBtn");
+    const loginStatus = $("loginStatus");
+    btn.disabled = true;
+    loginStatus.textContent = "Signing in...";
+    try {
+      const data = await api("/admin/api/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: $("email").value, password: $("password").value }),
+      });
+      token = data.token;
+      sessionStorage.setItem(tokenKey, token);
+      await boot();
+    } catch (err) {
+      loginStatus.textContent = err.message;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  $("logoutBtn").addEventListener("click", () => {
+    sessionStorage.removeItem(tokenKey);
+    token = "";
+    appView.classList.add("hidden");
+    loginView.classList.remove("hidden");
+  });
+
+  $("pageSelect").addEventListener("change", () => selectPage($("pageSelect").value));
+  $("previewFrame").addEventListener("load", () => injectEditControls());
+  $("closeModalBtn").addEventListener("click", closeModal);
+  $("cancelBtn").addEventListener("click", closeModal);
+  $("editModal").addEventListener("click", (e) => {
+    if (e.target === $("editModal")) closeModal();
+  });
+
+  $("uploadBtn").addEventListener("click", async () => {
+    if (!selected) return;
+    const file = $("imageInput").files[0];
+    if (!file) return setStatus("Choose an image first.", "error");
+    const form = new FormData();
+    form.set("id", selected.id);
+    form.set("file", file);
+    $("uploadBtn").disabled = true;
+    setStatus("Uploading image...");
+    try {
+      const data = await api("/admin/api/upload", {
+        method: "POST",
+        headers: authHeaders(),
+        body: form,
+      });
+      $("imageUrl").value = data.url;
+      showImage(data.url);
+      setStatus("Image uploaded. Save to publish it.", "ok");
+    } catch (err) {
+      setStatus(err.message, "error");
+    } finally {
+      $("uploadBtn").disabled = false;
+    }
+  });
+
+  $("clearImageBtn").addEventListener("click", () => {
+    $("imageUrl").value = "";
+    showImage("");
+    setStatus("Image override cleared. Save to publish it.");
+  });
+
+  $("imageUrl").addEventListener("input", () => showImage($("imageUrl").value));
+
+  $("editForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (!selected) return;
+    $("saveBtn").disabled = true;
+    setStatus("Saving...");
+    try {
+      const next = {
+        description: currentOverride && currentOverride.description ? currentOverride.description : "",
+        image: currentOverride && currentOverride.image ? currentOverride.image : "",
+        fields: Object.assign({}, currentOverride && currentOverride.fields ? currentOverride.fields : {}),
+      };
+      if (activeField) {
+        next.fields[activeField.key] = {
+          type: activeField.type,
+          value: activeField.type === "text" ? $("description").value : $("imageUrl").value,
+        };
+      } else if (modalMode === "description") {
+        next.description = $("description").value;
+      } else if (modalMode === "image") {
+        next.image = $("imageUrl").value;
+      }
+
+      const data = await api("/admin/api/overrides?id=" + encodeURIComponent(selected.id), {
+        method: "PUT",
+        headers: authHeaders({ "content-type": "application/json" }),
+        body: JSON.stringify(next),
+      });
+      fillForm(data.override);
+      closeModal();
+      refreshPreview();
+      setStatus("Saved.", "ok");
+    } catch (err) {
+      setStatus(err.message, "error");
+    } finally {
+      $("saveBtn").disabled = false;
+    }
+  });
+
+  async function boot() {
+    loginView.classList.add("hidden");
+    appView.classList.remove("hidden");
+    setStatus("Loading pages...");
+    try {
+      const data = await api("/admin/api/pages", { headers: authHeaders() });
+      pages = data.pages || [];
+      $("pageSelect").innerHTML = pages
+        .map((page) => `<option value="${esc(page.id)}">${esc(page.title)} - ${esc(page.type)}</option>`)
+        .join("");
+      if (pages.length) await selectPage(pages[0].id);
+      else setStatus("No editable pages found.", "error");
+    } catch (err) {
+      sessionStorage.removeItem(tokenKey);
+      token = "";
+      appView.classList.add("hidden");
+      loginView.classList.remove("hidden");
+      $("loginStatus").textContent = err.message;
+    }
+  }
+
+  async function selectPage(id) {
+    selected = pages.find((page) => page.id === id);
+    if (!selected) return;
+    $("pageSelect").value = selected.id;
+    $("previewFrame").src = selected.url;
+    $("description").value = "";
+    $("imageInput").value = "";
+    $("imageUrl").value = "";
+    showImage("");
+    setStatus("Loading override...");
+    try {
+      const data = await api("/admin/api/overrides?id=" + encodeURIComponent(selected.id), {
+        headers: authHeaders(),
+      });
+      fillForm(data.override);
+      setStatus(data.override ? "Override loaded." : "No override yet.");
+    } catch (err) {
+      setStatus(err.message, "error");
+    }
+  }
+
+  function fillForm(override) {
+    currentOverride = override || null;
+    if (currentOverride && !currentOverride.fields) currentOverride.fields = {};
+    $("description").value = override && override.description ? override.description : "";
+    $("imageUrl").value = override && override.image ? override.image : "";
+    showImage($("imageUrl").value);
+  }
+
+  function showImage(src) {
+    const box = $("imagePreview");
+    const img = $("imagePreviewImg");
+    if (src) {
+      img.src = src;
+      box.classList.add("has-image");
+    } else {
+      img.removeAttribute("src");
+      box.classList.remove("has-image");
+    }
+  }
+
+  function refreshPreview() {
+    const frame = $("previewFrame");
+    const url = new URL(selected.url, location.origin);
+    url.searchParams.set("_preview", Date.now());
+    frame.src = url.pathname + url.search;
+  }
+
+  function openEditor(field) {
+    if (!selected) return;
+    activeField = field && field.key ? field : null;
+    modalMode = activeField ? activeField.type : field;
+    const isText = modalMode === "text" || modalMode === "description";
+    const isImage = modalMode === "image";
+    $("modalTitle").textContent = isText ? "Edit text" : "Edit image";
+    $("modalMeta").textContent = selected.title + " - " + selected.type;
+    $("textEditor").classList.toggle("hidden", !isText);
+    $("imageEditor").classList.toggle("hidden", !isImage);
+
+    if (isText) {
+      const saved = activeField && currentOverride && currentOverride.fields && currentOverride.fields[activeField.key];
+      $("description").value = saved && saved.value ? saved.value : activeField && activeField.element ? activeField.element.textContent.trim() : getPreviewDescription();
+    }
+    if (isImage) {
+      const saved = activeField && currentOverride && currentOverride.fields && currentOverride.fields[activeField.key];
+      $("imageUrl").value = saved && saved.value ? saved.value : activeField && activeField.element ? readImageValue(activeField.element) : getPreviewImage();
+      showImage($("imageUrl").value);
+    }
+
+    $("editModal").classList.remove("hidden");
+    setTimeout(() => {
+      const first = isText ? $("description") : $("imageInput");
+      first.focus();
+    }, 0);
+  }
+
+  function closeModal() {
+    $("editModal").classList.add("hidden");
+    modalMode = "";
+    activeField = null;
+  }
+
+  function getPreviewDescription() {
+    try {
+      const doc = $("previewFrame").contentDocument;
+      const body = doc && doc.querySelector("#story .ev-body");
+      if (!body) return "";
+      return [...body.querySelectorAll("p")].map((p) => p.textContent.trim()).filter(Boolean).join("\n\n");
+    } catch {
+      return "";
+    }
+  }
+
+  function getPreviewImage() {
+    try {
+      const doc = $("previewFrame").contentDocument;
+      const img = doc && doc.querySelector(".ev-hero-img, .ev-story-img");
+      if (!img) return "";
+      return img.getAttribute("src") || img.src || "";
+    } catch {
+      return "";
+    }
+  }
+
+  function injectEditControls(attempt = 0) {
+    if (!selected) return;
+    const frame = $("previewFrame");
+    let doc;
+    try {
+      doc = frame.contentDocument;
+    } catch {
+      return setStatus("Preview is not editable from this origin.", "error");
+    }
+    if (!doc || !doc.body) return;
+
+    doc.querySelectorAll("[data-otra-admin-edit]").forEach((el) => el.remove());
+    if (attempt < 30 && candidateElements(doc).length < 3) {
+      setTimeout(() => injectEditControls(attempt + 1), 250);
+      return;
+    }
+
+    ensurePreviewStyles(doc);
+    const fields = candidateElements(doc);
+    fields.forEach((field) => {
+      const host = editHost(field.element);
+      if (!host || host.querySelector(`:scope > [data-otra-admin-edit="${cssAttr(field.key)}"]`)) return;
+      host.classList.add("otra-admin-edit-host");
+      host.appendChild(makePreviewButton(doc, field));
+    });
+    setStatus(`Click a pencil in the preview to edit (${fields.length} editable fields).`, "ok");
+    if (attempt < 30) setTimeout(() => injectEditControls(attempt + 1), 250);
+  }
+
+  function ensurePreviewStyles(doc) {
+    if (doc.getElementById("otra-admin-edit-style")) return;
+    const style = doc.createElement("style");
+    style.id = "otra-admin-edit-style";
+    style.textContent = `
+      .otra-admin-edit-host { position: relative !important; }
+      .otra-admin-edit-btn {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        z-index: 99999;
+        width: 34px;
+        height: 34px;
+        display: grid;
+        place-items: center;
+        color: #fff;
+        background: #1c9ebd;
+        border: 1px solid rgba(255,255,255,0.38);
+        border-radius: 999px;
+        box-shadow: 0 12px 34px rgba(0,0,0,0.45);
+        cursor: pointer;
+      }
+      .otra-admin-edit-btn:hover { filter: brightness(1.08); }
+      .otra-admin-edit-btn svg { width: 16px; height: 16px; stroke-width: 2; }
+    `;
+    doc.head.appendChild(style);
+  }
+
+  function makePreviewButton(doc, field) {
+    const btn = doc.createElement("button");
+    btn.type = "button";
+    btn.className = "otra-admin-edit-btn";
+    btn.dataset.otraAdminEdit = field.key;
+    btn.setAttribute("aria-label", field.type === "text" ? "Edit text" : "Edit image");
+    btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openEditor(field);
+    });
+    return btn;
+  }
+
+  function candidateElements(doc) {
+    const main = doc.querySelector("main") || doc.body;
+    const textSelector = [
+      "h1", "h2", "h3",
+      ".ev-eyebrow", ".ev-tag", ".ev-pull", ".ev-body p",
+      ".ev-info-cell .k", ".ev-info-cell .v",
+      ".ev-rate .rk", ".ev-rate .rp", ".ev-rate .rn",
+      ".ev-likes span:not(.n)", ".rnb-edition", ".rnb-venue",
+      ".btn-metal", ".btn-ghost", "footer .pb", "footer .loc"
+    ].join(",");
+    const imageSelector = [
+      "img", "video[poster]",
+      ".ev-band-bg", ".card-img"
+    ].join(",");
+
+    const fields = [];
+    const seen = new Set();
+    main.querySelectorAll(textSelector).forEach((el) => {
+      if (!isEditableText(el)) return;
+      const selector = selectorFor(el, doc);
+      if (!selector || seen.has("text:" + selector)) return;
+      seen.add("text:" + selector);
+      fields.push({ type: "text", key: "text:" + selector, element: el });
+    });
+    main.querySelectorAll(imageSelector).forEach((el) => {
+      if (!isEditableImage(el)) return;
+      const selector = selectorFor(el, doc);
+      if (!selector || seen.has("image:" + selector)) return;
+      seen.add("image:" + selector);
+      fields.push({ type: "image", key: "image:" + selector, element: el });
+    });
+    return fields;
+  }
+
+  function isEditableText(el) {
+    if (el.closest("[data-otra-admin-edit]")) return false;
+    if (el.closest("header, nav, .dd-panel, script, style")) return false;
+    return !!el.textContent.trim();
+  }
+
+  function isEditableImage(el) {
+    if (el.closest("header, nav, .dd-panel")) return false;
+    if (el.tagName === "IMG") return !!(el.currentSrc || el.getAttribute("src"));
+    if (el.tagName === "VIDEO") return !!el.getAttribute("poster");
+    return /url\(/.test(el.style.backgroundImage || getComputedStyle(el).backgroundImage || "");
+  }
+
+  function editHost(el) {
+    if (el.classList.contains("ev-band-bg")) return el.parentElement;
+    if (el.tagName === "IMG" || el.tagName === "VIDEO") return el.parentElement || el;
+    return el;
+  }
+
+  function readImageValue(el) {
+    if (el.tagName === "IMG") return el.getAttribute("src") || el.currentSrc || "";
+    if (el.tagName === "VIDEO") return el.getAttribute("poster") || "";
+    const value = el.style.backgroundImage || getComputedStyle(el).backgroundImage || "";
+    const match = value.match(/url\\(["']?(.+?)["']?\\)/);
+    return match ? match[1] : "";
+  }
+
+  function selectorFor(el, doc) {
+    if (el.id) return "#" + cssEscape(el.id);
+    const parts = [];
+    let node = el;
+    const stop = doc.querySelector("main") || doc.body;
+    while (node && node.nodeType === 1 && node !== stop && node !== doc.body) {
+      let part = node.tagName.toLowerCase();
+      if (node.id) {
+        part = "#" + cssEscape(node.id);
+        parts.unshift(part);
+        break;
+      }
+      const parent = node.parentElement;
+      if (!parent) break;
+      const same = [...parent.children].filter((child) => child.tagName === node.tagName);
+      if (same.length > 1) part += `:nth-of-type(${same.indexOf(node) + 1})`;
+      parts.unshift(part);
+      node = parent;
+    }
+    const prefix = stop === doc.body ? "body" : "main";
+    return prefix + (parts.length ? " > " + parts.join(" > ") : "");
+  }
+
+  function cssEscape(value) {
+    if (window.CSS && CSS.escape) return CSS.escape(value);
+    return String(value).replace(/[^a-zA-Z0-9_-]/g, "\\$&");
+  }
+
+  function cssAttr(value) {
+    return String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  }
+
+  function esc(value) {
+    return String(value || "").replace(/[&<>"']/g, (ch) => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#39;",
+    }[ch]));
+  }
+
+  if (token) boot();
+</script>
+</body>
+</html>
