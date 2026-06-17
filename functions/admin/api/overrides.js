@@ -1,28 +1,32 @@
 // Cloudflare Pages Function: GET/PUT /admin/api/overrides?id=<eventId>
 //
-// Staff-only editor API. Text overrides live in Cloudflare KV under event:<id>.
+// Staff-only editor API. Overrides live in Cloudflare KV and can target the
+// main event description/image plus arbitrary page fields.
 
-const API = "https://otraguide.com/api";
+import { requireStaff, json } from "./_auth.js";
+
+const KEY = (id) => `event:${id}`;
+const LEGACY_KEY = (id) => `override:${id}`;
 
 export async function onRequestGet(context) {
-  const auth = await requireStaff(context.request);
-  if (!auth.ok) return auth.response;
-
   const id = getId(context.request);
   if (!id) return json({ error: "invalid id" }, 400);
-  if (!context.env.OVERRIDES) return json({ error: "OVERRIDES binding is missing" }, 500);
+  if (!(await requireStaff(context.request))) return json({ error: "unauthorized" }, 401);
 
-  const override = await context.env.OVERRIDES.get(`event:${id}`, "json");
-  return json({ override: override || null });
+  const kv = context.env.OVERRIDES;
+  if (!kv) return json({ error: "overrides store not configured" }, 503);
+
+  const override = await readOverride(kv, id);
+  return json({ override });
 }
 
 export async function onRequestPut(context) {
-  const auth = await requireStaff(context.request);
-  if (!auth.ok) return auth.response;
-
   const id = getId(context.request);
   if (!id) return json({ error: "invalid id" }, 400);
-  if (!context.env.OVERRIDES) return json({ error: "OVERRIDES binding is missing" }, 500);
+  if (!(await requireStaff(context.request))) return json({ error: "unauthorized" }, 401);
+
+  const kv = context.env.OVERRIDES;
+  if (!kv) return json({ error: "overrides store not configured" }, 503);
 
   let body;
   try {
@@ -52,8 +56,24 @@ export async function onRequestPut(context) {
     fields,
     updatedAt: new Date().toISOString(),
   };
-  await context.env.OVERRIDES.put(`event:${id}`, JSON.stringify(override));
+  await kv.put(KEY(id), JSON.stringify(override));
   return json({ override });
+}
+
+async function readOverride(kv, id) {
+  const raw = (await kv.get(KEY(id))) || (await kv.get(LEGACY_KEY(id)));
+  return raw ? normalizeOverride(JSON.parse(raw), id) : null;
+}
+
+function normalizeOverride(raw, id) {
+  if (!raw || typeof raw !== "object") return null;
+  return {
+    id,
+    description: typeof raw.description === "string" ? raw.description : "",
+    image: typeof raw.image === "string" ? raw.image : "",
+    fields: normalizeFields(raw.fields),
+    updatedAt: typeof raw.updatedAt === "string" ? raw.updatedAt : null,
+  };
 }
 
 function normalizeFields(raw) {
@@ -78,38 +98,13 @@ function getId(request) {
 function isAllowedImageUrl(value) {
   try {
     const url = new URL(value, "https://otratickets.com");
-    return url.pathname.startsWith("/override-images/") || /^https?:$/.test(url.protocol);
+    return (
+      url.pathname.startsWith("/override-images/") ||
+      url.pathname.startsWith("/override-media/") ||
+      url.pathname.startsWith("/uploads/") ||
+      /^https?:$/.test(url.protocol)
+    );
   } catch {
     return false;
   }
-}
-
-async function requireStaff(request) {
-  const m = (request.headers.get("authorization") || "").match(/^Bearer\s+(.+)$/i);
-  if (!m) return { ok: false, response: json({ error: "missing token" }, 401) };
-  const ok = await checkStaff(m[1]);
-  return ok ? { ok: true } : { ok: false, response: json({ error: "forbidden" }, 403) };
-}
-
-async function checkStaff(accessToken) {
-  try {
-    const resp = await fetch(`${API}/users/user-role/`, {
-      headers: { authorization: `Bearer ${accessToken}`, accept: "application/json" },
-    });
-    if (!resp.ok) return false;
-    const data = await resp.json();
-    return !!data.is_staff_or_admin;
-  } catch {
-    return false;
-  }
-}
-
-function json(obj, status = 200) {
-  return new Response(JSON.stringify(obj), {
-    status,
-    headers: {
-      "content-type": "application/json; charset=utf-8",
-      "cache-control": "no-store",
-    },
-  });
 }

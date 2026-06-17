@@ -11,7 +11,9 @@ export async function onRequestGet(context) {
   if (!context.env.OVERRIDES) return json({ override: null });
 
   try {
-    const override = await context.env.OVERRIDES.get(`event:${id}`, "json");
+    const override =
+      (await context.env.OVERRIDES.get(`event:${id}`, "json")) ||
+      (await context.env.OVERRIDES.get(`override:${id}`, "json"));
     if (!override || typeof override !== "object") return json({ override: null });
     return json({
       override: {

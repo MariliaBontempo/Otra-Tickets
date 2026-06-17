@@ -177,7 +177,10 @@ async function applyImageOverrides(events, env) {
   const overrides = await Promise.all(
     events.map(async (ev) => {
       try {
-        return await env.OVERRIDES.get(`event:${ev.id}`, "json");
+        return (
+          (await env.OVERRIDES.get(`event:${ev.id}`, "json")) ||
+          (await env.OVERRIDES.get(`override:${ev.id}`, "json"))
+        );
       } catch {
         return null;
       }
