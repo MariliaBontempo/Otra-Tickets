@@ -21,8 +21,35 @@ export async function onRequestGet(context) {
   const auth = await requireStaff(context.request);
   if (!auth.ok) return auth.response;
 
-  const dynamic = await buildTemplatePages();
-  return json({ pages: [...MANUAL_PAGES, ...dynamic] });
+  const [drafts, dynamic] = await Promise.all([buildDraftPages(context.env), buildTemplatePages()]);
+  return json({ pages: [...drafts, ...MANUAL_PAGES, ...dynamic] });
+}
+
+async function buildDraftPages(env) {
+  const kv = env && env.OVERRIDES;
+  if (!kv) return [];
+
+  const drafts = [];
+  let cursor;
+  do {
+    const page = await kv.list({ prefix: "site-event:", cursor });
+    for (const key of page.keys || []) {
+      const project = await kv.get(key.name, "json");
+      if (!project || typeof project !== "object") continue;
+      const id = key.name.replace(/^site-event:/, "");
+      drafts.push({
+        id,
+        title: typeof project.title === "string" && project.title.trim() ? project.title.trim() : "Claude Design Event",
+        type: project.status === "published" ? "Published draft" : "Draft event",
+        url: `/event.html?id=${encodeURIComponent(id)}`,
+        isDraft: true,
+        status: project.status === "published" ? "published" : "draft",
+      });
+    }
+    cursor = page.list_complete ? undefined : page.cursor;
+  } while (cursor);
+
+  return drafts.sort((a, b) => String(b.id).localeCompare(String(a.id)));
 }
 
 async function buildTemplatePages() {

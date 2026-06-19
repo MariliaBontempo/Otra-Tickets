@@ -6,7 +6,7 @@
 export async function onRequestGet(context) {
   const url = new URL(context.request.url);
   const id = (url.searchParams.get("id") || "").trim();
-  if (!/^\d+$/.test(id)) return json({ error: "invalid id" }, 400);
+  if (!/^(?:\d+|draft-[a-zA-Z0-9-]+)$/.test(id)) return json({ error: "invalid id" }, 400);
 
   if (!context.env.OVERRIDES) return json({ override: null });
 

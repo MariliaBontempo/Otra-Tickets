@@ -92,7 +92,7 @@ function normalizeFields(raw) {
 
 function getId(request) {
   const id = (new URL(request.url).searchParams.get("id") || "").trim();
-  return /^\d+$/.test(id) ? id : "";
+  return /^(?:\d+|draft-[a-zA-Z0-9-]+)$/.test(id) ? id : "";
 }
 
 function isAllowedImageUrl(value) {

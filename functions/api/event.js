@@ -15,7 +15,7 @@ const ACCENT_OVERRIDES = {
 export async function onRequestGet(context) {
   const url = new URL(context.request.url);
   const id = (url.searchParams.get("id") || "").trim();
-  if (!/^\d+$/.test(id)) return json({ error: "invalid id" }, 400);
+  if (!isEventId(id)) return json({ error: "invalid id" }, 400);
 
   const base = await getBasePayload(context, id, url);
   if (!base) return json({ error: "not found" }, 404);
@@ -26,6 +26,8 @@ export async function onRequestGet(context) {
 }
 
 async function getBasePayload(context, id, url) {
+  if (isDraftId(id)) return getDraftPayload(context.env, id);
+
   const cache = caches.default;
   const cacheKey = new Request(new URL(`/api/event-base?id=${id}`, url));
   const cached = await cache.match(cacheKey);
@@ -64,6 +66,35 @@ async function getBasePayload(context, id, url) {
   return base;
 }
 
+async function getDraftPayload(env, id) {
+  const kv = env && env.OVERRIDES;
+  if (!kv) return null;
+
+  const draft = await kv.get(`site-event:${id}`, "json");
+  if (!draft || typeof draft !== "object") return null;
+
+  const rates = Array.isArray(draft.claudeDesign && draft.claudeDesign.rates) ? draft.claudeDesign.rates : [];
+  return {
+    id,
+    title: typeof draft.title === "string" && draft.title.trim() ? draft.title.trim() : "Claude Design Event",
+    description:
+      typeof draft.description === "string" && draft.description.trim()
+        ? draft.description.trim()
+        : "Draft event created from a Claude Design project.",
+    startDate: null,
+    endDate: null,
+    isTicketed: rates.length > 0,
+    isPerennial: false,
+    image: typeof draft.image === "string" ? draft.image : "",
+    socialLinks: [],
+    accent: "#1c9ebd",
+    tickets: rates,
+    isDraft: true,
+    status: draft.status === "published" ? "published" : "draft",
+    design: draft.claudeDesign && typeof draft.claudeDesign === "object" ? draft.claudeDesign : null,
+  };
+}
+
 async function readOverride(env, id) {
   const kv = env && env.OVERRIDES;
   if (!kv) return null;
@@ -80,6 +111,14 @@ function pickOverride(override) {
   if (override.description) out.description = override.description;
   if (override.image) out.image = override.image;
   return out;
+}
+
+function isEventId(id) {
+  return /^\d+$/.test(id) || isDraftId(id);
+}
+
+function isDraftId(id) {
+  return /^draft-[a-zA-Z0-9-]+$/.test(id);
 }
 
 function json(obj, status = 200, maxAge = 0) {

@@ -83,6 +83,11 @@
   .btn:disabled { opacity: 0.55; cursor: not-allowed; }
 
   .app { min-height: 100vh; display: grid; grid-template-rows: auto 1fr; }
+  .hub {
+    min-height: 100vh;
+    display: grid;
+    grid-template-rows: auto 1fr;
+  }
   .topbar {
     position: sticky;
     top: 0;
@@ -102,6 +107,109 @@
   .brand span { color: var(--muted); font-size: 13px; }
 
   .workspace { min-height: 0; }
+
+  .hub-main {
+    display: grid;
+    align-content: center;
+    gap: 28px;
+    width: min(980px, calc(100% - 40px));
+    margin: 0 auto;
+    padding: 48px 0;
+  }
+
+  .hub-head { display: grid; gap: 8px; }
+  .hub-head h1 { font-size: clamp(28px, 4vw, 44px); }
+  .hub-actions {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+  }
+  .choice-card {
+    min-height: 190px;
+    display: grid;
+    align-content: space-between;
+    gap: 22px;
+    text-align: left;
+    color: var(--text);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 22px;
+  }
+  .choice-card:hover { border-color: var(--accent); background: #131821; }
+  .choice-card strong { display: block; font-size: 22px; }
+  .choice-card span { display: block; margin-top: 8px; color: var(--muted); line-height: 1.45; }
+  .choice-card svg { width: 28px; height: 28px; color: var(--accent); stroke-width: 1.8; }
+
+  .add-main {
+    width: min(760px, calc(100% - 40px));
+    margin: 0 auto;
+    padding: 38px 0;
+  }
+  .upload-panel {
+    display: grid;
+    gap: 18px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 22px;
+  }
+  .dropzone {
+    display: grid;
+    place-items: center;
+    min-height: 170px;
+    text-align: center;
+    color: var(--muted);
+    border: 1px dashed #3b4350;
+    border-radius: var(--radius);
+    background: #0b0d11;
+    padding: 20px;
+  }
+  .dropzone strong { color: var(--text); }
+  .dropzone input { margin-top: 14px; max-width: 360px; }
+
+  .homepage-main {
+    width: min(1180px, calc(100% - 40px));
+    margin: 0 auto;
+    padding: 28px 0 48px;
+  }
+  .layout-panel { display: grid; gap: 16px; }
+  .layout-row-card {
+    display: grid;
+    gap: 14px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 16px;
+  }
+  .layout-row-card header {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 12px;
+    align-items: end;
+  }
+  .event-picker {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 8px;
+    max-height: 310px;
+    overflow: auto;
+    padding: 4px;
+  }
+  .event-choice {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 10px;
+    align-items: start;
+    padding: 10px;
+    color: var(--text);
+    background: #0b0d11;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+  }
+  .event-choice input { width: auto; margin-top: 3px; }
+  .event-choice span { line-height: 1.35; }
+  .event-choice small { display: block; margin-top: 3px; color: var(--muted); }
 
   .preview {
     min-width: 0;
@@ -155,6 +263,22 @@
     box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
     padding: 18px;
   }
+  .publish-options { display: grid; gap: 10px; }
+  .publish-option {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 12px;
+    align-items: start;
+    padding: 14px;
+    color: var(--text);
+    background: #0b0d11;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+  }
+  .publish-option:has(input:checked) { border-color: var(--accent); background: #0d1720; }
+  .publish-option input { width: auto; margin-top: 3px; }
+  .publish-option strong { display: block; font-size: 14px; }
+  .publish-option span { display: block; margin-top: 4px; color: var(--muted); line-height: 1.4; }
 
   .icon-btn {
     width: 42px;
@@ -175,9 +299,12 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  .top-status.error { color: var(--danger); }
+  .top-status.ok { color: var(--ok); }
 
   @media (max-width: 980px) {
     .topbar { grid-template-columns: 1fr; }
+    .hub-actions { grid-template-columns: 1fr; }
     iframe { height: calc(100vh - 155px); }
     .top-status { white-space: normal; }
   }
@@ -210,6 +337,7 @@
       <select id="pageSelect" aria-label="Select page"></select>
       <div class="row split">
         <div class="top-status" id="status"></div>
+        <button class="btn primary hidden" id="publishDraftBtn" type="button">Publish</button>
         <button class="btn ghost" id="logoutBtn" type="button">Sign out</button>
       </div>
     </header>
@@ -218,6 +346,91 @@
       <section class="preview">
         <iframe id="previewFrame" title="Public page preview"></iframe>
       </section>
+    </main>
+  </section>
+
+  <section class="hub hidden" id="hubView">
+    <header class="topbar">
+      <div class="brand">
+        <strong>Otra Tickets Admin</strong>
+        <span>Choose what you want to do.</span>
+      </div>
+      <div></div>
+      <div class="row split">
+        <div class="top-status" id="hubStatus"></div>
+        <button class="btn ghost" id="hubLogoutBtn" type="button">Sign out</button>
+      </div>
+    </header>
+    <main class="hub-main">
+      <div class="hub-head">
+        <h1>What do you want to manage?</h1>
+        <p>Add a Claude Design project as a new event, or edit an event that already exists.</p>
+      </div>
+      <div class="hub-actions">
+        <button class="choice-card" id="addEventBtn" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+          <span><strong>Add a new event</strong><span>Upload a Claude Design project ZIP and start a new Otra Tickets event draft.</span></span>
+        </button>
+        <button class="choice-card" id="editExistingBtn" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+          <span><strong>Edit an existing event</strong><span>Open the current preview editor with the same pencil buttons.</span></span>
+        </button>
+        <button class="choice-card" id="manageHomepageBtn" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 6h16"/><path d="M4 12h10"/><path d="M4 18h16"/><path d="M18 10v4"/><path d="M16 12h4"/></svg>
+          <span><strong>Manage homepage</strong><span>Reorder homepage rows, add rows, and choose which cards appear in each row.</span></span>
+        </button>
+      </div>
+    </main>
+  </section>
+
+  <section class="app hidden" id="addView">
+    <header class="topbar">
+      <div class="brand">
+        <strong>Add a new event</strong>
+        <span>Upload a Claude Design project.</span>
+      </div>
+      <div></div>
+      <div class="row split">
+        <div class="top-status" id="addStatus"></div>
+        <button class="btn ghost" id="backToHubBtn" type="button">Back</button>
+      </div>
+    </header>
+    <main class="add-main">
+      <form class="upload-panel" id="newEventForm">
+        <div>
+          <h2>Claude Design project</h2>
+          <p>Upload a ZIP project. The title, description, and images are read from the Claude Design project.</p>
+        </div>
+        <div class="dropzone">
+          <div>
+            <strong>Upload Claude Design ZIP</strong>
+            <p>Use a .zip file exported from Claude Design.</p>
+            <input id="cloudProjectZip" type="file" accept=".zip,application/zip,application/x-zip-compressed" required />
+          </div>
+        </div>
+        <div class="row split">
+          <button class="btn ghost" id="clearNewEventBtn" type="button">Clear</button>
+          <button class="btn primary" id="createNewEventBtn" type="submit">Create event draft</button>
+        </div>
+      </form>
+    </main>
+  </section>
+
+  <section class="app hidden" id="homepageView">
+    <header class="topbar">
+      <div class="brand">
+        <strong>Homepage rows</strong>
+        <span>Controls the public Otra Tickets homepage layout.</span>
+      </div>
+      <div class="top-status" id="homepageStatus"></div>
+      <div class="row split">
+        <button class="btn" id="addHomepageRowBtn" type="button">Add row</button>
+        <button class="btn primary" id="saveHomepageBtn" type="button">Save</button>
+        <button class="btn ghost" id="homepageBackBtn" type="button">Back</button>
+      </div>
+    </header>
+    <main class="homepage-main">
+      <div class="layout-panel" id="homepageRows"></div>
     </main>
   </section>
 
@@ -263,6 +476,41 @@
     </form>
   </div>
 
+  <div class="modal-backdrop hidden" id="publishModal" role="dialog" aria-modal="true" aria-labelledby="publishTitle">
+    <form class="modal stack" id="publishForm">
+      <div class="row split">
+        <div>
+          <h2 id="publishTitle">Publish draft</h2>
+          <p id="publishMeta"></p>
+        </div>
+        <button class="icon-btn" id="closePublishModalBtn" type="button" aria-label="Close">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
+      </div>
+
+      <div class="publish-options" role="radiogroup" aria-label="Publish mode">
+        <label class="publish-option">
+          <input type="radio" name="publishMode" value="clone" checked />
+          <span><strong>Clone on Otra Guide</strong><span>Create a new Otra Guide event from this draft.</span></span>
+        </label>
+        <label class="publish-option">
+          <input type="radio" name="publishMode" value="update" />
+          <span><strong>Update existing on Otra Guide</strong><span>Push this draft into an existing Otra Guide event.</span></span>
+        </label>
+      </div>
+
+      <label id="otraGuideIdLabel" class="hidden">Otra Guide event ID
+        <input id="otraGuideEventId" type="text" inputmode="numeric" placeholder="Example: 7275" />
+      </label>
+
+      <div class="status" id="publishStatus"></div>
+      <div class="row split">
+        <button class="btn ghost" id="cancelPublishBtn" type="button">Cancel</button>
+        <button class="btn primary" id="confirmPublishBtn" type="submit">Publish</button>
+      </div>
+    </form>
+  </div>
+
 <script>
   const tokenKey = "otra_admin_token";
   let token = sessionStorage.getItem(tokenKey) || "";
@@ -275,11 +523,16 @@
   const $ = (id) => document.getElementById(id);
   const loginView = $("loginView");
   const appView = $("appView");
+  const hubView = $("hubView");
+  const addView = $("addView");
+  const homepageView = $("homepageView");
   const statusEl = $("status");
+  let homepageEvents = [];
+  let homepageRows = [];
 
   function setStatus(text, type) {
     statusEl.textContent = text || "";
-    statusEl.className = "status" + (type ? " " + type : "");
+    statusEl.className = "top-status" + (type ? " " + type : "");
   }
 
   function authHeaders(extra) {
@@ -316,19 +569,109 @@
   });
 
   $("logoutBtn").addEventListener("click", () => {
+    logout();
+  });
+  $("hubLogoutBtn").addEventListener("click", () => {
+    logout();
+  });
+
+  function logout() {
     sessionStorage.removeItem(tokenKey);
     token = "";
     appView.classList.add("hidden");
+    hubView.classList.add("hidden");
+    addView.classList.add("hidden");
+    homepageView.classList.add("hidden");
     loginView.classList.remove("hidden");
+  }
+
+  $("editExistingBtn").addEventListener("click", async () => {
+    hubView.classList.add("hidden");
+    appView.classList.remove("hidden");
+    setStatus("Loading pages...");
+    await loadPages();
+  });
+
+  $("addEventBtn").addEventListener("click", () => {
+    hubView.classList.add("hidden");
+    addView.classList.remove("hidden");
+    $("addStatus").textContent = "";
+    $("cloudProjectZip").focus();
+  });
+
+  $("manageHomepageBtn").addEventListener("click", async () => {
+    hubView.classList.add("hidden");
+    homepageView.classList.remove("hidden");
+    await loadHomepageLayout();
+  });
+
+  $("backToHubBtn").addEventListener("click", () => {
+    addView.classList.add("hidden");
+    appView.classList.add("hidden");
+    homepageView.classList.add("hidden");
+    hubView.classList.remove("hidden");
+  });
+  $("homepageBackBtn").addEventListener("click", () => {
+    homepageView.classList.add("hidden");
+    hubView.classList.remove("hidden");
+  });
+  $("addHomepageRowBtn").addEventListener("click", () => {
+    homepageRows.push({ id: "row-" + Date.now(), title: "New row", eventIds: [] });
+    renderHomepageRows();
+  });
+  $("saveHomepageBtn").addEventListener("click", saveHomepageLayout);
+
+  $("clearNewEventBtn").addEventListener("click", () => {
+    $("newEventForm").reset();
+    $("addStatus").textContent = "";
+  });
+
+  $("newEventForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const file = $("cloudProjectZip").files[0];
+    if (!file) return;
+    const form = new FormData();
+    form.set("file", file);
+    $("createNewEventBtn").disabled = true;
+    $("addStatus").textContent = "Uploading project...";
+    try {
+      const data = await api("/admin/api/projects", {
+        method: "POST",
+        headers: authHeaders(),
+        body: form,
+      });
+      $("addStatus").textContent = `Draft created: ${data.project.title}`;
+      $("addStatus").className = "top-status ok";
+      $("newEventForm").reset();
+      addView.classList.add("hidden");
+      appView.classList.remove("hidden");
+      setStatus("Opening draft editor...", "ok");
+      await loadPages(data.project.id);
+    } catch (err) {
+      $("addStatus").textContent = err.message;
+      $("addStatus").className = "top-status error";
+    } finally {
+      $("createNewEventBtn").disabled = false;
+    }
   });
 
   $("pageSelect").addEventListener("change", () => selectPage($("pageSelect").value));
+  $("publishDraftBtn").addEventListener("click", openPublishModal);
   $("previewFrame").addEventListener("load", () => injectEditControls());
   $("closeModalBtn").addEventListener("click", closeModal);
   $("cancelBtn").addEventListener("click", closeModal);
   $("editModal").addEventListener("click", (e) => {
     if (e.target === $("editModal")) closeModal();
   });
+  $("closePublishModalBtn").addEventListener("click", closePublishModal);
+  $("cancelPublishBtn").addEventListener("click", closePublishModal);
+  $("publishModal").addEventListener("click", (e) => {
+    if (e.target === $("publishModal")) closePublishModal();
+  });
+  document.querySelectorAll('input[name="publishMode"]').forEach((input) => {
+    input.addEventListener("change", syncPublishMode);
+  });
+  $("publishForm").addEventListener("submit", publishSelectedDraft);
 
   $("uploadBtn").addEventListener("click", async () => {
     if (!selected) return;
@@ -403,29 +746,136 @@
 
   async function boot() {
     loginView.classList.add("hidden");
-    appView.classList.remove("hidden");
-    setStatus("Loading pages...");
+    appView.classList.add("hidden");
+    addView.classList.add("hidden");
+    homepageView.classList.add("hidden");
+    hubView.classList.remove("hidden");
+    $("hubStatus").textContent = "";
+  }
+
+  async function loadPages(preferredId) {
     try {
       const data = await api("/admin/api/pages", { headers: authHeaders() });
       pages = data.pages || [];
       $("pageSelect").innerHTML = pages
         .map((page) => `<option value="${esc(page.id)}">${esc(page.title)} - ${esc(page.type)}</option>`)
         .join("");
-      if (pages.length) await selectPage(pages[0].id);
+      const initial = preferredId && pages.some((page) => page.id === preferredId) ? preferredId : pages[0] && pages[0].id;
+      if (initial) await selectPage(initial);
       else setStatus("No editable pages found.", "error");
     } catch (err) {
       sessionStorage.removeItem(tokenKey);
       token = "";
       appView.classList.add("hidden");
+      hubView.classList.add("hidden");
+      addView.classList.add("hidden");
+      homepageView.classList.add("hidden");
       loginView.classList.remove("hidden");
       $("loginStatus").textContent = err.message;
     }
+  }
+
+  async function loadHomepageLayout() {
+    $("homepageStatus").textContent = "Loading homepage rows...";
+    try {
+      const data = await api("/admin/api/homepage", { headers: authHeaders() });
+      homepageEvents = data.events || [];
+      homepageRows = data.rows || [];
+      renderHomepageRows();
+      $("homepageStatus").textContent = "Loaded.";
+      $("homepageStatus").className = "top-status ok";
+    } catch (err) {
+      $("homepageStatus").textContent = err.message;
+      $("homepageStatus").className = "top-status error";
+    }
+  }
+
+  async function saveHomepageLayout() {
+    syncHomepageRowsFromDom();
+    $("saveHomepageBtn").disabled = true;
+    $("homepageStatus").textContent = "Saving homepage rows...";
+    $("homepageStatus").className = "top-status";
+    try {
+      const data = await api("/admin/api/homepage", {
+        method: "PUT",
+        headers: authHeaders({ "content-type": "application/json" }),
+        body: JSON.stringify({ rows: homepageRows }),
+      });
+      homepageRows = data.rows || [];
+      renderHomepageRows();
+      $("homepageStatus").textContent = "Saved. Open /?fresh=1 to preview.";
+      $("homepageStatus").className = "top-status ok";
+    } catch (err) {
+      $("homepageStatus").textContent = err.message;
+      $("homepageStatus").className = "top-status error";
+    } finally {
+      $("saveHomepageBtn").disabled = false;
+    }
+  }
+
+  function syncHomepageRowsFromDom() {
+    homepageRows = [...document.querySelectorAll(".layout-row-card")].map((card) => ({
+      id: card.dataset.rowId,
+      title: card.querySelector("[data-row-title]").value,
+      eventIds: [...card.querySelectorAll("[data-event-id]:checked")].map((input) => input.dataset.eventId),
+    }));
+  }
+
+  function renderHomepageRows() {
+    const host = $("homepageRows");
+    host.innerHTML = "";
+    homepageRows.forEach((row, rowIndex) => {
+      const card = document.createElement("section");
+      card.className = "layout-row-card";
+      card.dataset.rowId = row.id;
+      card.innerHTML = `
+        <header>
+          <label>Row title
+            <input data-row-title type="text" value="${esc(row.title || "")}" placeholder="Example: Boat tours" />
+          </label>
+          <div class="row">
+            <button class="btn ghost" data-row-up type="button">Up</button>
+            <button class="btn ghost" data-row-down type="button">Down</button>
+            <button class="btn ghost" data-row-delete type="button">Delete</button>
+          </div>
+        </header>
+        <div class="event-picker">
+          ${homepageEvents.map((event) => {
+            const id = String(event.id);
+            const checked = (row.eventIds || []).map(String).includes(id) ? " checked" : "";
+            return `<label class="event-choice"><input data-event-id="${esc(id)}" type="checkbox"${checked} /><span>${esc(event.title)}<small>${esc(id)}</small></span></label>`;
+          }).join("")}
+        </div>
+      `;
+      card.querySelector("[data-row-up]").disabled = rowIndex === 0;
+      card.querySelector("[data-row-down]").disabled = rowIndex === homepageRows.length - 1;
+      card.querySelector("[data-row-up]").addEventListener("click", () => moveHomepageRow(rowIndex, -1));
+      card.querySelector("[data-row-down]").addEventListener("click", () => moveHomepageRow(rowIndex, 1));
+      card.querySelector("[data-row-delete]").addEventListener("click", () => deleteHomepageRow(rowIndex));
+      host.append(card);
+    });
+  }
+
+  function moveHomepageRow(index, delta) {
+    syncHomepageRowsFromDom();
+    const next = index + delta;
+    if (next < 0 || next >= homepageRows.length) return;
+    const [row] = homepageRows.splice(index, 1);
+    homepageRows.splice(next, 0, row);
+    renderHomepageRows();
+  }
+
+  function deleteHomepageRow(index) {
+    syncHomepageRowsFromDom();
+    homepageRows.splice(index, 1);
+    renderHomepageRows();
   }
 
   async function selectPage(id) {
     selected = pages.find((page) => page.id === id);
     if (!selected) return;
     $("pageSelect").value = selected.id;
+    $("publishDraftBtn").classList.toggle("hidden", !isDraft(selected) || selected.status === "published");
     $("previewFrame").src = selected.url;
     $("description").value = "";
     $("imageInput").value = "";
@@ -441,6 +891,77 @@
     } catch (err) {
       setStatus(err.message, "error");
     }
+  }
+
+  function openPublishModal() {
+    if (!selected || !isDraft(selected)) return;
+    $("publishMeta").textContent = selected.title + " - " + selected.type;
+    $("publishStatus").textContent = "";
+    $("publishStatus").className = "status";
+    $("otraGuideEventId").value = selected.otraGuideId || "";
+    document.querySelector('input[name="publishMode"][value="clone"]').checked = true;
+    syncPublishMode();
+    $("publishModal").classList.remove("hidden");
+  }
+
+  function closePublishModal() {
+    $("publishModal").classList.add("hidden");
+  }
+
+  function syncPublishMode() {
+    const mode = selectedPublishMode();
+    $("otraGuideIdLabel").classList.toggle("hidden", mode !== "update");
+    $("confirmPublishBtn").textContent = mode === "update" ? "Update on Otra Guide" : "Clone on Otra Guide";
+  }
+
+  function selectedPublishMode() {
+    const checked = document.querySelector('input[name="publishMode"]:checked');
+    return checked ? checked.value : "clone";
+  }
+
+  async function publishSelectedDraft(e) {
+    e.preventDefault();
+    if (!selected || !isDraft(selected)) return;
+    const mode = selectedPublishMode();
+    const otraGuideId = $("otraGuideEventId").value.trim();
+    if (mode === "update" && !/^\d+$/.test(otraGuideId)) {
+      $("publishStatus").textContent = "Enter the Otra Guide event ID to update.";
+      $("publishStatus").className = "status error";
+      $("otraGuideEventId").focus();
+      return;
+    }
+
+    const btn = $("confirmPublishBtn");
+    btn.disabled = true;
+    const progressText = mode === "update" ? "Updating event on Otra Guide..." : "Cloning draft on Otra Guide...";
+    setStatus(progressText);
+    $("publishStatus").textContent = progressText;
+    $("publishStatus").className = "status";
+    try {
+      const params = new URLSearchParams({
+        id: selected.id,
+        action: "publish",
+        mode,
+      });
+      if (otraGuideId) params.set("otraGuideId", otraGuideId);
+      const data = await api(
+        "/admin/api/projects?" + params.toString(),
+        { method: "POST", headers: authHeaders() }
+      );
+      setStatus("Published to Otra Guide.", "ok");
+      closePublishModal();
+      await loadPages(String(data.project && (data.project.otraGuideId || data.project.id) || selected.id));
+    } catch (err) {
+      setStatus(err.message, "error");
+      $("publishStatus").textContent = err.message;
+      $("publishStatus").className = "status error";
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  function isDraft(page) {
+    return !!page && (page.isDraft || page.status === "draft" || /^draft-/.test(page.id));
   }
 
   function fillForm(override) {

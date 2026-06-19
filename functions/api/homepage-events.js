@@ -21,6 +21,10 @@ const CATEGORY_ID = 339;
 const FEATURED_ID = 7275;
 // Event ids to keep off the homepage even if they pass the ticket filter.
 const EXCLUDED_IDS = new Set([7012]); // Sinusta Tours & Transfers
+const LOCAL_MAIN_IMAGES = {
+  "7275": "uploads/We Love R&B July 4th TJ-5.webp",
+  "6113": "uploads/Clearboat Hero.webp",
+};
 const PAGE_SIZE = 20;
 const MAX_PAGES = 8;
 // Pages fetched together in the first parallel round (covers the usual feed
@@ -39,8 +43,15 @@ const EDGE_TTL = 86400;
 const UPSTREAM_TTL = 300;
 
 export async function onRequestGet(context) {
+  const url = new URL(context.request.url);
   const cache = caches.default;
   const cacheKey = new Request(new URL("/api/homepage-events", context.request.url));
+  const hasLocalEvents = await hasPublishedSiteEvents(context.env);
+  const bypassCache = url.searchParams.get("fresh") === "1" || hasLocalEvents;
+  if (bypassCache) {
+    return withClientHeaders(await rebuild(cache, cacheKey, Date.now(), context.env), hasLocalEvents ? 0 : 120);
+  }
+
   const cached = await cache.match(cacheKey);
   const now = Date.now();
 
@@ -59,17 +70,34 @@ export async function onRequestGet(context) {
   return withClientHeaders(fresh);
 }
 
+async function hasPublishedSiteEvents(env) {
+  const kv = env && env.OVERRIDES;
+  if (!kv) return false;
+  try {
+    const page = await kv.list({ prefix: "site-event:" });
+    for (const key of page.keys || []) {
+      const project = await kv.get(key.name, "json");
+      if (project && typeof project === "object" && project.status === "published") return true;
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+
 // Returns the client-facing response (short browser cache) for a stored body.
-function withClientHeaders(response) {
+function withClientHeaders(response, maxAge = 120) {
   const headers = new Headers(response.headers);
-  headers.set("cache-control", `public, max-age=120, stale-while-revalidate=${EDGE_TTL}`);
+  headers.set("cache-control", maxAge ? `public, max-age=${maxAge}, stale-while-revalidate=${EDGE_TTL}` : "no-store");
   return new Response(response.body, { headers });
 }
 
 // Build the events list, store it in the edge cache, and return the response.
 async function rebuild(cache, cacheKey, now, env) {
-  const events = await applyImageOverrides(await buildEvents(), env);
-  const body = JSON.stringify({ events });
+  const [siteEvents, upstreamEvents] = await Promise.all([buildPublishedSiteEvents(env), buildEvents()]);
+  const events = await applyImageOverrides([...siteEvents, ...upstreamEvents], env);
+  const rows = await buildRows(events, env);
+  const body = JSON.stringify({ events, rows });
   // Stored with a long max-age so caches.default keeps it for SWR; freshness
   // is tracked by us via the x-generated-at timestamp.
   const stored = new Response(body, {
@@ -81,6 +109,80 @@ async function rebuild(cache, cacheKey, now, env) {
   });
   await cache.put(cacheKey, stored.clone());
   return stored;
+}
+
+async function buildRows(events, env) {
+  const ids = events.map((ev) => String(ev.id));
+  const existing = new Set(ids);
+  const fallback = [{ id: "main", title: "", eventIds: ids }];
+  const kv = env && env.OVERRIDES;
+  if (!kv) return fallback;
+
+  let layout;
+  try {
+    layout = await kv.get("homepage:layout", "json");
+  } catch {
+    layout = null;
+  }
+  const rows = normalizeRows(layout && layout.rows, existing);
+  if (!rows.length) return fallback;
+
+  const assigned = new Set(rows.flatMap((row) => row.eventIds));
+  const missing = ids.filter((id) => !assigned.has(id));
+  if (missing.length) rows[0].eventIds.push(...missing);
+  return rows.filter((row) => row.eventIds.length);
+}
+
+function normalizeRows(raw, existing) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((row, i) => {
+      const id = typeof row.id === "string" && row.id.trim() ? row.id.trim() : `row-${i + 1}`;
+      const title = typeof row.title === "string" ? row.title.trim().slice(0, 80) : "";
+      const eventIds = Array.isArray(row.eventIds)
+        ? [...new Set(row.eventIds.map((value) => String(value)).filter((id) => existing.has(id)))]
+        : [];
+      return { id, title, eventIds };
+    })
+    .filter((row) => row.eventIds.length);
+}
+
+async function buildPublishedSiteEvents(env) {
+  const kv = env && env.OVERRIDES;
+  if (!kv) return [];
+
+  const out = [];
+  let cursor;
+  do {
+    let page;
+    try {
+      page = await kv.list({ prefix: "site-event:", cursor });
+    } catch {
+      return out;
+    }
+    for (const key of page.keys || []) {
+      let project;
+      try {
+        project = await kv.get(key.name, "json");
+      } catch {
+        project = null;
+      }
+      if (!project || typeof project !== "object" || project.status !== "published") continue;
+      const id = key.name.replace(/^site-event:/, "");
+      out.push({
+        id,
+        title: typeof project.title === "string" && project.title.trim() ? project.title.trim() : "Claude Design Event",
+        date: project.publishedAt || project.createdAt || null,
+        img:
+          (typeof project.image === "string" && project.image) ||
+          (project.claudeDesign && typeof project.claudeDesign.image === "string" && project.claudeDesign.image) ||
+          "",
+      });
+    }
+    cursor = page.list_complete ? undefined : page.cursor;
+  } while (cursor);
+
+  return out.sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
 }
 
 async function fetchJson(url) {
@@ -168,7 +270,7 @@ async function buildEvents() {
     // Perennial top-shelf events recur (e.g. daily tours); a single start
     // date would be misleading, so the card shows no date for them.
     date: ev.is_perennial ? null : ev.start_date,
-    img: ev.half_web_image_url || ev.full_web_image_url || ev.card_image_url,
+    img: LOCAL_MAIN_IMAGES[String(ev.id)] || ev.full_web_image_url || ev.half_web_image_url || ev.card_image_url,
   }));
 }
 
@@ -188,8 +290,28 @@ async function applyImageOverrides(events, env) {
   );
   return events.map((ev, i) => {
     const override = overrides[i];
-    return override && typeof override.image === "string" && override.image
-      ? { ...ev, img: override.image }
-      : ev;
+    const image = homepageOverrideImage(override);
+    return image ? { ...ev, img: image } : ev;
   });
+}
+
+function homepageOverrideImage(override) {
+  if (!override || typeof override !== "object") return "";
+  if (typeof override.image === "string" && override.image) return override.image;
+  const fields = override.fields;
+  if (!fields || typeof fields !== "object" || Array.isArray(fields)) return "";
+
+  const entries = Object.entries(fields);
+  const hero = entries.find(([key, field]) => {
+    if (!field || field.type !== "image" || typeof field.value !== "string" || !field.value) return false;
+    return (
+      key.includes("#evHeroImg") ||
+      key.includes(".ev-hero-img") ||
+      /^image:main > section:nth-of-type\(1\) > img$/.test(key)
+    );
+  });
+  if (hero) return hero[1].value;
+
+  const firstImage = entries.find(([, field]) => field && field.type === "image" && typeof field.value === "string" && field.value);
+  return firstImage ? firstImage[1].value : "";
 }

@@ -900,10 +900,33 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
     <!-- ============ STORY ============ -->
     <section class="section-pad ev-story reveal" id="story" hidden>
       <div>
-        <span class="ev-eyebrow">About</span>
+        <span class="ev-eyebrow" id="evStoryEyebrow">About</span>
+        <p class="ev-pull" id="evPullQuote" style="margin-top:22px;" hidden></p>
         <div class="ev-body" id="evBody"></div>
       </div>
       <img class="ev-story-img" id="evStoryImg" src="" alt="" hidden />
+    </section>
+
+    <!-- ============ VIDEO / FEATURE IMAGE ============ -->
+    <section class="ev-video reveal" id="evVideoSection" data-screen-label="Video" hidden>
+      <img id="evVideoImg" src="" alt="" loading="lazy" />
+      <div class="play"><span><svg viewBox="0 0 24 24"><polygon points="8 5 19 12 8 19"/></svg></span></div>
+    </section>
+
+    <!-- ============ APPRECIATION BAND ============ -->
+    <section class="ev-band reveal" id="evBandSection" hidden>
+      <div class="ev-band-bg" id="evBandBg"></div>
+      <div class="ev-band-veil"></div>
+      <div class="ev-band-inner">
+        <span class="ev-eyebrow" id="evBandEyebrow">What We Appreciate</span>
+        <h2 id="evBandTitle" style="margin-top:20px;"></h2>
+        <div class="ev-likes" id="evLikes"></div>
+      </div>
+    </section>
+
+    <!-- ============ PHOTO BAND ============ -->
+    <section class="ev-photoband reveal" id="evPhotoBandSection" hidden>
+      <img id="evPhotoBandImg" src="" alt="" loading="lazy" />
     </section>
 
     <!-- ============ PRACTICAL INFO ============ -->
@@ -1082,6 +1105,7 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
       if (ev.accent && /^#[0-9A-Fa-f]{6}$/.test(ev.accent)) {
         document.documentElement.style.setProperty("--accent", ev.accent);
       }
+      const design = ev.design || {};
 
       // ----- HERO -----
       if (ev.image) {
@@ -1091,15 +1115,26 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
       }
 
       // ----- TITLE BLOCK -----
-      $("evEyebrow").textContent = ev.isPerennial ? "Experience · Curaçao" : "Event · Curaçao";
-      $("evTitle").textContent = ev.title;
+      $("evEyebrow").textContent = design.eyebrow || (ev.isPerennial ? "Experience · Curaçao" : "Event · Curaçao");
+      $("evTitle").textContent = design.displayTitle || ev.title;
+      if (design.subtitle) {
+        const sub = document.createElement("div");
+        sub.className = "ev-sub";
+        sub.textContent = design.subtitle;
+        $("evTitle").insertAdjacentElement("afterend", sub);
+      }
+      if (design.tag) {
+        $("evTag").textContent = design.tag;
+        $("evTag").hidden = false;
+      }
 
       const meta = [];
-      if (start && !ev.isPerennial) meta.push(start.long);
-      if (start && !ev.isPerennial) {
+      if (Array.isArray(design.meta) && design.meta.length) meta.push(...design.meta);
+      else if (start && !ev.isPerennial) meta.push(start.long);
+      if (!meta.length && start && !ev.isPerennial) {
         meta.push(end && end.time ? start.time + " — " + end.time : start.time);
       }
-      if (ev.isPerennial) meta.push("Flexible dates");
+      if (!meta.length && ev.isPerennial) meta.push("Flexible dates");
       renderMeta($("evMeta"), meta);
 
       const actions = $("evActions");
@@ -1108,7 +1143,7 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
       // cards / "From $X", which need ticket data we may not have here.
       const hasTickets = ev.isTicketed && ev.tickets && ev.tickets.length > 0;
       actions.innerHTML =
-        '<a class="btn-metal" href="#book">Get tickets →</a>' +
+        (ev.isDraft ? "" : '<a class="btn-metal" href="#book">Get tickets →</a>') +
         '<a class="btn-ghost" href="#story">Read more</a>';
 
       // ----- STORY (description) -----
@@ -1116,14 +1151,19 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
       if (paras.length) {
         const body = $("evBody");
         body.innerHTML = "";
+        if (design.storyEyebrow) $("evStoryEyebrow").textContent = design.storyEyebrow;
+        if (design.pullQuote) {
+          $("evPullQuote").textContent = design.pullQuote;
+          $("evPullQuote").hidden = false;
+        }
         paras.forEach((p) => {
           const el = document.createElement("p");
           el.textContent = p;
           body.appendChild(el);
         });
-        if (ev.image) {
+        if (design.storyImage || ev.image) {
           const img = $("evStoryImg");
-          img.src = ev.image;
+          img.src = design.storyImage || ev.image;
           img.alt = ev.title;
           img.hidden = false;
         } else {
@@ -1133,10 +1173,36 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
         $("story").hidden = false;
       }
 
+      if (design.videoImage) {
+        $("evVideoImg").src = design.videoImage;
+        $("evVideoImg").alt = ev.title;
+        $("evVideoSection").hidden = false;
+      }
+
+      if (design.bandImage || design.bandTitle || (design.appreciates && design.appreciates.length)) {
+        if (design.bandImage) $("evBandBg").style.backgroundImage = 'url("' + cssUrl(design.bandImage) + '")';
+        if (design.bandEyebrow) $("evBandEyebrow").textContent = design.bandEyebrow;
+        $("evBandTitle").textContent = design.bandTitle || "";
+        $("evLikes").innerHTML = (design.appreciates || [])
+          .map((text, i) => '<div class="ev-like"><span class="n">' + String(i + 1).padStart(2, "0") + '</span><span>' + esc(text) + "</span></div>")
+          .join("");
+        $("evBandSection").hidden = false;
+      }
+
+      if (design.photoBandImage) {
+        $("evPhotoBandImg").src = design.photoBandImage;
+        $("evPhotoBandImg").alt = ev.title;
+        $("evPhotoBandSection").hidden = false;
+      }
+
       // ----- PRACTICAL INFO -----
       const cells = [];
-      if (start && !ev.isPerennial) cells.push(["Date", start.full]);
-      if (start && !ev.isPerennial) {
+      if (Array.isArray(design.practicalInfo) && design.practicalInfo.length) {
+        cells.push(...design.practicalInfo.map((item) => [item.key, item.value]));
+      } else if (start && !ev.isPerennial) {
+        cells.push(["Date", start.full]);
+      }
+      if (!cells.length && start && !ev.isPerennial) {
         cells.push(["Time", end && end.time ? start.time + " — " + end.time : start.time]);
       }
       if (hasTickets) {
@@ -1145,6 +1211,7 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
         cells.push(["Tickets", "From " + cur(code) + money(min)]);
       }
       if (cells.length) {
+        if (design.practicalTitle) $("evInfoSection").querySelector(".ev-h2").textContent = design.practicalTitle;
         const grid = $("evInfoGrid");
         grid.innerHTML = cells
           .map(([k, v]) => '<div class="ev-info-cell"><div class="k">' + esc(k) + '</div><div class="v">' + esc(v) + "</div></div>")
@@ -1154,6 +1221,7 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
 
       // ----- RATES -----
       if (hasTickets) {
+        if (design.ratesTitle) $("evRatesSection").querySelector(".ev-h2").textContent = design.ratesTitle;
         $("evRates").innerHTML = ev.tickets
           .map((t) => {
             const sym = cur(t.currency);
@@ -1172,8 +1240,10 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
       // Always mount the Otra Guide checkout embed for this event id — the
       // embed renders its own date/time + ticket picker, so it must be present
       // regardless of what the event-detail endpoint reported about tickets.
-      $("book").hidden = false;
-      loadCheckout(ev.id);
+      if (!ev.isDraft) {
+        $("book").hidden = false;
+        loadCheckout(ev.id);
+      }
 
       // re-run the reveal observer for the now-visible sections
       revealAll();
@@ -1206,6 +1276,10 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
       function esc(s) {
         return String(s == null ? "" : s)
           .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+      }
+
+      function cssUrl(s) {
+        return String(s || "").replace(/["\\]/g, "\\$&");
       }
 
       function showError(msg) {
