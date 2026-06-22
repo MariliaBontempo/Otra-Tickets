@@ -493,6 +493,7 @@ main.detail { padding: 0; }
 .ev-gallery-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
 .ev-gallery { margin-top: 34px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
 .ev-gallery image-slot { width: 100%; aspect-ratio: 4 / 3; border: 1px solid var(--line); }
+.ev-gallery img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border: 1px solid var(--line); display: block; }
 .ev-note { font-size: 14px; color: var(--fog-2); max-width: 320px; line-height: 1.5; }
 
 /* ---- PRACTICAL INFO ---- */
@@ -929,6 +930,18 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
       <img id="evPhotoBandImg" src="" alt="" loading="lazy" />
     </section>
 
+    <!-- ============ GALLERY ============ -->
+    <section class="section-pad reveal" id="evGallerySection" hidden>
+      <div class="ev-gallery-head">
+        <div>
+          <span class="ev-eyebrow">Images</span>
+          <h2 class="ev-h2" style="margin-top:18px;">All images</h2>
+        </div>
+        <p class="ev-note">Remaining ZIP assets not already shown above.</p>
+      </div>
+      <div class="ev-gallery" id="evGallery"></div>
+    </section>
+
     <!-- ============ PRACTICAL INFO ============ -->
     <section class="section-pad reveal" id="evInfoSection" hidden>
       <span class="ev-eyebrow">Practical Info</span>
@@ -1141,7 +1154,7 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
       // The checkout embed is always mounted (it handles its own ticket state),
       // so the "Get tickets" CTA always shows. hasTickets only drives the rate
       // cards / "From $X", which need ticket data we may not have here.
-      const hasTickets = ev.isTicketed && ev.tickets && ev.tickets.length > 0;
+      const hasTickets = Array.isArray(ev.tickets) && ev.tickets.length > 0;
       actions.innerHTML =
         '<a class="btn-metal" href="#book">Get tickets →</a>' +
         '<a class="btn-ghost" href="#story">Read more</a>';
@@ -1195,6 +1208,36 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
         $("evPhotoBandSection").hidden = false;
       }
 
+      const gallerySources = [];
+      const seenGallery = new Set();
+      const addGallerySource = (src) => {
+        if (typeof src !== "string") return;
+        const value = src.trim();
+        if (!value || seenGallery.has(value)) return;
+        seenGallery.add(value);
+        gallerySources.push(value);
+      };
+      const rawGallery = Array.isArray(design.galleryImages) && design.galleryImages.length
+        ? design.galleryImages
+        : Array.isArray(design.assets)
+          ? design.assets
+          : [];
+      rawGallery.forEach((src) => {
+        if (typeof src !== "string") return;
+        if (!src.startsWith("/") && !/^https?:/i.test(src)) return;
+        addGallerySource(src);
+      });
+      [ev.image, design.storyImage, design.videoImage, design.bandImage, design.photoBandImage].forEach(addGallerySource);
+      const usedSources = new Set([ev.image, design.storyImage, design.videoImage, design.bandImage, design.photoBandImage].filter(Boolean));
+      const galleryImages = gallerySources.filter((src) => !usedSources.has(src));
+      if (galleryImages.length) {
+        const grid = $("evGallery");
+        grid.innerHTML = galleryImages
+          .map((src, index) => '<img src="' + esc(src) + '" alt="' + esc(ev.title + " image " + (index + 1)) + '" loading="lazy" />')
+          .join("");
+        $("evGallerySection").hidden = false;
+      }
+
       // ----- PRACTICAL INFO -----
       const cells = [];
       if (Array.isArray(design.practicalInfo) && design.practicalInfo.length) {
@@ -1202,9 +1245,11 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
       } else if (start && !ev.isPerennial) {
         cells.push(["Date", start.full]);
       }
-      if (!cells.length && start && !ev.isPerennial) {
+      if (start && !ev.isPerennial) {
         cells.push(["Time", end && end.time ? start.time + " — " + end.time : start.time]);
       }
+      if (!cells.length && ev.isPerennial) cells.push(["Availability", "Flexible dates"]);
+      if (!design.practicalInfo && ev.isPerennial) cells.push(["Location", "Curaçao"]);
       if (hasTickets) {
         const min = Math.min(...ev.tickets.map((t) => Number(t.price) || 0));
         const code = ev.tickets[0].currency;

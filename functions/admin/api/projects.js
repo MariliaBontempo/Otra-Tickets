@@ -321,7 +321,9 @@ async function parseClaudeDesignZip(bytes, draftId, bucket) {
 
   const html = await htmlEntry.async("string");
   const baseDir = htmlEntry.name.includes("/") ? htmlEntry.name.replace(/\/[^/]*$/, "") : "";
-  const assets = bucket ? await storeReferencedAssets(zip, html, baseDir, draftId, bucket) : new Map();
+  const assetBundle = bucket ? await storeReferencedAssets(zip, html, baseDir, draftId, bucket) : { assets: new Map(), galleryImages: [] };
+  const assets = assetBundle.assets;
+  const galleryImages = assetBundle.galleryImages;
   const assetUrl = (value) => {
     const normalized = normalizeAssetPath(value, baseDir);
     return assets.get(normalized) || assets.get(value) || value || "";
@@ -379,7 +381,8 @@ async function parseClaudeDesignZip(bytes, draftId, bucket) {
     practicalInfo: extractCells(info),
     ratesTitle: cleanText(matchSection(rates, /<h2\b[^>]*>([\s\S]*?)<\/h2>/i)),
     rates: extractRates(rates),
-    assets: Array.from(assets.values()),
+    galleryImages,
+    assets: galleryImages.slice(),
   };
 }
 
@@ -389,31 +392,52 @@ async function storeReferencedAssets(zip, html, baseDir, draftId, bucket) {
   for (const src of allMatches(html, /url\(["']?([^"')]+)["']?\)/gi)) refs.add(src);
 
   const out = new Map();
-  await Promise.all(
-    [...refs]
-      .filter((src) => src && !/^(?:https?:|data:|#)/i.test(src))
-      .map(async (src) => {
-        const normalized = normalizeAssetPath(src, baseDir);
-        const entry = zip.file(normalized);
-        if (!entry) return;
-        const ext = normalized.split(".").pop().toLowerCase();
-        if (!["jpg", "jpeg", "png", "webp", "avif", "gif"].includes(ext)) return;
-        const safeName = safeFileName(normalized.split("/").pop() || `asset.${ext}`);
-        const key = `${draftId}/claude-design/${safeName}`;
-        await bucket.put(key, await entry.async("arraybuffer"), {
-          httpMetadata: {
-            contentType: contentTypeFor(ext),
-            cacheControl: "public, max-age=31536000, immutable",
-          },
-          customMetadata: { draftId, sourcePath: normalized },
-        });
-        const url = `/override-images/${key}`;
-        out.set(normalized, url);
-        out.set(src, url);
-        out.set(`${normalized}:key`, key);
-      })
-  );
-  return out;
+  const galleryImages = [];
+  const seenUrls = new Set();
+  const seenPaths = new Set();
+
+  const remember = (url) => {
+    if (!url || seenUrls.has(url)) return;
+    seenUrls.add(url);
+    galleryImages.push(url);
+  };
+
+  const storePath = async (src, normalized) => {
+    if (seenPaths.has(normalized)) return;
+    const entry = zip.file(normalized);
+    if (!entry) return;
+    const ext = normalized.split(".").pop().toLowerCase();
+    if (!["jpg", "jpeg", "png", "webp", "avif", "gif"].includes(ext)) return;
+    const safeName = safeFileName(normalized.split("/").pop() || `asset.${ext}`);
+    const key = `${draftId}/claude-design/${safeName}`;
+    await bucket.put(key, await entry.async("arraybuffer"), {
+      httpMetadata: {
+        contentType: contentTypeFor(ext),
+        cacheControl: "public, max-age=31536000, immutable",
+      },
+      customMetadata: { draftId, sourcePath: normalized },
+    });
+    const url = `/override-images/${key}`;
+    seenPaths.add(normalized);
+    out.set(normalized, url);
+    if (src) out.set(src, url);
+    out.set(`${normalized}:key`, key);
+    remember(url);
+  };
+
+  for (const src of refs) {
+    if (!src || /^(?:https?:|data:|#)/i.test(src)) continue;
+    const normalized = normalizeAssetPath(src, baseDir);
+    await storePath(src, normalized);
+  }
+
+  for (const entry of Object.values(zip.files)) {
+    if (!entry || entry.dir) continue;
+    const normalized = normalizeAssetPath(entry.name, baseDir);
+    await storePath(null, normalized);
+  }
+
+  return { assets: out, galleryImages };
 }
 
 function extractCells(html) {
