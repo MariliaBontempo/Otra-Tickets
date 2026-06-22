@@ -14,7 +14,7 @@ const TYPES = {
 };
 
 export async function onRequestPost(context) {
-  if (!(await requireStaff(context.request))) return json({ error: "unauthorized" }, 401);
+  if (!(await requireStaff(context.request, context.env))) return json({ error: "unauthorized" }, 401);
 
   const bucket = context.env.OVERRIDE_IMAGES;
   if (!bucket) return json({ error: "image store not configured" }, 503);

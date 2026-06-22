@@ -17,27 +17,37 @@ export async function onRequestGet(context) {
   const id = (url.searchParams.get("id") || "").trim();
   if (!isEventId(id)) return json({ error: "invalid id" }, 400);
 
-  const base = await getBasePayload(context, id, url);
+  const project = /^\d+$/.test(id) ? await findProjectByOtraGuideId(context.env, id) : null;
+  const base = await getBasePayload(context, id, url, project);
   if (!base) return json({ error: "not found" }, 404);
 
   const override = await readOverride(context.env, id);
-  const payload = override ? { ...base, ...pickOverride(override) } : base;
+  let payload = override ? { ...base, ...pickOverride(override) } : base;
+  if (project) {
+    payload = {
+      ...payload,
+      isDraft: project.status !== "published",
+      status: project.status === "published" ? "published" : "draft",
+      design: project.claudeDesign || null,
+    };
+  }
   return json(payload, 200, override ? 0 : 60);
 }
 
-async function getBasePayload(context, id, url) {
+async function getBasePayload(context, id, url, project) {
   if (isDraftId(id)) return getDraftPayload(context.env, id);
 
+  const api = apiBase(context.env);
   const cache = caches.default;
   const cacheKey = new Request(new URL(`/api/event-base?id=${id}`, url));
-  const cached = await cache.match(cacheKey);
+  const cached = project ? null : await cache.match(cacheKey);
   if (cached) return cached.json();
 
   const accentOverride = ACCENT_OVERRIDES[id] || null;
   const [detail, ticketData, calendarAccent] = await Promise.all([
-    fetchJson(`${API}/events/details/${id}/`),
-    fetchJson(`${API}/ticket/purchase/tickets/${id}/`),
-    accentOverride ? Promise.resolve(null) : fetchCalendarPrimary(id),
+    fetchJson(`${api}/events/details/${id}/`),
+    fetchJson(`${api}/ticket/purchase/tickets/${id}/`),
+    accentOverride ? Promise.resolve(null) : fetchCalendarPrimary(id, api),
   ]);
   if (!detail) return null;
 
@@ -59,11 +69,31 @@ async function getBasePayload(context, id, url) {
     image: detail.full_web_image_url || detail.half_web_image_url || detail.card_image_url || "",
     socialLinks: Array.isArray(detail.social_links) ? detail.social_links : [],
     accent: accentOverride || calendarAccent,
+    checkoutBaseUrl: api.replace(/\/api$/, ""),
     tickets,
   };
 
-  context.waitUntil(cache.put(cacheKey, json(base, 200, EDGE_TTL).clone()));
+  if (!project) context.waitUntil(cache.put(cacheKey, json(base, 200, EDGE_TTL).clone()));
   return base;
+}
+
+async function findProjectByOtraGuideId(env, id) {
+  const kv = env && env.OVERRIDES;
+  if (!kv) return null;
+  let cursor;
+  do {
+    const page = await kv.list({ prefix: "site-event:", cursor });
+    for (const key of page.keys || []) {
+      const project = await kv.get(key.name, "json");
+      if (project && String(project.otraGuideId || "") === String(id)) return project;
+    }
+    cursor = page.list_complete ? undefined : page.cursor;
+  } while (cursor);
+  return null;
+}
+
+function apiBase(env) {
+  return String((env && env.OTRA_API_URL) || API).replace(/\/$/, "");
 }
 
 async function getDraftPayload(env, id) {
@@ -144,9 +174,9 @@ async function fetchJson(url) {
   }
 }
 
-async function fetchCalendarPrimary(id) {
+async function fetchCalendarPrimary(id, api = API) {
   try {
-    const resp = await fetch(`${API.replace(/\/api$/, "")}/ticketing/stripe-external-iframe/calendar/${id}/`, {
+    const resp = await fetch(`${api.replace(/\/api$/, "")}/ticketing/stripe-external-iframe/calendar/${id}/`, {
       cf: { cacheTtl: UPSTREAM_TTL, cacheEverything: true },
     });
     if (!resp.ok) return null;

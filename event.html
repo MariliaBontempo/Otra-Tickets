@@ -1143,7 +1143,7 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
       // cards / "From $X", which need ticket data we may not have here.
       const hasTickets = ev.isTicketed && ev.tickets && ev.tickets.length > 0;
       actions.innerHTML =
-        (ev.isDraft ? "" : '<a class="btn-metal" href="#book">Get tickets →</a>') +
+        '<a class="btn-metal" href="#book">Get tickets →</a>' +
         '<a class="btn-ghost" href="#story">Read more</a>';
 
       // ----- STORY (description) -----
@@ -1240,10 +1240,8 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
       // Always mount the Otra Guide checkout embed for this event id — the
       // embed renders its own date/time + ticket picker, so it must be present
       // regardless of what the event-detail endpoint reported about tickets.
-      if (!ev.isDraft) {
-        $("book").hidden = false;
-        loadCheckout(ev.id);
-      }
+      $("book").hidden = false;
+      loadCheckout(ev.id, ev.checkoutBaseUrl || "https://otraguide.com");
 
       // re-run the reveal observer for the now-visible sections
       revealAll();
@@ -1300,17 +1298,17 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
       // library pins the iframe at a fixed height and ignores the checkout's own
       // resize messages, forcing an inner scrollbar — so we honor those messages
       // and grow the iframe to its full content height.
-      function loadCheckout(eventId) {
+      function loadCheckout(eventId, checkoutBaseUrl) {
         function mount() {
           window.OtraStripeCheckoutEmbed.create({
             eventId: eventId,
             containerId: "otra-checkout-container",
-            baseUrl: "https://otraguide.com",
+            baseUrl: checkoutBaseUrl,
             isRecurring: false,
           });
           const container = document.getElementById("otra-checkout-container");
           window.addEventListener("message", function (e) {
-            if (e.origin !== "https://otraguide.com") return;
+            if (e.origin !== new URL(checkoutBaseUrl).origin) return;
             const d = e.data;
             if (d && d.type === "OTRA_IFRAME_RESIZE" && d.height) {
               const iframe = container && container.querySelector("iframe");
@@ -1323,7 +1321,7 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
         }
         if (window.OtraStripeCheckoutEmbed) { mount(); return; }
         const s = document.createElement("script");
-        s.src = "https://otraguide.com/embed/stripe-script.js";
+        s.src = checkoutBaseUrl + "/embed/stripe-script.js";
         s.onload = mount;
         s.onerror = function () { console.error("Could not load checkout embed."); };
         document.head.appendChild(s);

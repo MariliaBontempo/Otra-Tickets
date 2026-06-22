@@ -4,14 +4,14 @@
 // event record is stored in KV. Publishing the draft into the public homepage
 // can build on this record.
 
-import { requireStaff, json } from "./_auth.js";
+import { apiBase, requireStaff, json } from "./_auth.js";
 import JSZip from "jszip";
 
 const MAX_BYTES = 50 * 1024 * 1024;
 const DRAFT_PREFIX = "site-event:";
 
 export async function onRequestGet(context) {
-  if (!(await requireStaff(context.request))) return json({ error: "unauthorized" }, 401);
+  if (!(await requireStaff(context.request, context.env))) return json({ error: "unauthorized" }, 401);
 
   const kv = context.env.OVERRIDES;
   if (!kv) return json({ error: "overrides store not configured" }, 503);
@@ -21,48 +21,42 @@ export async function onRequestGet(context) {
 }
 
 export async function onRequestPost(context) {
-  if (!(await requireStaff(context.request))) return json({ error: "unauthorized" }, 401);
+  const accessToken = await requireStaff(context.request, context.env);
+  if (!accessToken) return json({ error: "unauthorized" }, 401);
 
   const kv = context.env.OVERRIDES;
   if (!kv) return json({ error: "overrides store not configured" }, 503);
 
-  const bucket = context.env.OVERRIDE_IMAGES;
-  if (!bucket) return json({ error: "project store not configured" }, 503);
-
   const url = new URL(context.request.url);
   if (url.searchParams.get("action") === "publish") {
     const id = (url.searchParams.get("id") || "").trim();
-    const mode = (url.searchParams.get("mode") || "clone").trim();
-    const otraGuideId = (url.searchParams.get("otraGuideId") || "").trim();
     if (!isDraftId(id)) return json({ error: "invalid draft id" }, 400);
-    if (mode !== "clone" && mode !== "update") return json({ error: "invalid publish mode" }, 400);
-    if (mode === "update" && !/^\d+$/.test(otraGuideId)) {
-      return json({ error: "Otra Guide event ID is required for update" }, 400);
-    }
     const project = await getProject(kv, id);
     if (!project) return json({ error: "draft not found" }, 404);
-    if (mode === "clone") {
+    if (!project.otraGuideId || !project.otraGuideSlug) {
+      return json({ error: "draft has not been created on Otra Guide yet", project }, 409);
+    }
+    try {
+      const reconciled = await reconcileTickets(context, accessToken, project);
+      await otraFetch(context, accessToken, `/events/update/${encodeURIComponent(project.otraGuideSlug)}/`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ published: true }),
+      });
       const next = {
-        ...project,
+        ...reconciled,
         status: "published",
         publishedAt: new Date().toISOString(),
-        publishMode: "clone",
+        syncError: "",
       };
-      await kv.put(`${DRAFT_PREFIX}${id}`, JSON.stringify(next));
-      return json({ project: next, mode, local: true });
+      await putProject(kv, next);
+      return json({ project: next });
+    } catch (error) {
+      const latest = (await getProject(kv, id)) || project;
+      const failed = { ...latest, syncError: error.message };
+      await putProject(kv, failed);
+      return json({ error: error.message, project: failed }, 502);
     }
-    return json(
-      {
-        error:
-          mode === "update"
-            ? "Otra Guide update endpoint is not configured yet"
-            : "Otra Guide clone endpoint is not configured yet",
-        mode,
-        otraGuideId,
-        project,
-      },
-      501
-    );
   }
 
   let form;
@@ -77,9 +71,22 @@ export async function onRequestPost(context) {
   if (!isZip(file)) return json({ error: "file must be a zip project" }, 400);
   if (file.size > MAX_BYTES) return json({ error: "zip file must be 50MB or smaller" }, 400);
 
+  const bytes = await file.arrayBuffer();
+  if (url.searchParams.get("action") === "inspect") {
+    const parsed = await parseClaudeDesignZip(bytes, "inspection", null);
+    return json({
+      title: parsed.title || titleFromFileName(file.name),
+      description: parsed.description || "",
+      rates: parsed.rates || [],
+      practicalInfo: parsed.practicalInfo || [],
+    });
+  }
+
+  const bucket = context.env.OVERRIDE_IMAGES;
+  if (!bucket) return json({ error: "project store not configured" }, 503);
+
   const id = `draft-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
   const originalName = file.name || "claude-design.zip";
-  const bytes = await file.arrayBuffer();
   const parsed = await parseClaudeDesignZip(bytes, id, bucket);
   const key = `claude-design/${id}.zip`;
   await bucket.put(key, bytes, {
@@ -93,7 +100,7 @@ export async function onRequestPost(context) {
     },
   });
 
-  const project = {
+  let project = {
     id,
     title: parsed.title || titleFromFileName(originalName),
     description: parsed.description || "",
@@ -104,9 +111,153 @@ export async function onRequestPost(context) {
     createdAt: new Date().toISOString(),
     image: parsed.image || "",
     claudeDesign: parsed,
+    teamId: cleanInteger(form.get("teamId")),
+    teamName: String(form.get("teamName") || "").trim(),
+    regionId: cleanInteger(form.get("regionId")),
+    startDate: String(form.get("startDate") || ""),
+    endDate: String(form.get("endDate") || ""),
+    isPerennial: String(form.get("isPerennial") || "false") === "true",
+    location: String(form.get("location") || "").trim(),
+    ticketQuantities: parseQuantities(form.get("ticketQuantities"), parsed.rates.length),
+    ticketTypeIds: [],
   };
-  await kv.put(`${DRAFT_PREFIX}${id}`, JSON.stringify(project));
-  return json({ project });
+  await putProject(kv, project);
+
+  try {
+    if (!project.regionId) throw new Error("region is required");
+    if (!project.teamId) {
+      if (!project.teamName) throw new Error("team is required");
+      const team = await otraFetch(context, accessToken, "/teams/", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: project.teamName, region: project.regionId }),
+      });
+      project = { ...project, teamId: team.id, teamName: team.name || project.teamName };
+      await putProject(kv, project);
+    } else {
+      await otraFetch(context, accessToken, `/teams/${project.teamId}/`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ region: project.regionId }),
+      });
+    }
+
+    project = await createOtraGuideEvent(context, accessToken, bucket, project);
+    await putProject(kv, project);
+    project = await reconcileTickets(context, accessToken, project);
+    project = { ...project, syncError: "" };
+    await putProject(kv, project);
+    return json({ project }, 201);
+  } catch (error) {
+    const latest = (await getProject(kv, id)) || project;
+    const failed = { ...latest, syncError: error.message };
+    await putProject(kv, failed);
+    return json({ project: failed, warning: error.message }, 202);
+  }
+}
+
+async function createOtraGuideEvent(context, accessToken, bucket, project) {
+  if (project.otraGuideId) return project;
+  if (!project.startDate || !project.endDate || !project.location) {
+    throw new Error("start date, end date and location are required");
+  }
+  const form = new FormData();
+  form.set("title", project.title);
+  form.set("description", project.description || project.title);
+  form.set("category", "339");
+  form.set("team", String(project.teamId));
+  form.set("start_date", project.startDate);
+  form.set("end_date", project.endDate);
+  form.set("location", project.location);
+  form.set("published", "false");
+  form.set("is_perennial", project.isPerennial ? "true" : "false");
+  form.set("is_recurring", project.isPerennial ? "true" : "false");
+
+  if (project.claudeDesign && project.claudeDesign.heroKey) {
+    const hero = await bucket.get(project.claudeDesign.heroKey);
+    if (hero) {
+      form.set(
+        "image",
+        new File([await hero.arrayBuffer()], project.claudeDesign.heroName || "hero.jpg", {
+          type: (hero.httpMetadata && hero.httpMetadata.contentType) || "image/jpeg",
+        })
+      );
+    }
+  }
+  const event = await otraFetch(context, accessToken, "/events/create/", { method: "POST", body: form });
+  return {
+    ...project,
+    otraGuideId: String(event.id),
+    otraGuideSlug: event.slug,
+  };
+}
+
+async function reconcileTickets(context, accessToken, project) {
+  const rates = (project.claudeDesign && project.claudeDesign.rates) || [];
+  const ids = [...(project.ticketTypeIds || [])];
+  for (let index = 0; index < rates.length; index += 1) {
+    const rate = rates[index];
+    const payload = {
+      name: rate.name,
+      description: rate.description || "",
+      price: rate.price,
+      quantity: project.ticketQuantities[index] || 500,
+      base_currency: ["USD", "EUR", "ANG"].includes(rate.currency) ? rate.currency : "USD",
+    };
+    const existingId = ids[index];
+    const path = existingId
+      ? `/ticket/create/tickets/${project.otraGuideId}/${existingId}/`
+      : `/ticket/create/tickets/${project.otraGuideId}/`;
+    const ticket = await otraFetch(context, accessToken, path, {
+      method: existingId ? "PATCH" : "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    ids[index] = ticket.id;
+    project = { ...project, ticketTypeIds: ids };
+    await putProject(context.env.OVERRIDES, project);
+  }
+  return project;
+}
+
+async function otraFetch(context, accessToken, path, options = {}) {
+  const headers = new Headers(options.headers || {});
+  headers.set("authorization", `Bearer ${accessToken}`);
+  headers.set("accept", "application/json");
+  let response;
+  try {
+    response = await fetch(`${apiBase(context.env)}${path}`, { ...options, headers });
+  } catch {
+    throw new Error("could not reach Otra Guide");
+  }
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const detail = data.detail || data.error || Object.values(data).flat().join(" ");
+    throw new Error(detail || `Otra Guide request failed (${response.status})`);
+  }
+  return data;
+}
+
+function putProject(kv, project) {
+  return kv.put(`${DRAFT_PREFIX}${project.id}`, JSON.stringify(project));
+}
+
+function cleanInteger(value) {
+  const parsed = Number.parseInt(String(value || ""), 10);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function parseQuantities(value, count) {
+  let raw = [];
+  try {
+    raw = JSON.parse(String(value || "[]"));
+  } catch {
+    raw = [];
+  }
+  return Array.from({ length: count }, (_, index) => {
+    const quantity = Number.parseInt(raw[index], 10);
+    return Number.isSafeInteger(quantity) && quantity > 0 ? quantity : 500;
+  });
 }
 
 async function listProjects(kv) {
@@ -143,6 +294,17 @@ function normalizeProject(raw, id) {
     createdAt: typeof raw.createdAt === "string" ? raw.createdAt : "",
     publishedAt: typeof raw.publishedAt === "string" ? raw.publishedAt : "",
     otraGuideId: raw.otraGuideId ? String(raw.otraGuideId) : "",
+    otraGuideSlug: typeof raw.otraGuideSlug === "string" ? raw.otraGuideSlug : "",
+    teamId: cleanInteger(raw.teamId),
+    teamName: typeof raw.teamName === "string" ? raw.teamName : "",
+    regionId: cleanInteger(raw.regionId),
+    startDate: typeof raw.startDate === "string" ? raw.startDate : "",
+    endDate: typeof raw.endDate === "string" ? raw.endDate : "",
+    isPerennial: !!raw.isPerennial,
+    location: typeof raw.location === "string" ? raw.location : "",
+    ticketQuantities: Array.isArray(raw.ticketQuantities) ? raw.ticketQuantities : [],
+    ticketTypeIds: Array.isArray(raw.ticketTypeIds) ? raw.ticketTypeIds : [],
+    syncError: typeof raw.syncError === "string" ? raw.syncError : "",
   };
 }
 
@@ -159,7 +321,7 @@ async function parseClaudeDesignZip(bytes, draftId, bucket) {
 
   const html = await htmlEntry.async("string");
   const baseDir = htmlEntry.name.includes("/") ? htmlEntry.name.replace(/\/[^/]*$/, "") : "";
-  const assets = await storeReferencedAssets(zip, html, baseDir, draftId, bucket);
+  const assets = bucket ? await storeReferencedAssets(zip, html, baseDir, draftId, bucket) : new Map();
   const assetUrl = (value) => {
     const normalized = normalizeAssetPath(value, baseDir);
     return assets.get(normalized) || assets.get(value) || value || "";
@@ -173,7 +335,9 @@ async function parseClaudeDesignZip(bytes, draftId, bucket) {
   const info = sectionAfterEyebrow(html, "Practical Info");
   const rates = sectionAfterEyebrow(html, "Rates");
 
-  const heroImage = assetUrl(attr(matchSection(html, /<img[^>]*class=["'][^"']*ev-hero-img[^"']*["'][^>]*>/i), "src"));
+  const heroSource = attr(matchSection(html, /<img[^>]*class=["'][^"']*ev-hero-img[^"']*["'][^>]*>/i), "src");
+  const heroImage = assetUrl(heroSource);
+  const heroPath = normalizeAssetPath(heroSource, baseDir);
   const storyImage = assetUrl(attr(matchSection(story, /<img[^>]*class=["'][^"']*ev-story-img[^"']*["'][^>]*>/i), "src"));
   const videoImage = assetUrl(attr(matchSection(video, /<img[^>]*>/i), "src"));
   const bandImage = assetUrl(matchSection(band, /background-image\s*:\s*url\(["']?([^"')]+)["']?\)/i));
@@ -198,6 +362,8 @@ async function parseClaudeDesignZip(bytes, draftId, bucket) {
       .filter((text) => text && text !== "·"),
     description,
     image: heroImage,
+    heroKey: assets.get(`${heroPath}:key`) || "",
+    heroName: safeFileName(heroPath.split("/").pop() || "hero.jpg"),
     storyImage,
     pullQuote: cleanText(matchSection(story, /<p[^>]*class=["'][^"']*ev-pull[^"']*["'][^>]*>([\s\S]*?)<\/p>/i)),
     storyEyebrow: cleanText(matchSection(story, /<span[^>]*class=["'][^"']*ev-eyebrow[^"']*["'][^>]*>([\s\S]*?)<\/span>/i)),
@@ -244,6 +410,7 @@ async function storeReferencedAssets(zip, html, baseDir, draftId, bucket) {
         const url = `/override-images/${key}`;
         out.set(normalized, url);
         out.set(src, url);
+        out.set(`${normalized}:key`, key);
       })
   );
   return out;

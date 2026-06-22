@@ -3,6 +3,8 @@
 // Staff-only list for the admin dropdown. It returns the hand-built pages first,
 // then ticketed Otra Guide events that open through event.html?id=<id>.
 
+import { apiBase, requireStaff } from "./_auth.js";
+
 const API = "https://otraguide.com/api";
 const CATEGORY_ID = 339;
 const FEATURED_IDS = new Set([7275, 6113]);
@@ -18,10 +20,10 @@ const MANUAL_PAGES = [
 ];
 
 export async function onRequestGet(context) {
-  const auth = await requireStaff(context.request);
-  if (!auth.ok) return auth.response;
+  const auth = await requireStaff(context.request, context.env);
+  if (!auth) return json({ error: "unauthorized" }, 401);
 
-  const [drafts, dynamic] = await Promise.all([buildDraftPages(context.env), buildTemplatePages()]);
+  const [drafts, dynamic] = await Promise.all([buildDraftPages(context.env), buildTemplatePages(apiBase(context.env))]);
   return json({ pages: [...drafts, ...MANUAL_PAGES, ...dynamic] });
 }
 
@@ -41,9 +43,13 @@ async function buildDraftPages(env) {
         id,
         title: typeof project.title === "string" && project.title.trim() ? project.title.trim() : "Claude Design Event",
         type: project.status === "published" ? "Published draft" : "Draft event",
-        url: `/event.html?id=${encodeURIComponent(id)}`,
         isDraft: true,
         status: project.status === "published" ? "published" : "draft",
+        otraGuideId: project.otraGuideId ? String(project.otraGuideId) : "",
+        syncError: typeof project.syncError === "string" ? project.syncError : "",
+        url: project.otraGuideId
+          ? `/event.html?id=${encodeURIComponent(project.otraGuideId)}`
+          : `/event.html?id=${encodeURIComponent(id)}`,
       });
     }
     cursor = page.list_complete ? undefined : page.cursor;
@@ -52,10 +58,10 @@ async function buildDraftPages(env) {
   return drafts.sort((a, b) => String(b.id).localeCompare(String(a.id)));
 }
 
-async function buildTemplatePages() {
+async function buildTemplatePages(apiUrl = API) {
   const pages = await Promise.all(
     Array.from({ length: MAX_PAGES }, (_, i) =>
-      fetchJson(`${API}/events/nonperennial/?category_id=${CATEGORY_ID}&page=${i + 1}&page_size=${PAGE_SIZE}`)
+      fetchJson(`${apiUrl}/events/nonperennial/?category_id=${CATEGORY_ID}&page=${i + 1}&page_size=${PAGE_SIZE}`)
     )
   );
   const byId = new Map();
@@ -71,7 +77,7 @@ async function buildTemplatePages() {
 
   const ticketCounts = await Promise.all(
     candidates.map(async (ev) => {
-      const data = await fetchJson(`${API}/ticket/purchase/tickets/${ev.id}/`);
+      const data = await fetchJson(`${apiUrl}/ticket/purchase/tickets/${ev.id}/`);
       return data ? data.count || 0 : 0;
     })
   );
@@ -100,26 +106,6 @@ async function fetchJson(url) {
     return await resp.json();
   } catch {
     return null;
-  }
-}
-
-async function requireStaff(request) {
-  const m = (request.headers.get("authorization") || "").match(/^Bearer\s+(.+)$/i);
-  if (!m) return { ok: false, response: json({ error: "missing token" }, 401) };
-  const ok = await checkStaff(m[1]);
-  return ok ? { ok: true } : { ok: false, response: json({ error: "forbidden" }, 403) };
-}
-
-async function checkStaff(accessToken) {
-  try {
-    const resp = await fetch(`${API}/users/user-role/`, {
-      headers: { authorization: `Bearer ${accessToken}`, accept: "application/json" },
-    });
-    if (!resp.ok) return false;
-    const data = await resp.json();
-    return !!data.is_staff_or_admin;
-  } catch {
-    return false;
   }
 }
 

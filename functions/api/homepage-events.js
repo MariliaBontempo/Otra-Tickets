@@ -168,7 +168,8 @@ async function buildPublishedSiteEvents(env) {
         project = null;
       }
       if (!project || typeof project !== "object" || project.status !== "published") continue;
-      const id = key.name.replace(/^site-event:/, "");
+      const draftId = key.name.replace(/^site-event:/, "");
+      const id = project.otraGuideId ? String(project.otraGuideId) : draftId;
       out.push({
         id,
         title: typeof project.title === "string" && project.title.trim() ? project.title.trim() : "Claude Design Event",

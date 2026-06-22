@@ -11,7 +11,7 @@ const LEGACY_KEY = (id) => `override:${id}`;
 export async function onRequestGet(context) {
   const id = getId(context.request);
   if (!id) return json({ error: "invalid id" }, 400);
-  if (!(await requireStaff(context.request))) return json({ error: "unauthorized" }, 401);
+  if (!(await requireStaff(context.request, context.env))) return json({ error: "unauthorized" }, 401);
 
   const kv = context.env.OVERRIDES;
   if (!kv) return json({ error: "overrides store not configured" }, 503);
@@ -23,7 +23,7 @@ export async function onRequestGet(context) {
 export async function onRequestPut(context) {
   const id = getId(context.request);
   if (!id) return json({ error: "invalid id" }, 400);
-  if (!(await requireStaff(context.request))) return json({ error: "unauthorized" }, 401);
+  if (!(await requireStaff(context.request, context.env))) return json({ error: "unauthorized" }, 401);
 
   const kv = context.env.OVERRIDES;
   if (!kv) return json({ error: "overrides store not configured" }, 503);

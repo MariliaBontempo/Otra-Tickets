@@ -8,7 +8,7 @@ import { requireStaff, json } from "./_auth.js";
 const KEY = "homepage:layout";
 
 export async function onRequestGet(context) {
-  if (!(await requireStaff(context.request))) return json({ error: "unauthorized" }, 401);
+  if (!(await requireStaff(context.request, context.env))) return json({ error: "unauthorized" }, 401);
 
   const kv = context.env.OVERRIDES;
   if (!kv) return json({ error: "overrides store not configured" }, 503);
@@ -30,7 +30,7 @@ export async function onRequestGet(context) {
 }
 
 export async function onRequestPut(context) {
-  if (!(await requireStaff(context.request))) return json({ error: "unauthorized" }, 401);
+  if (!(await requireStaff(context.request, context.env))) return json({ error: "unauthorized" }, 401);
 
   const kv = context.env.OVERRIDES;
   if (!kv) return json({ error: "overrides store not configured" }, 503);
