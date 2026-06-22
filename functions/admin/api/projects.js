@@ -184,6 +184,33 @@ async function createOtraGuideEvent(context, accessToken, bucket, project) {
       );
     }
   }
+  const gallerySources = Array.isArray(project.claudeDesign && project.claudeDesign.galleryImages)
+    ? project.claudeDesign.galleryImages
+    : Array.isArray(project.claudeDesign && project.claudeDesign.assets)
+      ? project.claudeDesign.assets
+      : [];
+  const heroUrl = project.claudeDesign && typeof project.claudeDesign.image === "string" ? project.claudeDesign.image : "";
+  const seenGallery = new Set();
+  for (const src of gallerySources) {
+    if (typeof src !== "string") continue;
+    const value = src.trim();
+    if (!value || value === heroUrl || seenGallery.has(value)) continue;
+    seenGallery.add(value);
+    try {
+      const resp = await fetch(value);
+      if (!resp.ok) continue;
+      const blob = await resp.blob();
+      const filename = decodeURIComponent(value.split("/").pop() || "gallery.jpg");
+      form.append(
+        "gallery_images",
+        new File([blob], filename, {
+          type: blob.type || resp.headers.get("content-type") || "application/octet-stream",
+        })
+      );
+    } catch {
+      // Ignore individual gallery image failures; the draft still has the primary event.
+    }
+  }
   const event = await otraFetch(context, accessToken, "/events/create/", { method: "POST", body: form });
   return {
     ...project,
