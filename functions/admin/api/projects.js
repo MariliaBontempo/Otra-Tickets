@@ -35,12 +35,16 @@ export async function onRequestPost(context) {
       return json({ error: "draft has not been created on Otra Guide yet", project }, 409);
     }
     try {
-      const reconciled = await reconcileTickets(context, accessToken, project);
-      await otraFetch(context, accessToken, `/events/update/${encodeURIComponent(project.otraGuideSlug)}/`, {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ published: true }),
-      });
+      const reconciled = project.usesExistingOtraGuideEvent
+        ? project
+        : await reconcileTickets(context, accessToken, project);
+      if (!project.usesExistingOtraGuideEvent || project.otraGuideSlug !== project.otraGuideId) {
+        await otraFetch(context, accessToken, `/events/update/${encodeURIComponent(project.otraGuideSlug)}/`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ published: true }),
+        });
+      }
       const next = {
         ...reconciled,
         status: "published",
@@ -88,6 +92,7 @@ export async function onRequestPost(context) {
   const parsed = await parseClaudeDesignZip(bytes, id, { collectFiles: true });
   const eventFiles = parsed.eventFiles || {};
   delete parsed.eventFiles;
+  const existingEventId = cleanInteger(form.get("existingEventId"));
 
   let project = {
     id,
@@ -109,7 +114,21 @@ export async function onRequestPost(context) {
     location: String(form.get("location") || "").trim(),
     ticketQuantities: parseQuantities(form.get("ticketQuantities"), parsed.rates.length),
     ticketTypeIds: [],
+    usesExistingOtraGuideEvent: !!existingEventId,
   };
+
+  if (existingEventId) {
+    try {
+      project = await createDraftFromExistingEvent(context, accessToken, project, existingEventId);
+      await putProject(kv, project);
+      return json({ project }, 201);
+    } catch (error) {
+      const failed = { ...project, otraGuideId: String(existingEventId), syncError: error.message };
+      await putProject(kv, failed);
+      return json({ project: failed, warning: error.message }, 202);
+    }
+  }
+
   await putProject(kv, project);
 
   try {
@@ -143,6 +162,48 @@ export async function onRequestPost(context) {
     await putProject(kv, failed);
     return json({ project: failed, warning: error.message }, 202);
   }
+}
+
+async function createDraftFromExistingEvent(context, accessToken, project, eventId) {
+  const [detail, tickets] = await Promise.all([
+    otraFetch(context, accessToken, `/events/details/${eventId}/`),
+    fetchEventTickets(context, accessToken, eventId),
+  ]);
+  const rates = tickets.map((ticket) => ({
+    name: ticket.name || "Ticket",
+    description: ticket.description || "",
+    price: ticket.price || "0.00",
+    currency: normalizeCurrency((ticket.base_currency && ticket.base_currency.code) || ticket.base_currency),
+  }));
+  if (!rates.length) throw new Error("selected Otra Guide event has no ticket types");
+
+  return {
+    ...project,
+    title: detail.title || project.title,
+    description: detail.description || project.description,
+    image: detail.full_web_image_url || detail.half_web_image_url || detail.card_image_url || project.image,
+    claudeDesign: {
+      ...(project.claudeDesign || {}),
+      rates,
+      ratesTitle: "Tickets from Otra Guide",
+    },
+    teamId: cleanInteger(detail.team && detail.team.id),
+    teamName: detail.team && detail.team.name ? detail.team.name : project.teamName,
+    regionId: cleanInteger(detail.team && detail.team.region) || project.regionId,
+    startDate: detail.start_date || project.startDate,
+    endDate: detail.end_date || project.endDate,
+    isPerennial: !!detail.is_perennial,
+    location: detail.location || project.location,
+    ticketQuantities: tickets.map((ticket) => {
+      const quantity = Number.parseInt(ticket.quantity, 10);
+      return Number.isSafeInteger(quantity) && quantity > 0 ? quantity : 500;
+    }),
+    ticketTypeIds: tickets.map((ticket) => ticket.id).filter(Boolean),
+    otraGuideId: String(detail.id || eventId),
+    otraGuideSlug: detail.slug || String(eventId),
+    usesExistingOtraGuideEvent: true,
+    syncError: "",
+  };
 }
 
 async function createOtraGuideEvent(context, accessToken, project, eventFiles = {}) {
@@ -217,6 +278,11 @@ async function reconcileTickets(context, accessToken, project) {
   return project;
 }
 
+async function fetchEventTickets(context, accessToken, eventId) {
+  const data = await otraFetch(context, accessToken, `/ticket/purchase/tickets/${eventId}/`);
+  return Array.isArray(data && data.results) ? data.results : [];
+}
+
 async function otraFetch(context, accessToken, path, options = {}) {
   const headers = new Headers(options.headers || {});
   headers.set("authorization", `Bearer ${accessToken}`);
@@ -255,6 +321,11 @@ function parseQuantities(value, count) {
     const quantity = Number.parseInt(raw[index], 10);
     return Number.isSafeInteger(quantity) && quantity > 0 ? quantity : 500;
   });
+}
+
+function normalizeCurrency(value) {
+  const code = String(value || "").toUpperCase();
+  return ["USD", "EUR", "ANG"].includes(code) ? code : "USD";
 }
 
 async function listProjects(kv) {
@@ -301,6 +372,7 @@ function normalizeProject(raw, id) {
     location: typeof raw.location === "string" ? raw.location : "",
     ticketQuantities: Array.isArray(raw.ticketQuantities) ? raw.ticketQuantities : [],
     ticketTypeIds: Array.isArray(raw.ticketTypeIds) ? raw.ticketTypeIds : [],
+    usesExistingOtraGuideEvent: !!raw.usesExistingOtraGuideEvent,
     syncError: typeof raw.syncError === "string" ? raw.syncError : "",
   };
 }
