@@ -350,6 +350,7 @@
       <select id="pageSelect" aria-label="Select page"></select>
       <div class="row split">
         <div class="top-status" id="status"></div>
+        <button class="btn ghost hidden" id="archivePageBtn" type="button">Archive</button>
         <button class="btn primary hidden" id="publishDraftBtn" type="button">Publish</button>
         <button class="btn ghost" id="logoutBtn" type="button">Sign out</button>
       </div>
@@ -1022,6 +1023,7 @@
   }
 
   $("pageSelect").addEventListener("change", () => selectPage($("pageSelect").value));
+  $("archivePageBtn").addEventListener("click", archiveSelectedPage);
   $("publishDraftBtn").addEventListener("click", openPublishModal);
   $("previewFrame").addEventListener("load", () => injectEditControls());
   $("closeModalBtn").addEventListener("click", closeModal);
@@ -1125,7 +1127,13 @@
         .join("");
       const initial = preferredId && pages.some((page) => page.id === preferredId) ? preferredId : pages[0] && pages[0].id;
       if (initial) await selectPage(initial);
-      else setStatus("No editable pages found.", "error");
+      else {
+        selected = null;
+        $("archivePageBtn").classList.add("hidden");
+        $("publishDraftBtn").classList.add("hidden");
+        $("previewFrame").removeAttribute("src");
+        setStatus("No editable pages found.", "error");
+      }
     } catch (err) {
       sessionStorage.removeItem(tokenKey);
       token = "";
@@ -1238,6 +1246,7 @@
     selected = pages.find((page) => page.id === id);
     if (!selected) return;
     $("pageSelect").value = selected.id;
+    $("archivePageBtn").classList.toggle("hidden", !selected);
     $("publishDraftBtn").classList.toggle("hidden", !isDraft(selected) || selected.status === "published");
     $("previewFrame").src = selected.url;
     $("description").value = "";
@@ -1267,6 +1276,35 @@
 
   function closePublishModal() {
     $("publishModal").classList.add("hidden");
+  }
+
+  async function archiveSelectedPage() {
+    if (!selected) return;
+    const label = `${selected.title} - ${selected.type}`;
+    if (!window.confirm(`Remove "${label}" from the Edit dropdown? This will not delete the Otra Guide event.`)) return;
+
+    const btn = $("archivePageBtn");
+    btn.disabled = true;
+    setStatus("Archiving from edit list...");
+    try {
+      if (isDraft(selected)) {
+        const params = new URLSearchParams({ id: selected.id, action: "archive" });
+        await api("/admin/api/projects?" + params.toString(), { method: "POST", headers: authHeaders() });
+      } else {
+        const params = new URLSearchParams({ action: "hide" });
+        await api("/admin/api/pages?" + params.toString(), {
+          method: "POST",
+          headers: authHeaders({ "content-type": "application/json" }),
+          body: JSON.stringify({ id: selected.id }),
+        });
+      }
+      setStatus("Removed from edit list.", "ok");
+      await loadPages();
+    } catch (err) {
+      setStatus(err.message, "error");
+    } finally {
+      btn.disabled = false;
+    }
   }
 
   async function publishSelectedDraft(e) {
