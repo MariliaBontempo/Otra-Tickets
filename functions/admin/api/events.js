@@ -9,7 +9,7 @@ import { apiBase, requireStaff, json } from "./_auth.js";
 const CATEGORY_ID = 339;
 const PAGE_SIZE = 12;
 const FEED_SCAN_PAGES = 8;
-const MAX_HYDRATE = 40;
+const MAX_HYDRATE = 16;
 
 export async function onRequestGet(context) {
   const accessToken = await requireStaff(context.request, context.env);
@@ -35,6 +35,9 @@ async function searchEvents(context, accessToken, query, region) {
   const ids = new Set();
 
   if (/^\d+$/.test(query)) ids.add(Number(query));
+  const addCandidate = (event) => {
+    if (event && event.id && matchesQuery(event, query)) ids.add(Number(event.id));
+  };
 
   const nonPerennialParams = new URLSearchParams({
     category_id: String(CATEGORY_ID),
@@ -68,11 +71,11 @@ async function searchEvents(context, accessToken, query, region) {
     ...feedResults(perennialFeed),
     ...feedResults(filteredFeed),
   ]) {
-    if (event && event.id) ids.add(Number(event.id));
+    addCandidate(event);
   }
 
   for (const event of await scanCategoryFeed(context, accessToken, query, region)) {
-    if (event && event.id) ids.add(Number(event.id));
+    addCandidate(event);
   }
 
   const hydrated = await Promise.all([...ids].slice(0, MAX_HYDRATE).map((eventId) => hydrateEvent(context, accessToken, eventId)));
@@ -139,14 +142,18 @@ async function hydrateEvent(context, accessToken, eventId) {
 }
 
 async function otraJson(context, accessToken, path) {
-  const response = await fetch(`${apiBase(context.env)}${path}`, {
-    headers: {
-      accept: "application/json",
-      authorization: `Bearer ${accessToken}`,
-    },
-  });
-  if (!response.ok) return null;
-  return response.json().catch(() => null);
+  try {
+    const response = await fetch(`${apiBase(context.env)}${path}`, {
+      headers: {
+        accept: "application/json",
+        authorization: `Bearer ${accessToken}`,
+      },
+    });
+    if (!response.ok) return null;
+    return response.json().catch(() => null);
+  } catch {
+    return null;
+  }
 }
 
 function cleanInteger(value) {
