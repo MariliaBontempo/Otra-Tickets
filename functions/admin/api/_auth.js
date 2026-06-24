@@ -3,10 +3,14 @@
 
 export const OTRA_API = "https://otraguide.com/api";
 
+export function apiBase(env) {
+  return String((env && env.OTRA_API_URL) || OTRA_API).replace(/\/$/, "");
+}
+
 // Verify a JWT belongs to a staff/admin account via Otra Guide.
-export async function checkStaff(accessToken) {
+export async function checkStaff(accessToken, env) {
   try {
-    const resp = await fetch(`${OTRA_API}/users/user-role/`, {
+    const resp = await fetch(`${apiBase(env)}/users/user-role/`, {
       headers: { authorization: `Bearer ${accessToken}`, accept: "application/json" },
     });
     if (!resp.ok) return false;
@@ -19,11 +23,11 @@ export async function checkStaff(accessToken) {
 
 // Extract the Bearer token from a request and confirm it's a staff/admin.
 // Returns the token if valid, else null. Use to gate every admin data call.
-export async function requireStaff(request) {
+export async function requireStaff(request, env) {
   const auth = request.headers.get("authorization") || "";
   const m = auth.match(/^Bearer (.+)$/);
   if (!m) return null;
-  return (await checkStaff(m[1])) ? m[1] : null;
+  return (await checkStaff(m[1], env)) ? m[1] : null;
 }
 
 export function json(obj, status = 200) {

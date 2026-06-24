@@ -14,7 +14,7 @@ const TYPES = {
 };
 
 export async function onRequestPost(context) {
-  if (!(await requireStaff(context.request))) return json({ error: "unauthorized" }, 401);
+  if (!(await requireStaff(context.request, context.env))) return json({ error: "unauthorized" }, 401);
 
   const bucket = context.env.OVERRIDE_IMAGES;
   if (!bucket) return json({ error: "image store not configured" }, 503);
@@ -29,7 +29,7 @@ export async function onRequestPost(context) {
   const queryId = new URL(context.request.url).searchParams.get("id") || "";
   const id = String(form.get("id") || queryId).trim();
   const file = form.get("file");
-  if (!/^\d+$/.test(id)) return json({ error: "invalid id" }, 400);
+  if (!/^(?:\d+|draft-[a-zA-Z0-9-]+)$/.test(id)) return json({ error: "invalid id" }, 400);
   if (!(file instanceof File)) return json({ error: "file is required" }, 400);
   if (!TYPES[file.type]) return json({ error: "unsupported image type" }, 400);
   if (file.size > MAX_BYTES) return json({ error: "image must be 8MB or smaller" }, 400);

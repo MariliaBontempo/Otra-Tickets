@@ -8,7 +8,10 @@
 <!-- Kick off the events fetch at the very start of parsing, in parallel with
      the stylesheet, fonts and hero artwork, so the row data is already in
      flight (often arrived) by the time the render script runs. -->
-<script>window.__eventsPromise = fetch("/api/homepage-events").then(function (r) { return r.json(); });</script>
+<script>
+  window.__eventsApi = "/api/homepage-events" + (location.search.includes("fresh=1") ? "?fresh=1" : "");
+  window.__eventsPromise = fetch(window.__eventsApi).then(function (r) { return r.json(); });
+</script>
 <style>
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap");
 
@@ -816,11 +819,12 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
     // The track is fed by the Otra Guide API (category 339, ticketed events
     // only) through the same-origin /api/homepage-events Pages Function.
     let events = [];
+    let feedData = {};
     try {
       // Reuse the fetch started in <head>; fall back to a fresh one if needed.
-      const data = await (window.__eventsPromise ||
-        fetch("/api/homepage-events").then((r) => r.json()));
-      events = (data && data.events) || [];
+      feedData = await (window.__eventsPromise ||
+        fetch(window.__eventsApi || "/api/homepage-events").then((r) => r.json()));
+      events = (feedData && feedData.events) || [];
     } catch (err) {
       console.error("Could not load homepage events:", err);
       return;
@@ -842,34 +846,59 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
 
     // Every card links somewhere: events with a bespoke page use its slug,
     // all others open the generic template populated from the API by id.
-    const allItems = events.map((ev) => ({
-      img: ev.img,
-      title: ev.title,
-      date: fmtDate(ev.date),
-      href: LOCAL_PAGES[ev.id] || ("event?id=" + ev.id),
-    }));
+    const byId = new Map(events.map((ev) => [String(ev.id), ev]));
+    const rowData = Array.isArray(feedData.rows) && feedData.rows.length
+      ? feedData.rows
+      : [{ id: "main", title: "", eventIds: events.map((ev) => String(ev.id)) }];
+    preloadFirstRowImages(rowData[0], byId);
 
-    // Build the single track
+    // Build the tracks
     const ICON_L = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="15 5 8 12 15 19"/></svg>';
     const ICON_R = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="9 5 16 12 9 19"/></svg>';
     const container = document.getElementById("rows");
 
-    {
+    function buildRow(row, rowIndex) {
+      const items = (row.eventIds || [])
+        .map((id) => byId.get(String(id)))
+        .filter(Boolean)
+        .map((ev) => ({
+          img: ev.img,
+          title: ev.title,
+          date: fmtDate(ev.date),
+          href: LOCAL_PAGES[ev.id] || ("event?id=" + ev.id),
+        }));
+      if (!items.length) return;
+
       const sec = document.createElement("section");
       sec.className = "row";
-      sec.id = "row-0";
+      sec.id = "row-" + rowIndex;
+
+      if (row.title) {
+        const head = document.createElement("div");
+        head.className = "row-head";
+        const h2 = document.createElement("h2");
+        h2.textContent = row.title;
+        const count = document.createElement("span");
+        count.className = "count";
+        count.textContent = items.length + " cards";
+        head.append(h2, count);
+        sec.append(head);
+      }
 
       const wrap = document.createElement("div");
       wrap.className = "track-wrap";
       const track = document.createElement("div");
       track.className = "track";
 
-      allItems.forEach((ev) => {
+      items.forEach((ev) => {
         const card = document.createElement("article");
         card.className = "card";
         const img = document.createElement("img");
         img.className = "card-img";
-        img.src = ev.img; img.alt = ev.title; img.loading = "lazy";
+        img.src = ev.img; img.alt = ev.title;
+        img.loading = rowIndex === 0 ? "eager" : "lazy";
+        img.decoding = "async";
+        if (rowIndex === 0) img.fetchPriority = "high";
         const body = document.createElement("div");
         body.className = "card-body";
         const titleEl = document.createElement("div");
@@ -940,6 +969,22 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
       requestAnimationFrame(updateArrows);
       sec.append(wrap);
       container.append(sec);
+    }
+    rowData.forEach(buildRow);
+
+    function preloadFirstRowImages(row, map) {
+      if (!row || !Array.isArray(row.eventIds)) return;
+      row.eventIds
+        .map((id) => map.get(String(id)))
+        .filter((ev) => ev && ev.img)
+        .slice(0, 8)
+        .forEach((ev) => {
+          const link = document.createElement("link");
+          link.rel = "preload";
+          link.as = "image";
+          link.href = ev.img;
+          document.head.append(link);
+        });
     }
     })();
 

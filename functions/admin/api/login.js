@@ -4,7 +4,7 @@
 // server-side (the browser can't call otraguide.com directly — it isn't in
 // otraguide's CORS allowlist), then confirm the account is staff/admin.
 
-import { OTRA_API, checkStaff, json } from "./_auth.js";
+import { apiBase, checkStaff, json } from "./_auth.js";
 
 export async function onRequestPost(context) {
   let body;
@@ -24,7 +24,7 @@ export async function onRequestPost(context) {
   // login value itself is email-shaped for staff accounts.
   let tokenResp;
   try {
-    tokenResp = await fetch(`${OTRA_API}/auth/token/`, {
+    tokenResp = await fetch(`${apiBase(context.env)}/auth/token/`, {
       method: "POST",
       headers: { "content-type": "application/json", accept: "application/json" },
       body: JSON.stringify({ username: email, password }),
@@ -40,7 +40,7 @@ export async function onRequestPost(context) {
   const access = tokens.access;
   if (!access) return json({ error: "login failed" }, 401);
 
-  if (!(await checkStaff(access))) {
+  if (!(await checkStaff(access, context.env))) {
     return json({ error: "this account is not a staff or admin user" }, 403);
   }
 
