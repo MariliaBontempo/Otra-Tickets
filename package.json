@@ -3,8 +3,5 @@
   "type": "module",
   "scripts": {
     "build": "node scripts/build-pages.mjs"
-  },
-  "dependencies": {
-    "jszip": "3.10.1"
   }
 }

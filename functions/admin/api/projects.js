@@ -5,7 +5,6 @@
 // can build on this record.
 
 import { apiBase, requireStaff, json } from "./_auth.js";
-import JSZip from "jszip";
 
 const MAX_BYTES = 50 * 1024 * 1024;
 const DRAFT_PREFIX = "site-event:";
@@ -338,7 +337,7 @@ function normalizeProject(raw, id) {
 async function parseClaudeDesignZip(bytes, draftId, bucket) {
   let zip;
   try {
-    zip = await JSZip.loadAsync(bytes);
+    zip = await readZip(bytes);
   } catch {
     throw new Error("could not read Claude Design zip");
   }
@@ -465,6 +464,83 @@ async function storeReferencedAssets(zip, html, baseDir, draftId, bucket) {
   }
 
   return { assets: out, galleryImages };
+}
+
+async function readZip(bytes) {
+  const buffer = bytes instanceof ArrayBuffer ? bytes : await bytes.arrayBuffer();
+  const view = new DataView(buffer);
+  const eocdOffset = findEndOfCentralDirectory(view);
+  if (eocdOffset < 0) throw new Error("zip end of central directory not found");
+
+  const entryCount = view.getUint16(eocdOffset + 10, true);
+  const centralDirectoryOffset = view.getUint32(eocdOffset + 16, true);
+  const files = {};
+  let offset = centralDirectoryOffset;
+
+  for (let index = 0; index < entryCount; index += 1) {
+    if (view.getUint32(offset, true) !== 0x02014b50) throw new Error("invalid zip central directory");
+    const compression = view.getUint16(offset + 10, true);
+    const compressedSize = view.getUint32(offset + 20, true);
+    const nameLength = view.getUint16(offset + 28, true);
+    const extraLength = view.getUint16(offset + 30, true);
+    const commentLength = view.getUint16(offset + 32, true);
+    const localHeaderOffset = view.getUint32(offset + 42, true);
+    const name = decodeBytes(buffer.slice(offset + 46, offset + 46 + nameLength));
+    const entry = createZipEntry(buffer, view, name, compression, compressedSize, localHeaderOffset);
+    files[name] = entry;
+    offset += 46 + nameLength + extraLength + commentLength;
+  }
+
+  return {
+    files,
+    file(name) {
+      return files[name] || null;
+    },
+  };
+}
+
+function findEndOfCentralDirectory(view) {
+  const min = Math.max(0, view.byteLength - 65557);
+  for (let offset = view.byteLength - 22; offset >= min; offset -= 1) {
+    if (view.getUint32(offset, true) === 0x06054b50) return offset;
+  }
+  return -1;
+}
+
+function createZipEntry(buffer, view, name, compression, compressedSize, localHeaderOffset) {
+  const isDirectory = name.endsWith("/");
+  return {
+    name,
+    dir: isDirectory,
+    async async(type) {
+      if (isDirectory) return type === "string" ? "" : new ArrayBuffer(0);
+      if (view.getUint32(localHeaderOffset, true) !== 0x04034b50) throw new Error("invalid zip local header");
+      const nameLength = view.getUint16(localHeaderOffset + 26, true);
+      const extraLength = view.getUint16(localHeaderOffset + 28, true);
+      const dataOffset = localHeaderOffset + 30 + nameLength + extraLength;
+      const compressed = buffer.slice(dataOffset, dataOffset + compressedSize);
+      let data;
+      if (compression === 0) {
+        data = compressed;
+      } else if (compression === 8) {
+        data = await inflateRaw(compressed);
+      } else {
+        throw new Error("unsupported zip compression");
+      }
+      if (type === "string") return decodeBytes(data);
+      return data;
+    },
+  };
+}
+
+async function inflateRaw(buffer) {
+  if (typeof DecompressionStream !== "function") throw new Error("zip decompression is not available");
+  const stream = new Blob([buffer]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+  return await new Response(stream).arrayBuffer();
+}
+
+function decodeBytes(buffer) {
+  return new TextDecoder("utf-8").decode(buffer);
 }
 
 function extractCells(html) {
