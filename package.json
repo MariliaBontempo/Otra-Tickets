@@ -2,7 +2,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "echo 'No build step required for Otra Tickets Pages.'"
+    "build": "node scripts/build-pages.mjs"
   },
   "dependencies": {
     "jszip": "3.10.1"
