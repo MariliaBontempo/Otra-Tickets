@@ -23,11 +23,10 @@ export async function onRequestPost(context) {
   const accessToken = await requireStaff(context.request, context.env);
   if (!accessToken) return json({ error: "unauthorized" }, 401);
 
-  const kv = context.env.OVERRIDES;
-  if (!kv) return json({ error: "overrides store not configured" }, 503);
-
   const url = new URL(context.request.url);
   if (url.searchParams.get("action") === "publish") {
+    const kv = context.env.OVERRIDES;
+    if (!kv) return json({ error: "overrides store not configured" }, 503);
     const id = (url.searchParams.get("id") || "").trim();
     if (!isDraftId(id)) return json({ error: "invalid draft id" }, 400);
     const project = await getProject(kv, id);
@@ -81,30 +80,21 @@ export async function onRequestPost(context) {
     });
   }
 
-  const bucket = context.env.OVERRIDE_IMAGES;
-  if (!bucket) return json({ error: "project store not configured" }, 503);
+  const kv = context.env.OVERRIDES;
+  if (!kv) return json({ error: "overrides store not configured" }, 503);
 
   const id = `draft-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
   const originalName = file.name || "claude-design.zip";
-  const parsed = await parseClaudeDesignZip(bytes, id, bucket);
-  const key = `claude-design/${id}.zip`;
-  await bucket.put(key, bytes, {
-    httpMetadata: {
-      contentType: "application/zip",
-      cacheControl: "private, max-age=0",
-    },
-    customMetadata: {
-      originalName,
-      draftId: id,
-    },
-  });
+  const parsed = await parseClaudeDesignZip(bytes, id, { collectFiles: true });
+  const eventFiles = parsed.eventFiles || {};
+  delete parsed.eventFiles;
 
   let project = {
     id,
     title: parsed.title || titleFromFileName(originalName),
     description: parsed.description || "",
     source: "claude-design",
-    zipKey: key,
+    zipKey: "",
     originalName,
     status: "draft",
     createdAt: new Date().toISOString(),
@@ -141,7 +131,7 @@ export async function onRequestPost(context) {
       });
     }
 
-    project = await createOtraGuideEvent(context, accessToken, bucket, project);
+    project = await createOtraGuideEvent(context, accessToken, project, eventFiles);
     await putProject(kv, project);
     project = await reconcileTickets(context, accessToken, project);
     project = { ...project, syncError: "" };
@@ -155,7 +145,7 @@ export async function onRequestPost(context) {
   }
 }
 
-async function createOtraGuideEvent(context, accessToken, bucket, project) {
+async function createOtraGuideEvent(context, accessToken, project, eventFiles = {}) {
   if (project.otraGuideId) return project;
   if (!project.startDate || !project.endDate || !project.location) {
     throw new Error("start date, end date and location are required");
@@ -172,43 +162,24 @@ async function createOtraGuideEvent(context, accessToken, bucket, project) {
   form.set("is_perennial", project.isPerennial ? "true" : "false");
   form.set("is_recurring", project.isPerennial ? "true" : "false");
 
-  if (project.claudeDesign && project.claudeDesign.heroKey) {
-    const hero = await bucket.get(project.claudeDesign.heroKey);
-    if (hero) {
-      form.set(
-        "image",
-        new File([await hero.arrayBuffer()], project.claudeDesign.heroName || "hero.jpg", {
-          type: (hero.httpMetadata && hero.httpMetadata.contentType) || "image/jpeg",
-        })
-      );
-    }
+  if (eventFiles.hero) {
+    form.set(
+      "image",
+      new File([eventFiles.hero.buffer], eventFiles.hero.name || "hero.jpg", {
+        type: eventFiles.hero.type || "image/jpeg",
+      })
+    );
   }
-  const gallerySources = Array.isArray(project.claudeDesign && project.claudeDesign.galleryImages)
-    ? project.claudeDesign.galleryImages
-    : Array.isArray(project.claudeDesign && project.claudeDesign.assets)
-      ? project.claudeDesign.assets
-      : [];
-  const heroUrl = project.claudeDesign && typeof project.claudeDesign.image === "string" ? project.claudeDesign.image : "";
-  const seenGallery = new Set();
-  for (const src of gallerySources) {
-    if (typeof src !== "string") continue;
-    const value = src.trim();
-    if (!value || value === heroUrl || seenGallery.has(value)) continue;
-    seenGallery.add(value);
-    try {
-      const resp = await fetch(value);
-      if (!resp.ok) continue;
-      const blob = await resp.blob();
-      const filename = decodeURIComponent(value.split("/").pop() || "gallery.jpg");
-      form.append(
-        "gallery_images",
-        new File([blob], filename, {
-          type: blob.type || resp.headers.get("content-type") || "application/octet-stream",
-        })
-      );
-    } catch {
-      // Ignore individual gallery image failures; the draft still has the primary event.
-    }
+  const seenGallery = new Set(eventFiles.hero && eventFiles.hero.path ? [eventFiles.hero.path] : []);
+  for (const image of Array.isArray(eventFiles.gallery) ? eventFiles.gallery : []) {
+    if (!image || !image.buffer || seenGallery.has(image.path)) continue;
+    seenGallery.add(image.path);
+    form.append(
+      "gallery_images",
+      new File([image.buffer], image.name || "gallery.jpg", {
+        type: image.type || "application/octet-stream",
+      })
+    );
   }
   const event = await otraFetch(context, accessToken, "/events/create/", { method: "POST", body: form });
   return {
@@ -334,7 +305,7 @@ function normalizeProject(raw, id) {
   };
 }
 
-async function parseClaudeDesignZip(bytes, draftId, bucket) {
+async function parseClaudeDesignZip(bytes, draftId, options = {}) {
   let zip;
   try {
     zip = await readZip(bytes);
@@ -347,7 +318,9 @@ async function parseClaudeDesignZip(bytes, draftId, bucket) {
 
   const html = await htmlEntry.async("string");
   const baseDir = htmlEntry.name.includes("/") ? htmlEntry.name.replace(/\/[^/]*$/, "") : "";
-  const assetBundle = bucket ? await storeReferencedAssets(zip, html, baseDir, draftId, bucket) : { assets: new Map(), galleryImages: [] };
+  const assetBundle = options && options.collectFiles
+    ? await collectReferencedAssets(zip, html, baseDir)
+    : { assets: new Map(), galleryImages: [], files: new Map(), galleryFiles: [] };
   const assets = assetBundle.assets;
   const galleryImages = assetBundle.galleryImages;
   const assetUrl = (value) => {
@@ -392,6 +365,10 @@ async function parseClaudeDesignZip(bytes, draftId, bucket) {
     image: heroImage,
     heroKey: assets.get(`${heroPath}:key`) || "",
     heroName: safeFileName(heroPath.split("/").pop() || "hero.jpg"),
+    eventFiles: {
+      hero: assetBundle.files.get(heroPath) || null,
+      gallery: assetBundle.galleryFiles || [],
+    },
     storyImage,
     pullQuote: cleanText(matchSection(story, /<p[^>]*class=["'][^"']*ev-pull[^"']*["'][^>]*>([\s\S]*?)<\/p>/i)),
     storyEyebrow: cleanText(matchSection(story, /<span[^>]*class=["'][^"']*ev-eyebrow[^"']*["'][^>]*>([\s\S]*?)<\/span>/i)),
@@ -410,6 +387,51 @@ async function parseClaudeDesignZip(bytes, draftId, bucket) {
     galleryImages,
     assets: galleryImages.slice(),
   };
+}
+
+async function collectReferencedAssets(zip, html, baseDir) {
+  const refs = new Set();
+  for (const src of allMatches(html, /\b(?:src|poster)=["']([^"']+)["']/gi)) refs.add(src);
+  for (const src of allMatches(html, /url\(["']?([^"')]+)["']?\)/gi)) refs.add(src);
+
+  const assets = new Map();
+  const files = new Map();
+  const galleryImages = [];
+  const galleryFiles = [];
+  const seenPaths = new Set();
+
+  const collectPath = async (src, normalized) => {
+    if (seenPaths.has(normalized)) return;
+    const entry = zip.file(normalized);
+    if (!entry) return;
+    const ext = normalized.split(".").pop().toLowerCase();
+    if (!["jpg", "jpeg", "png", "webp", "avif", "gif"].includes(ext)) return;
+
+    const image = {
+      path: normalized,
+      name: safeFileName(normalized.split("/").pop() || `asset.${ext}`),
+      type: contentTypeFor(ext),
+      buffer: await entry.async("arraybuffer"),
+    };
+    seenPaths.add(normalized);
+    files.set(normalized, image);
+    assets.set(normalized, normalized);
+    if (src) assets.set(src, normalized);
+    galleryImages.push(normalized);
+    galleryFiles.push(image);
+  };
+
+  for (const src of refs) {
+    if (!src || /^(?:https?:|data:|#)/i.test(src)) continue;
+    await collectPath(src, normalizeAssetPath(src, baseDir));
+  }
+
+  for (const entry of Object.values(zip.files)) {
+    if (!entry || entry.dir) continue;
+    await collectPath(null, normalizeAssetPath(entry.name, baseDir));
+  }
+
+  return { assets, files, galleryImages, galleryFiles };
 }
 
 async function storeReferencedAssets(zip, html, baseDir, draftId, bucket) {
