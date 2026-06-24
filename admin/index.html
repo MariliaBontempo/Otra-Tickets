@@ -525,6 +525,31 @@
 
       <div class="publish-options">
         <label class="publish-option">
+          <input type="radio" name="eventMode" value="new" checked />
+          <span><strong>Create new Otra Guide event</strong><span>Use the Claude Design data and create a hidden event first.</span></span>
+        </label>
+        <label class="publish-option">
+          <input type="radio" name="eventMode" value="existing" />
+          <span><strong>Event already exists in Otra Guide</strong><span>Search/select it and create the draft with its current ticket types.</span></span>
+        </label>
+      </div>
+
+      <div class="stack hidden" id="existingEventFields" style="gap:10px">
+        <label>Region
+          <select id="existingEventRegionSelect" required></select>
+        </label>
+        <label>Search Otra Guide event
+          <input id="existingEventSearch" type="search" placeholder="Type event name or ID" />
+        </label>
+        <label>Select event
+          <select id="existingEventSelect"></select>
+        </label>
+        <p id="existingEventMeta"></p>
+      </div>
+
+      <div class="stack" id="newEventFields" style="gap:16px">
+      <div class="publish-options">
+        <label class="publish-option">
           <input type="radio" name="teamMode" value="existing" checked />
           <span><strong>Existing team</strong><span>Choose one of the teams available to this account.</span></span>
         </label>
@@ -559,6 +584,7 @@
         <input id="eventRecurring" type="checkbox" />
         <span><strong>Recurring / perennial event</strong><span>Leave unchecked for a single-day event.</span></span>
       </label>
+      </div>
 
       <div class="stack" style="gap:10px">
         <h2>Ticket quantities</h2>
@@ -583,6 +609,9 @@
   let inspectedProject = null;
   let availableTeams = [];
   let availableRegions = [];
+  let availableExistingEvents = [];
+  let selectedExistingEvent = null;
+  let existingEventSearchTimer = null;
 
   const $ = (id) => document.getElementById(id);
   const loginView = $("loginView");
@@ -731,19 +760,35 @@
   document.querySelectorAll('input[name="teamMode"]').forEach((input) => {
     input.addEventListener("change", syncTeamMode);
   });
+  document.querySelectorAll('input[name="eventMode"]').forEach((input) => {
+    input.addEventListener("change", syncEventMode);
+  });
   $("teamSearch").addEventListener("input", renderTeamOptions);
   $("teamSelect").addEventListener("change", syncRegionFromTeam);
+  $("existingEventSearch").addEventListener("input", () => {
+    clearTimeout(existingEventSearchTimer);
+    existingEventSearchTimer = setTimeout(loadExistingEvents, 300);
+  });
+  $("existingEventSelect").addEventListener("change", syncSelectedExistingEvent);
   $("draftSetupForm").addEventListener("submit", createDraft);
 
   function openDraftSetup() {
     if (!inspectedProject) return;
     $("draftSetupMeta").textContent = inspectedProject.title || "Claude Design event";
     $("draftSetupStatus").textContent = "";
+    selectedExistingEvent = null;
+    availableExistingEvents = [];
+    $("existingEventSearch").value = "";
+    $("existingEventSelect").innerHTML = '<option value="">Search for an Otra Guide event</option>';
+    $("existingEventMeta").textContent = "";
+    document.querySelector('input[name="eventMode"][value="new"]').checked = true;
     $("teamSearch").value = "";
     document.querySelector('input[name="teamMode"][value="existing"]').checked = true;
     renderTeamOptions();
     renderRegionOptions();
+    renderExistingEventRegionOptions();
     syncRegionFromTeam();
+    $("existingEventRegionSelect").value = $("regionSelect").value;
     syncTeamMode();
     const start = new Date(Date.now() + 24 * 60 * 60 * 1000);
     start.setMinutes(0, 0, 0);
@@ -752,15 +797,8 @@
     $("eventEndDate").value = localDateTime(end);
     $("eventLocation").value = practicalValue("Venue");
     $("eventRecurring").checked = false;
-    const rates = inspectedProject.rates || [];
-    $("ticketQuantities").innerHTML = rates.length
-      ? rates.map((rate, index) => `
-          <label class="ticket-quantity">
-            <span><strong>${esc(rate.name)}</strong><small>${esc(rate.currency)} ${esc(rate.price)}</small></span>
-            <span>Quantity<input data-ticket-quantity="${index}" type="number" min="1" step="1" value="500" required /></span>
-          </label>`).join("")
-      : '<p>No ticket types were found in the Rates section.</p>';
-    $("confirmDraftSetupBtn").disabled = rates.length === 0;
+    renderTicketQuantities(inspectedProject.rates || [], { readonly: false });
+    syncEventMode();
     $("draftSetupModal").classList.remove("hidden");
   }
 
@@ -781,6 +819,100 @@
     else $("regionSelect").value = "";
   }
 
+  function syncEventMode() {
+    const mode = document.querySelector('input[name="eventMode"]:checked').value;
+    const useExisting = mode === "existing";
+    $("existingEventFields").classList.toggle("hidden", !useExisting);
+    $("newEventFields").classList.toggle("hidden", useExisting);
+    for (const id of ["teamSelect", "teamSearch", "newTeamName", "regionSelect", "eventStartDate", "eventEndDate", "eventLocation", "eventRecurring"]) {
+      $(id).disabled = useExisting;
+    }
+    $("existingEventSearch").disabled = !useExisting;
+    $("existingEventSelect").disabled = !useExisting;
+    $("existingEventRegionSelect").disabled = !useExisting;
+    $("existingEventRegionSelect").required = useExisting;
+    $("teamSelect").required = !useExisting && document.querySelector('input[name="teamMode"]:checked').value === "existing";
+    $("newTeamName").required = !useExisting && document.querySelector('input[name="teamMode"]:checked').value === "new";
+    $("regionSelect").required = !useExisting;
+    $("eventStartDate").required = !useExisting;
+    $("eventEndDate").required = !useExisting;
+    $("eventLocation").required = !useExisting;
+
+    if (useExisting) {
+      renderTicketQuantities(selectedExistingEvent ? selectedExistingEvent.tickets : [], { readonly: true });
+      $("confirmDraftSetupBtn").disabled = !(selectedExistingEvent && selectedExistingEvent.tickets && selectedExistingEvent.tickets.length);
+      return;
+    }
+
+    syncTeamMode();
+    renderTicketQuantities(inspectedProject ? inspectedProject.rates || [] : [], { readonly: false });
+  }
+
+  async function loadExistingEvents() {
+    const query = $("existingEventSearch").value.trim();
+    selectedExistingEvent = null;
+    $("existingEventMeta").textContent = "";
+    if (query.length < 2) {
+      availableExistingEvents = [];
+      $("existingEventSelect").innerHTML = '<option value="">Type at least 2 characters</option>';
+      syncEventMode();
+      return;
+    }
+    $("existingEventSelect").innerHTML = '<option value="">Searching...</option>';
+    try {
+      const regionName = availableRegions.find((region) => String(region.id) === $("existingEventRegionSelect").value)?.name || "";
+      const params = new URLSearchParams({ q: query });
+      if (regionName) params.set("region", regionName);
+      const data = await api("/admin/api/events?" + params.toString(), { headers: authHeaders() });
+      availableExistingEvents = data.events || [];
+      $("existingEventSelect").innerHTML = availableExistingEvents.length
+        ? '<option value="">Choose an event</option>' + availableExistingEvents.map((event) => {
+            const when = event.startDate ? " · " + formatShortDate(event.startDate) : "";
+            const tickets = Array.isArray(event.tickets) ? ` · ${event.tickets.length} tickets` : "";
+            return `<option value="${esc(event.id)}">${esc(event.title)}${esc(when)}${esc(tickets)}</option>`;
+          }).join("")
+        : '<option value="">No matching events</option>';
+    } catch (err) {
+      availableExistingEvents = [];
+      $("existingEventSelect").innerHTML = '<option value="">Search failed</option>';
+      $("existingEventMeta").textContent = err.message;
+    }
+    syncEventMode();
+  }
+
+  function syncSelectedExistingEvent() {
+    selectedExistingEvent = availableExistingEvents.find((event) => String(event.id) === $("existingEventSelect").value) || null;
+    if (selectedExistingEvent) {
+      const ticketCount = Array.isArray(selectedExistingEvent.tickets) ? selectedExistingEvent.tickets.length : 0;
+      $("existingEventMeta").textContent = [
+        `Otra Guide ID ${selectedExistingEvent.id}`,
+        typeof selectedExistingEvent.published === "boolean" ? (selectedExistingEvent.published ? "published" : "unpublished") : "",
+        selectedExistingEvent.teamName || "",
+        ticketCount ? `${ticketCount} ticket types` : "no ticket types",
+      ].filter(Boolean).join(" · ");
+    } else {
+      $("existingEventMeta").textContent = "";
+    }
+    syncEventMode();
+  }
+
+  function renderTicketQuantities(rates, options = {}) {
+    const readonly = !!options.readonly;
+    $("ticketQuantities").innerHTML = rates.length
+      ? rates.map((rate, index) => {
+          const quantity = Number.parseInt(rate.quantity, 10);
+          const value = Number.isSafeInteger(quantity) && quantity > 0 ? quantity : 500;
+          const note = readonly ? "Quantity from Otra Guide" : "Quantity";
+          return `
+          <label class="ticket-quantity">
+            <span><strong>${esc(rate.name)}</strong><small>${esc(rate.currency)} ${esc(rate.price)}</small></span>
+            <span>${note}<input data-ticket-quantity="${index}" type="number" min="1" step="1" value="${esc(value)}" ${readonly ? "readonly" : "required"} /></span>
+          </label>`;
+        }).join("")
+      : '<p>No ticket types were found.</p>';
+    $("confirmDraftSetupBtn").disabled = rates.length === 0;
+  }
+
   function renderTeamOptions() {
     const query = $("teamSearch").value.trim().toLowerCase();
     const matching = availableTeams.filter((team) => !query || String(team.name || "").toLowerCase().includes(query));
@@ -795,6 +927,12 @@
       : '<option value="">No regions available</option>';
   }
 
+  function renderExistingEventRegionOptions() {
+    $("existingEventRegionSelect").innerHTML = availableRegions.length
+      ? '<option value="">Choose a region for this draft</option>' + availableRegions.map((region) => `<option value="${esc(region.id)}">${esc(region.name)}</option>`).join("")
+      : '<option value="">No regions available</option>';
+  }
+
   function syncRegionFromTeam() {
     const team = availableTeams.find((item) => String(item.id) === $("teamSelect").value);
     $("regionSelect").value = team && team.region ? String(team.region) : "";
@@ -804,29 +942,42 @@
     e.preventDefault();
     const file = $("cloudProjectZip").files[0];
     if (!file || !inspectedProject) return;
-    const mode = document.querySelector('input[name="teamMode"]:checked').value;
-    const startDate = new Date($("eventStartDate").value);
-    const endDate = new Date($("eventEndDate").value);
-    if (!Number.isFinite(startDate.getTime()) || !Number.isFinite(endDate.getTime()) || endDate <= startDate) {
-      $("draftSetupStatus").textContent = "End date must be after start date.";
-      $("draftSetupStatus").className = "status error";
-      return;
-    }
+    const eventMode = document.querySelector('input[name="eventMode"]:checked').value;
+    const teamMode = document.querySelector('input[name="teamMode"]:checked').value;
     const form = new FormData();
     form.set("file", file);
-    if (mode === "existing") form.set("teamId", $("teamSelect").value);
-    else form.set("teamName", $("newTeamName").value.trim());
-    form.set("regionId", $("regionSelect").value);
-    form.set("startDate", startDate.toISOString());
-    form.set("endDate", endDate.toISOString());
-    form.set("location", $("eventLocation").value.trim());
-    form.set("isPerennial", String($("eventRecurring").checked));
+    if (eventMode === "existing") {
+      if (!selectedExistingEvent) {
+        $("draftSetupStatus").textContent = "Choose an existing Otra Guide event.";
+        $("draftSetupStatus").className = "status error";
+        return;
+      }
+      form.set("existingEventId", String(selectedExistingEvent.id));
+      form.set("regionId", $("existingEventRegionSelect").value);
+    } else {
+      const startDate = new Date($("eventStartDate").value);
+      const endDate = new Date($("eventEndDate").value);
+      if (!Number.isFinite(startDate.getTime()) || !Number.isFinite(endDate.getTime()) || endDate <= startDate) {
+        $("draftSetupStatus").textContent = "End date must be after start date.";
+        $("draftSetupStatus").className = "status error";
+        return;
+      }
+      if (teamMode === "existing") form.set("teamId", $("teamSelect").value);
+      else form.set("teamName", $("newTeamName").value.trim());
+      form.set("regionId", $("regionSelect").value);
+      form.set("startDate", startDate.toISOString());
+      form.set("endDate", endDate.toISOString());
+      form.set("location", $("eventLocation").value.trim());
+      form.set("isPerennial", String($("eventRecurring").checked));
+    }
     form.set(
       "ticketQuantities",
       JSON.stringify([...document.querySelectorAll("[data-ticket-quantity]")].map((input) => Number(input.value)))
     );
     $("confirmDraftSetupBtn").disabled = true;
-    $("draftSetupStatus").textContent = "Creating hidden Otra Guide event and tickets...";
+    $("draftSetupStatus").textContent = eventMode === "existing"
+      ? "Creating draft from existing Otra Guide event..."
+      : "Creating hidden Otra Guide event and tickets...";
     try {
       const data = await api("/admin/api/projects", {
         method: "POST",
@@ -862,6 +1013,12 @@
   function localDateTime(date) {
     const shifted = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
     return shifted.toISOString().slice(0, 16);
+  }
+
+  function formatShortDate(value) {
+    const date = new Date(value);
+    if (!Number.isFinite(date.getTime())) return "";
+    return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
   }
 
   $("pageSelect").addEventListener("change", () => selectPage($("pageSelect").value));
