@@ -8,6 +8,8 @@ import { apiBase, requireStaff, json } from "./_auth.js";
 
 const CATEGORY_ID = 339;
 const PAGE_SIZE = 12;
+const FEED_SCAN_PAGES = 8;
+const MAX_HYDRATE = 40;
 
 export async function onRequestGet(context) {
   const accessToken = await requireStaff(context.request, context.env);
@@ -34,21 +36,70 @@ async function searchEvents(context, accessToken, query, region) {
 
   if (/^\d+$/.test(query)) ids.add(Number(query));
 
-  const params = new URLSearchParams({
+  const nonPerennialParams = new URLSearchParams({
     category_id: String(CATEGORY_ID),
     filter_search: query,
     page: "1",
     page_size: String(PAGE_SIZE),
   });
-  if (region) params.set("region", region);
+  const perennialParams = new URLSearchParams({
+    filter_search: query,
+    page: "1",
+    page_size: String(PAGE_SIZE),
+  });
+  const filteredParams = new URLSearchParams({
+    filter_search: query,
+    page: "1",
+    page_size: String(PAGE_SIZE),
+  });
+  if (region) {
+    nonPerennialParams.set("region", region);
+    perennialParams.set("region", region);
+    filteredParams.set("region", region);
+  }
 
-  const feed = await otraJson(context, accessToken, `/events/nonperennial/?${params.toString()}`);
-  for (const event of feed && Array.isArray(feed.results) ? feed.results : []) {
+  const [nonPerennialFeed, perennialFeed, filteredFeed] = await Promise.all([
+    otraJson(context, accessToken, `/events/nonperennial/?${nonPerennialParams.toString()}`),
+    otraJson(context, accessToken, `/events/perennial/?${perennialParams.toString()}`),
+    otraJson(context, accessToken, `/events/filtered/?${filteredParams.toString()}`),
+  ]);
+  for (const event of [
+    ...feedResults(nonPerennialFeed),
+    ...feedResults(perennialFeed),
+    ...feedResults(filteredFeed),
+  ]) {
     if (event && event.id) ids.add(Number(event.id));
   }
 
-  const hydrated = await Promise.all([...ids].slice(0, PAGE_SIZE).map((eventId) => hydrateEvent(context, accessToken, eventId)));
-  return hydrated.filter(Boolean);
+  for (const event of await scanCategoryFeed(context, accessToken, query, region)) {
+    if (event && event.id) ids.add(Number(event.id));
+  }
+
+  const hydrated = await Promise.all([...ids].slice(0, MAX_HYDRATE).map((eventId) => hydrateEvent(context, accessToken, eventId)));
+  return hydrated
+    .filter((event) => event && Array.isArray(event.tickets) && event.tickets.length > 0 && matchesQuery(event, query))
+    .slice(0, PAGE_SIZE);
+}
+
+async function scanCategoryFeed(context, accessToken, query, region) {
+  const pages = await Promise.all(
+    Array.from({ length: FEED_SCAN_PAGES }, (_, index) => {
+      const params = new URLSearchParams({
+        category_id: String(CATEGORY_ID),
+        page: String(index + 1),
+        page_size: "50",
+      });
+      if (region) params.set("region", region);
+      return otraJson(context, accessToken, `/events/nonperennial/?${params.toString()}`);
+    })
+  );
+  const byId = new Map();
+  for (const page of pages) {
+    for (const event of feedResults(page)) {
+      if (event && event.id && matchesQuery(event, query)) byId.set(Number(event.id), event);
+    }
+  }
+  return [...byId.values()];
 }
 
 async function hydrateEvent(context, accessToken, eventId) {
@@ -101,4 +152,33 @@ async function otraJson(context, accessToken, path) {
 function cleanInteger(value) {
   const parsed = Number.parseInt(String(value || ""), 10);
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function feedResults(feed) {
+  if (feed && Array.isArray(feed.results)) return feed.results;
+  return Array.isArray(feed) ? feed : [];
+}
+
+function matchesQuery(event, query) {
+  const normalizedTitle = normalizeSearchText(event && event.title);
+  const normalizedId = String((event && event.id) || "");
+  const terms = searchTerms(query);
+  if (!terms.length) return false;
+  return normalizedId.includes(String(query).trim()) || terms.every((term) => normalizedTitle.includes(term));
+}
+
+function searchTerms(value) {
+  return normalizeSearchText(value)
+    .split(" ")
+    .map((term) => (term.length > 3 && term.endsWith("s") ? term.slice(0, -1) : term))
+    .filter(Boolean);
+}
+
+function normalizeSearchText(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
 }
