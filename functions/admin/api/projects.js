@@ -24,6 +24,18 @@ export async function onRequestPost(context) {
   if (!accessToken) return json({ error: "unauthorized" }, 401);
 
   const url = new URL(context.request.url);
+  if (url.searchParams.get("action") === "archive") {
+    const kv = context.env.OVERRIDES;
+    if (!kv) return json({ error: "overrides store not configured" }, 503);
+    const id = (url.searchParams.get("id") || "").trim();
+    if (!isDraftId(id)) return json({ error: "invalid draft id" }, 400);
+    const project = await getProject(kv, id);
+    if (!project) return json({ error: "draft not found" }, 404);
+    const next = { ...project, archivedAt: new Date().toISOString() };
+    await putProject(kv, next);
+    return json({ project: next });
+  }
+
   if (url.searchParams.get("action") === "publish") {
     const kv = context.env.OVERRIDES;
     if (!kv) return json({ error: "overrides store not configured" }, 503);
@@ -335,7 +347,7 @@ async function listProjects(kv) {
     const page = await kv.list({ prefix: DRAFT_PREFIX, cursor });
     for (const item of page.keys || []) {
       const project = await getProject(kv, item.name.slice(DRAFT_PREFIX.length));
-      if (project) out.push(project);
+      if (project && !project.archivedAt) out.push(project);
     }
     cursor = page.list_complete ? undefined : page.cursor;
   } while (cursor);
@@ -361,6 +373,7 @@ function normalizeProject(raw, id) {
     status: raw.status === "published" ? "published" : "draft",
     createdAt: typeof raw.createdAt === "string" ? raw.createdAt : "",
     publishedAt: typeof raw.publishedAt === "string" ? raw.publishedAt : "",
+    archivedAt: typeof raw.archivedAt === "string" ? raw.archivedAt : "",
     otraGuideId: raw.otraGuideId ? String(raw.otraGuideId) : "",
     otraGuideSlug: typeof raw.otraGuideSlug === "string" ? raw.otraGuideSlug : "",
     teamId: cleanInteger(raw.teamId),

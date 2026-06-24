@@ -13,6 +13,7 @@ const PAGE_SIZE = 20;
 const MAX_PAGES = 4;
 const MAX_TICKET_CHECKS = 40;
 const UPSTREAM_TTL = 300;
+const HIDDEN_PAGES_KEY = "admin:hidden-pages";
 
 const MANUAL_PAGES = [
   { id: "7275", title: "We Love R&B", type: "Manual page", url: "/rnb.html" },
@@ -23,8 +24,38 @@ export async function onRequestGet(context) {
   const auth = await requireStaff(context.request, context.env);
   if (!auth) return json({ error: "unauthorized" }, 401);
 
-  const [drafts, dynamic] = await Promise.all([buildDraftPages(context.env), buildTemplatePages(apiBase(context.env))]);
-  return json({ pages: [...drafts, ...MANUAL_PAGES, ...dynamic] });
+  const [hiddenIds, drafts, dynamic] = await Promise.all([
+    readHiddenPageIds(context.env),
+    buildDraftPages(context.env),
+    buildTemplatePages(apiBase(context.env)),
+  ]);
+  return json({ pages: [...drafts, ...MANUAL_PAGES, ...dynamic].filter((page) => !hiddenIds.has(String(page.id))) });
+}
+
+export async function onRequestPost(context) {
+  const auth = await requireStaff(context.request, context.env);
+  if (!auth) return json({ error: "unauthorized" }, 401);
+
+  const kv = context.env && context.env.OVERRIDES;
+  if (!kv) return json({ error: "overrides store not configured" }, 503);
+
+  const url = new URL(context.request.url);
+  if (url.searchParams.get("action") !== "hide") return json({ error: "unsupported action" }, 400);
+
+  let body;
+  try {
+    body = await context.request.json();
+  } catch {
+    return json({ error: "invalid json" }, 400);
+  }
+
+  const id = String((body && body.id) || "").trim();
+  if (!id) return json({ error: "page id is required" }, 400);
+
+  const hiddenIds = await readHiddenPageIds(context.env);
+  hiddenIds.add(id);
+  await kv.put(HIDDEN_PAGES_KEY, JSON.stringify([...hiddenIds]));
+  return json({ hiddenIds: [...hiddenIds] });
 }
 
 async function buildDraftPages(env) {
@@ -38,6 +69,7 @@ async function buildDraftPages(env) {
     for (const key of page.keys || []) {
       const project = await kv.get(key.name, "json");
       if (!project || typeof project !== "object") continue;
+      if (project.archivedAt) continue;
       const id = key.name.replace(/^site-event:/, "");
       drafts.push({
         id,
@@ -56,6 +88,17 @@ async function buildDraftPages(env) {
   } while (cursor);
 
   return drafts.sort((a, b) => String(b.id).localeCompare(String(a.id)));
+}
+
+async function readHiddenPageIds(env) {
+  const kv = env && env.OVERRIDES;
+  if (!kv) return new Set();
+  try {
+    const ids = await kv.get(HIDDEN_PAGES_KEY, "json");
+    return new Set(Array.isArray(ids) ? ids.map(String) : []);
+  } catch {
+    return new Set();
+  }
 }
 
 async function buildTemplatePages(apiUrl = API) {
