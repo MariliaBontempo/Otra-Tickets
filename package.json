@@ -1,6 +1,9 @@
 {
   "private": true,
   "type": "module",
+  "scripts": {
+    "build": "echo 'No build step required for Otra Tickets Pages.'"
+  },
   "dependencies": {
     "jszip": "3.10.1"
   }
