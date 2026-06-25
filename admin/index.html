@@ -1481,6 +1481,12 @@
       positionPreviewButton(btn, field, host);
       host.appendChild(btn);
     });
+    candidateSections(doc).forEach((field) => {
+      const host = field.element;
+      if (!host || host.querySelector(`:scope > [data-otra-admin-remove="${cssAttr(field.key)}"]`)) return;
+      host.classList.add("otra-admin-edit-host");
+      host.appendChild(makeRemoveButton(doc, field));
+    });
     avoidPreviewButtonOverlaps(doc);
     setStatus(`Click a pencil in the preview to edit (${fields.length} editable fields).`, "ok");
     if (attempt < 80) setTimeout(() => injectEditControls(attempt + 1), 250);
@@ -1510,6 +1516,24 @@
       }
       .otra-admin-edit-btn:hover { filter: brightness(1.08); }
       .otra-admin-edit-btn svg { width: 16px; height: 16px; stroke-width: 2; }
+      .otra-admin-remove-btn {
+        position: absolute;
+        top: 8px;
+        left: 8px;
+        z-index: 99999;
+        width: 34px;
+        height: 34px;
+        display: grid;
+        place-items: center;
+        color: #fff;
+        background: #c33f3f;
+        border: 1px solid rgba(255,255,255,0.38);
+        border-radius: 999px;
+        box-shadow: 0 12px 34px rgba(0,0,0,0.45);
+        cursor: pointer;
+      }
+      .otra-admin-remove-btn:hover { filter: brightness(1.08); }
+      .otra-admin-remove-btn svg { width: 16px; height: 16px; stroke-width: 2.2; }
     `;
     doc.head.appendChild(style);
   }
@@ -1525,6 +1549,21 @@
       e.preventDefault();
       e.stopPropagation();
       openEditor(field);
+    });
+    return btn;
+  }
+
+  function makeRemoveButton(doc, field) {
+    const btn = doc.createElement("button");
+    btn.type = "button";
+    btn.className = "otra-admin-remove-btn";
+    btn.dataset.otraAdminRemove = field.key;
+    btn.setAttribute("aria-label", "Remove section");
+    btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
+    btn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      await removeSection(field);
     });
     return btn;
   }
@@ -1566,6 +1605,60 @@
     return fields;
   }
 
+  function candidateSections(doc) {
+    const main = doc.querySelector("main") || doc.body;
+    const fields = [];
+    const removed = currentOverride && currentOverride.fields ? currentOverride.fields : {};
+    main.querySelectorAll(":scope > section, :scope > footer").forEach((el) => {
+      if (!isRemovableSection(el)) return;
+      const selector = selectorFor(el, doc);
+      if (!selector) return;
+      const key = "remove:" + selector;
+      if (removed[key] && removed[key].type === "remove") return;
+      fields.push({ type: "remove", key, element: el });
+    });
+    return fields;
+  }
+
+  function isRemovableSection(el) {
+    if (el.closest("header, nav, .dd-panel, script, style")) return false;
+    if (el.id === "book") return false;
+    const style = el.ownerDocument.defaultView.getComputedStyle(el);
+    if (style.display === "none" || style.visibility === "hidden") return false;
+    const rect = el.getBoundingClientRect();
+    return rect.width > 1 && rect.height > 1;
+  }
+
+  async function removeSection(field) {
+    if (!selected || !field || !field.key) return;
+    const label = sectionLabel(field.element);
+    if (!window.confirm(`Remove this section${label ? `: ${label}` : ""}?`)) return;
+    setStatus("Removing section...");
+    try {
+      const next = {
+        description: currentOverride && currentOverride.description ? currentOverride.description : "",
+        image: currentOverride && currentOverride.image ? currentOverride.image : "",
+        fields: Object.assign({}, currentOverride && currentOverride.fields ? currentOverride.fields : {}),
+      };
+      next.fields[field.key] = { type: "remove", value: "1" };
+      const data = await api("/admin/api/overrides?id=" + encodeURIComponent(overrideIdForPage(selected)), {
+        method: "PUT",
+        headers: authHeaders({ "content-type": "application/json" }),
+        body: JSON.stringify(next),
+      });
+      fillForm(data.override);
+      refreshPreview();
+      setStatus("Section removed.", "ok");
+    } catch (err) {
+      setStatus(err.message, "error");
+    }
+  }
+
+  function sectionLabel(el) {
+    const text = el && el.querySelector("h1, h2, h3, .ev-eyebrow, .row-head h2");
+    return text ? text.textContent.trim().replace(/\s+/g, " ").slice(0, 80) : "";
+  }
+
   function positionPreviewButton(btn, field, host) {
     if (field.type !== "image" || field.element.parentElement !== host) return;
     const left = Math.max(8, field.element.offsetLeft + field.element.offsetWidth - 42);
@@ -1576,7 +1669,7 @@
   }
 
   function avoidPreviewButtonOverlaps(doc) {
-    const buttons = [...doc.querySelectorAll("[data-otra-admin-edit]")];
+    const buttons = [...doc.querySelectorAll("[data-otra-admin-edit], [data-otra-admin-remove]")];
     const overlaps = (a, b) => {
       const ar = a.getBoundingClientRect();
       const br = b.getBoundingClientRect();

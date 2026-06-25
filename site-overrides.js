@@ -53,7 +53,7 @@
   function applyFieldOverrides(fields, attempt = 0) {
     let applied = 0;
     for (const [key, field] of Object.entries(fields)) {
-      if (!field || !field.value) continue;
+      if (!field || (field.type !== "remove" && !field.value)) continue;
       const index = key.indexOf(":");
       if (index < 0) continue;
       const type = key.slice(0, index);
@@ -66,6 +66,11 @@
       }
       if (!el) continue;
 
+      if (type === "remove" && field.type === "remove") {
+        el.remove();
+        applied++;
+        continue;
+      }
       if (type === "text" && field.type === "text") {
         el.textContent = field.value;
         applied++;

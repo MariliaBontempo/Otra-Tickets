@@ -54,7 +54,7 @@ function normalizeFields(raw) {
   const fields = {};
   for (const [key, field] of Object.entries(raw)) {
     if (typeof key !== "string" || !field || typeof field !== "object") continue;
-    if (field.type !== "text" && field.type !== "image") continue;
+    if (field.type !== "text" && field.type !== "image" && field.type !== "remove") continue;
     fields[key] = {
       type: field.type,
       value: typeof field.value === "string" ? field.value : "",
