@@ -14,12 +14,16 @@
 
   function inferOverrideId() {
     const explicit = document.currentScript && document.currentScript.dataset.overrideId;
-    if (/^\d+$/.test(explicit || "")) return explicit;
+    if (isOverrideId(explicit)) return explicit;
     const param = new URLSearchParams(location.search).get("id");
-    if (/^\d+$/.test(param || "")) return param;
+    if (isOverrideId(param)) return param;
     if (/\/rnb(?:\.html)?\/?$/i.test(location.pathname)) return "7275";
     if (/\/clearboat(?:\.html)?\/?$/i.test(location.pathname)) return "6113";
     return "";
+  }
+
+  function isOverrideId(value) {
+    return /^(?:\d+|draft-[a-zA-Z0-9-]+)$/.test(value || "");
   }
 
   function applyLegacyOverride(override) {
