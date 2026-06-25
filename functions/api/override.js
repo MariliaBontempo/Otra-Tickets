@@ -13,7 +13,8 @@ export async function onRequestGet(context) {
   try {
     const override =
       (await context.env.OVERRIDES.get(`event:${id}`, "json")) ||
-      (await context.env.OVERRIDES.get(`override:${id}`, "json"));
+      (await context.env.OVERRIDES.get(`override:${id}`, "json")) ||
+      (await readDraftOverrideForOtraGuideId(context.env.OVERRIDES, id));
     if (!override || typeof override !== "object") return json({ override: null });
     return json({
       override: {
@@ -26,6 +27,26 @@ export async function onRequestGet(context) {
   } catch {
     return json({ error: "could not load override" }, 500);
   }
+}
+
+async function readDraftOverrideForOtraGuideId(kv, id) {
+  if (!/^\d+$/.test(id)) return null;
+  let cursor;
+  do {
+    const page = await kv.list({ prefix: "site-event:", cursor });
+    for (const key of page.keys || []) {
+      const project = await kv.get(key.name, "json");
+      if (!project || String(project.otraGuideId || "") !== id) continue;
+      const draftId = String(project.id || key.name.replace(/^site-event:/, ""));
+      return (
+        (await kv.get(`event:${draftId}`, "json")) ||
+        (await kv.get(`override:${draftId}`, "json")) ||
+        null
+      );
+    }
+    cursor = page.list_complete ? undefined : page.cursor;
+  } while (cursor);
+  return null;
 }
 
 function normalizeFields(raw) {

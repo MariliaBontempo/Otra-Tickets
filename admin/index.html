@@ -633,6 +633,16 @@
     return Object.assign({ authorization: "Bearer " + token }, extra || {});
   }
 
+  function overrideIdForPage(page) {
+    if (!page) return "";
+    try {
+      const url = new URL(page.url || "", location.origin);
+      const id = (url.searchParams.get("id") || "").trim();
+      if (/^(?:\d+|draft-[a-zA-Z0-9-]+)$/.test(id)) return id;
+    } catch {}
+    return String(page.id || "").trim();
+  }
+
   async function api(path, options) {
     const resp = await fetch(path, options);
     const data = await resp.json().catch(() => ({}));
@@ -1043,7 +1053,7 @@
     const file = $("imageInput").files[0];
     if (!file) return setStatus("Choose an image first.", "error");
     const form = new FormData();
-    form.set("id", selected.id);
+    form.set("id", overrideIdForPage(selected));
     form.set("file", file);
     $("uploadBtn").disabled = true;
     setStatus("Uploading image...");
@@ -1093,7 +1103,7 @@
         next.image = $("imageUrl").value;
       }
 
-      const data = await api("/admin/api/overrides?id=" + encodeURIComponent(selected.id), {
+      const data = await api("/admin/api/overrides?id=" + encodeURIComponent(overrideIdForPage(selected)), {
         method: "PUT",
         headers: authHeaders({ "content-type": "application/json" }),
         body: JSON.stringify(next),
@@ -1255,7 +1265,7 @@
     showImage("");
     setStatus("Loading override...");
     try {
-      const data = await api("/admin/api/overrides?id=" + encodeURIComponent(selected.id), {
+      const data = await api("/admin/api/overrides?id=" + encodeURIComponent(overrideIdForPage(selected)), {
         headers: authHeaders(),
       });
       fillForm(data.override);

@@ -21,7 +21,7 @@ export async function onRequestGet(context) {
   const base = await getBasePayload(context, id, url, project);
   if (!base) return json({ error: "not found" }, 404);
 
-  const override = await readOverride(context.env, id);
+  const override = await readOverride(context.env, id, project && project.id);
   let payload = override ? { ...base, ...pickOverride(override) } : base;
   if (project) {
     payload = {
@@ -125,11 +125,15 @@ async function getDraftPayload(env, id) {
   };
 }
 
-async function readOverride(env, id) {
+async function readOverride(env, id, fallbackId = "") {
   const kv = env && env.OVERRIDES;
   if (!kv) return null;
   try {
-    const raw = (await kv.get(`event:${id}`)) || (await kv.get(`override:${id}`));
+    const raw =
+      (await kv.get(`event:${id}`)) ||
+      (await kv.get(`override:${id}`)) ||
+      (fallbackId ? await kv.get(`event:${fallbackId}`) : null) ||
+      (fallbackId ? await kv.get(`override:${fallbackId}`) : null);
     return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
