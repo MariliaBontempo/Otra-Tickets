@@ -613,6 +613,7 @@
   let availableExistingEvents = [];
   let selectedExistingEvent = null;
   let existingEventSearchTimer = null;
+  let draftSetupWarning = "";
 
   const $ = (id) => document.getElementById(id);
   const loginView = $("loginView");
@@ -748,12 +749,16 @@
         headers: authHeaders(),
         body: form,
       });
-      const [teamsData, regionsData] = await Promise.all([
+      const [teamsResult, regionsResult] = await Promise.allSettled([
         api("/admin/api/teams", { headers: authHeaders() }),
         api("/admin/api/regions", { headers: authHeaders() }),
       ]);
-      availableTeams = teamsData.teams || [];
-      availableRegions = regionsData.regions || [];
+      availableTeams = teamsResult.status === "fulfilled" ? teamsResult.value.teams || [] : [];
+      availableRegions = regionsResult.status === "fulfilled" ? regionsResult.value.regions || [] : [];
+      draftSetupWarning = [teamsResult, regionsResult]
+        .filter((result) => result.status === "rejected")
+        .map((result) => result.reason && result.reason.message ? result.reason.message : "setup data failed to load")
+        .join(" · ");
       openDraftSetup();
     } catch (err) {
       $("addStatus").textContent = err.message;
@@ -786,7 +791,10 @@
   function openDraftSetup() {
     if (!inspectedProject) return;
     $("draftSetupMeta").textContent = inspectedProject.title || "Claude Design event";
-    $("draftSetupStatus").textContent = "";
+    $("draftSetupStatus").textContent = draftSetupWarning
+      ? "Project loaded, but setup data could not be loaded: " + draftSetupWarning
+      : "";
+    $("draftSetupStatus").className = "status" + (draftSetupWarning ? " error" : "");
     selectedExistingEvent = null;
     availableExistingEvents = [];
     $("existingEventSearch").value = "";
@@ -1458,7 +1466,7 @@
     if (!doc || !doc.body) return;
 
     doc.querySelectorAll("[data-otra-admin-edit]").forEach((el) => el.remove());
-    if (attempt < 30 && candidateElements(doc).length < 3) {
+    if (attempt < 80 && candidateElements(doc).length < 3) {
       setTimeout(() => injectEditControls(attempt + 1), 250);
       return;
     }
@@ -1469,10 +1477,13 @@
       const host = editHost(field.element);
       if (!host || host.querySelector(`:scope > [data-otra-admin-edit="${cssAttr(field.key)}"]`)) return;
       host.classList.add("otra-admin-edit-host");
-      host.appendChild(makePreviewButton(doc, field));
+      const btn = makePreviewButton(doc, field);
+      positionPreviewButton(btn, field, host);
+      host.appendChild(btn);
     });
+    avoidPreviewButtonOverlaps(doc);
     setStatus(`Click a pencil in the preview to edit (${fields.length} editable fields).`, "ok");
-    if (attempt < 30) setTimeout(() => injectEditControls(attempt + 1), 250);
+    if (attempt < 80) setTimeout(() => injectEditControls(attempt + 1), 250);
   }
 
   function ensurePreviewStyles(doc) {
@@ -1522,10 +1533,13 @@
     const main = doc.querySelector("main") || doc.body;
     const textSelector = [
       "h1", "h2", "h3",
-      ".ev-eyebrow", ".ev-tag", ".ev-pull", ".ev-body p",
+      ".ev-eyebrow", ".ev-sub", ".ev-tag", ".ev-pull", ".ev-body p",
+      ".ev-hero-meta span:not(.dot)", ".ev-video .vlabel .tag", ".ev-video .vlabel .ttl",
+      ".rnb-roster li", ".rnb-host span", ".rnb-host b", ".rnb-host-credit",
       ".ev-info-cell .k", ".ev-info-cell .v",
       ".ev-rate .rk", ".ev-rate .rp", ".ev-rate .rn",
-      ".ev-likes span:not(.n)", ".rnb-edition", ".rnb-venue",
+      ".ev-rates-foot", ".row-head .count", ".row-head .see-all", ".ev-note",
+      ".ev-likes span", ".rnb-edition", ".rnb-venue",
       ".btn-metal", ".btn-ghost", "footer .pb", "footer .loc"
     ].join(",");
     const imageSelector = [
@@ -1550,6 +1564,42 @@
       fields.push({ type: "image", key: "image:" + selector, element: el });
     });
     return fields;
+  }
+
+  function positionPreviewButton(btn, field, host) {
+    if (field.type !== "image" || field.element.parentElement !== host) return;
+    const left = Math.max(8, field.element.offsetLeft + field.element.offsetWidth - 42);
+    const top = Math.max(8, field.element.offsetTop + 8);
+    btn.style.left = left + "px";
+    btn.style.top = top + "px";
+    btn.style.right = "auto";
+  }
+
+  function avoidPreviewButtonOverlaps(doc) {
+    const buttons = [...doc.querySelectorAll("[data-otra-admin-edit]")];
+    const overlaps = (a, b) => {
+      const ar = a.getBoundingClientRect();
+      const br = b.getBoundingClientRect();
+      return Math.min(ar.right, br.right) - Math.max(ar.left, br.left) > 3 &&
+        Math.min(ar.bottom, br.bottom) - Math.max(ar.top, br.top) > 3;
+    };
+    const moveDown = (btn) => {
+      const top = Number.parseFloat(btn.style.top || getComputedStyle(btn).top || "8") || 8;
+      btn.style.top = (top + 40) + "px";
+    };
+
+    for (let pass = 0; pass < 10; pass += 1) {
+      let changed = false;
+      for (let i = 0; i < buttons.length; i += 1) {
+        for (let j = i + 1; j < buttons.length; j += 1) {
+          if (overlaps(buttons[i], buttons[j])) {
+            moveDown(buttons[j]);
+            changed = true;
+          }
+        }
+      }
+      if (!changed) break;
+    }
   }
 
   function isEditableText(el) {
