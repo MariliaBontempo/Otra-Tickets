@@ -1065,11 +1065,17 @@
       });
       $("imageUrl").value = data.url;
       showImage(data.url);
-      setStatus("Image uploaded. Save to publish it.", "ok");
+      $("saveBtn").disabled = true;
+      setStatus("Image uploaded. Saving...");
+      await persistCurrentOverride();
+      closeModal();
+      refreshPreview();
+      setStatus("Image uploaded and saved.", "ok");
     } catch (err) {
       setStatus(err.message, "error");
     } finally {
       $("uploadBtn").disabled = false;
+      $("saveBtn").disabled = false;
     }
   });
 
@@ -1087,28 +1093,7 @@
     $("saveBtn").disabled = true;
     setStatus("Saving...");
     try {
-      const next = {
-        description: currentOverride && currentOverride.description ? currentOverride.description : "",
-        image: currentOverride && currentOverride.image ? currentOverride.image : "",
-        fields: Object.assign({}, currentOverride && currentOverride.fields ? currentOverride.fields : {}),
-      };
-      if (activeField) {
-        next.fields[activeField.key] = {
-          type: activeField.type,
-          value: activeField.type === "text" ? $("description").value : $("imageUrl").value,
-        };
-      } else if (modalMode === "description") {
-        next.description = $("description").value;
-      } else if (modalMode === "image") {
-        next.image = $("imageUrl").value;
-      }
-
-      const data = await api("/admin/api/overrides?id=" + encodeURIComponent(overrideIdForPage(selected)), {
-        method: "PUT",
-        headers: authHeaders({ "content-type": "application/json" }),
-        body: JSON.stringify(next),
-      });
-      fillForm(data.override);
+      await persistCurrentOverride();
       closeModal();
       refreshPreview();
       setStatus("Saved.", "ok");
@@ -1118,6 +1103,32 @@
       $("saveBtn").disabled = false;
     }
   });
+
+  async function persistCurrentOverride() {
+    const next = {
+      description: currentOverride && currentOverride.description ? currentOverride.description : "",
+      image: currentOverride && currentOverride.image ? currentOverride.image : "",
+      fields: Object.assign({}, currentOverride && currentOverride.fields ? currentOverride.fields : {}),
+    };
+    if (activeField) {
+      next.fields[activeField.key] = {
+        type: activeField.type,
+        value: activeField.type === "text" ? $("description").value : $("imageUrl").value,
+      };
+    } else if (modalMode === "description") {
+      next.description = $("description").value;
+    } else if (modalMode === "image") {
+      next.image = $("imageUrl").value;
+    }
+
+    const data = await api("/admin/api/overrides?id=" + encodeURIComponent(overrideIdForPage(selected)), {
+      method: "PUT",
+      headers: authHeaders({ "content-type": "application/json" }),
+      body: JSON.stringify(next),
+    });
+    fillForm(data.override);
+    return data;
+  }
 
   async function boot() {
     loginView.classList.add("hidden");
