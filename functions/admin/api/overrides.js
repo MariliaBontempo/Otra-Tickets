@@ -37,9 +37,12 @@ export async function onRequestPut(context) {
 
   const description = typeof body.description === "string" ? body.description.trim() : "";
   const image = typeof body.image === "string" ? body.image.trim() : "";
+  const rawCheckoutEventId = String(body.checkoutEventId ?? "").trim();
+  const checkoutEventId = normalizeCheckoutEventId(rawCheckoutEventId);
   const fields = normalizeFields(body.fields);
   if (description.length > 20000) return json({ error: "description is too long" }, 400);
   if (image && !isAllowedImageUrl(image)) return json({ error: "invalid image url" }, 400);
+  if (rawCheckoutEventId && !checkoutEventId) return json({ error: "invalid checkout event id" }, 400);
   for (const field of Object.values(fields)) {
     if (field.type === "text" && field.value.length > 20000) {
       return json({ error: "text field is too long" }, 400);
@@ -53,6 +56,7 @@ export async function onRequestPut(context) {
     id,
     description,
     image,
+    checkoutEventId,
     fields,
     updatedAt: new Date().toISOString(),
   };
@@ -71,6 +75,7 @@ function normalizeOverride(raw, id) {
     id,
     description: typeof raw.description === "string" ? raw.description : "",
     image: typeof raw.image === "string" ? raw.image : "",
+    checkoutEventId: normalizeCheckoutEventId(raw.checkoutEventId),
     fields: normalizeFields(raw.fields),
     updatedAt: typeof raw.updatedAt === "string" ? raw.updatedAt : null,
   };
@@ -93,6 +98,11 @@ function normalizeFields(raw) {
 function getId(request) {
   const id = (new URL(request.url).searchParams.get("id") || "").trim();
   return /^(?:\d+|draft-[a-zA-Z0-9-]+)$/.test(id) ? id : "";
+}
+
+function normalizeCheckoutEventId(value) {
+  const id = String(value || "").trim();
+  return /^\d+$/.test(id) ? id : "";
 }
 
 function isAllowedImageUrl(value) {

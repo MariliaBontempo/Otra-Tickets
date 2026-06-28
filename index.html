@@ -813,6 +813,32 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
 
     /* ===== events storefront rows — revealed by scrolling down from the hero ===== */
     (async function () {
+    const rowsTarget = document.getElementById("rows");
+    const enterLink = document.querySelector(".enter");
+    let rowsReady = false;
+    let scrollWhenReady = false;
+
+    if (enterLink) {
+      enterLink.classList.add("is-loading");
+      enterLink.addEventListener("click", (e) => {
+        if (rowsReady) return;
+        e.preventDefault();
+        scrollWhenReady = true;
+        enterLink.setAttribute("aria-busy", "true");
+      });
+    }
+
+    function markRowsReady() {
+      rowsReady = true;
+      if (enterLink) {
+        enterLink.classList.remove("is-loading");
+        enterLink.removeAttribute("aria-busy");
+      }
+      if (scrollWhenReady && rowsTarget) {
+        requestAnimationFrame(() => rowsTarget.scrollIntoView({ block: "start" }));
+      }
+    }
+
     // Events on this site that have their own page (keyed by Otra Guide event id).
     const LOCAL_PAGES = { 7275: "rnb", 6113: "clearboat" };
 
@@ -827,9 +853,13 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
       events = (feedData && feedData.events) || [];
     } catch (err) {
       console.error("Could not load homepage events:", err);
+      markRowsReady();
       return;
     }
-    if (!events.length) return;
+    if (!events.length) {
+      markRowsReady();
+      return;
+    }
 
     // "Saturday July 4 · 6PM" in Curaçao time, matching the old card style.
     function fmtDate(iso) {
@@ -855,7 +885,7 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
     // Build the tracks
     const ICON_L = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="15 5 8 12 15 19"/></svg>';
     const ICON_R = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="9 5 16 12 9 19"/></svg>';
-    const container = document.getElementById("rows");
+    const container = rowsTarget;
 
     function buildRow(row, rowIndex) {
       const items = (row.eventIds || [])
@@ -972,6 +1002,7 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
       container.append(sec);
     }
     rowData.forEach(buildRow);
+    markRowsReady();
 
     function preloadFirstRowImages(row, map) {
       if (!row || !Array.isArray(row.eventIds)) return;

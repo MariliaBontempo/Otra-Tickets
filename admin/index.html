@@ -500,6 +500,13 @@
         </div>
       </div>
 
+      <div class="stack hidden" id="checkoutEditor">
+        <label>Checkout event ID
+          <input id="checkoutEventId" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="7428" />
+        </label>
+        <p>The checkout embed will load tickets from this Otra Guide event instead of the page event ID.</p>
+      </div>
+
       <div class="row split">
         <button class="btn ghost" id="cancelBtn" type="button">Cancel</button>
         <button class="btn primary" id="saveBtn" type="submit">Save</button>
@@ -1181,6 +1188,7 @@
     const next = {
       description: currentOverride && currentOverride.description ? currentOverride.description : "",
       image: currentOverride && currentOverride.image ? currentOverride.image : "",
+      checkoutEventId: currentOverride && currentOverride.checkoutEventId ? currentOverride.checkoutEventId : "",
       fields: Object.assign({}, currentOverride && currentOverride.fields ? currentOverride.fields : {}),
     };
     if (activeField) {
@@ -1192,6 +1200,8 @@
       next.description = $("description").value;
     } else if (modalMode === "image") {
       next.image = $("imageUrl").value;
+    } else if (modalMode === "checkout") {
+      next.checkoutEventId = $("checkoutEventId").value.trim();
     }
 
     const data = await api("/admin/api/overrides?id=" + encodeURIComponent(overrideIdForPage(selected)), {
@@ -1530,6 +1540,7 @@
     if (currentOverride && !currentOverride.fields) currentOverride.fields = {};
     $("description").value = override && override.description ? override.description : "";
     $("imageUrl").value = override && override.image ? override.image : "";
+    $("checkoutEventId").value = override && override.checkoutEventId ? override.checkoutEventId : "";
     showImage($("imageUrl").value);
   }
 
@@ -1558,10 +1569,12 @@
     modalMode = activeField ? activeField.type : field;
     const isText = modalMode === "text" || modalMode === "description";
     const isImage = modalMode === "image";
-    $("modalTitle").textContent = isText ? "Edit text" : "Edit image";
+    const isCheckout = modalMode === "checkout";
+    $("modalTitle").textContent = isText ? "Edit text" : isImage ? "Edit image" : "Edit checkout";
     $("modalMeta").textContent = selected.title + " - " + selected.type;
     $("textEditor").classList.toggle("hidden", !isText);
     $("imageEditor").classList.toggle("hidden", !isImage);
+    $("checkoutEditor").classList.toggle("hidden", !isCheckout);
 
     if (isText) {
       const saved = activeField && fieldOverrideForKey(activeField.key);
@@ -1574,10 +1587,13 @@
       $("imageUrl").value = saved && saved.value ? saved.value : activeField && activeField.element ? readImageValue(activeField.element) : getPreviewImage();
       showImage($("imageUrl").value);
     }
+    if (isCheckout) {
+      $("checkoutEventId").value = currentOverride && currentOverride.checkoutEventId ? currentOverride.checkoutEventId : overrideIdForPage(selected);
+    }
 
     $("editModal").classList.remove("hidden");
     setTimeout(() => {
-      const first = isText ? $("description") : $("imageInput");
+      const first = isText ? $("description") : isImage ? $("imageInput") : $("checkoutEventId");
       first.focus();
     }, 0);
   }
@@ -1642,6 +1658,7 @@
       host.classList.add("otra-admin-edit-host");
       host.appendChild(makeRemoveButton(doc, field));
     });
+    injectCheckoutControl(doc);
     avoidPreviewButtonOverlaps(doc);
     const status = statusEl.textContent.trim();
     if (
@@ -1651,6 +1668,27 @@
       setStatus(`Click a pencil in the preview to edit (${fields.length} editable fields).`, "ok");
     }
     if (attempt < 80) setTimeout(() => injectEditControls(attempt + 1), 250);
+  }
+
+  function injectCheckoutControl(doc) {
+    const host = doc.getElementById("book");
+    if (!host || host.querySelector(':scope > [data-otra-admin-checkout]')) return;
+    host.classList.add("otra-admin-edit-host");
+    const btn = doc.createElement("button");
+    btn.type = "button";
+    btn.className = "otra-admin-edit-btn";
+    btn.dataset.otraAdminCheckout = "1";
+    btn.setAttribute("aria-label", "Edit checkout event id");
+    btn.title = "Edit checkout event id";
+    btn.style.right = "12px";
+    btn.style.top = "12px";
+    btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openEditor("checkout");
+    });
+    host.appendChild(btn);
   }
 
   function ensurePreviewStyles(doc) {

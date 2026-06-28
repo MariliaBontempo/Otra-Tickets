@@ -149,6 +149,7 @@ function pickOverride(override) {
   const out = {};
   if (override.description) out.description = override.description;
   if (override.image) out.image = override.image;
+  if (override.checkoutEventId) out.checkoutEventId = override.checkoutEventId;
   return out;
 }
 

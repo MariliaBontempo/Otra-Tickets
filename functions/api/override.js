@@ -20,6 +20,7 @@ export async function onRequestGet(context) {
       override: {
         description: typeof override.description === "string" ? override.description : "",
         image: typeof override.image === "string" ? override.image : "",
+        checkoutEventId: typeof override.checkoutEventId === "string" && /^\d+$/.test(override.checkoutEventId) ? override.checkoutEventId : "",
         fields: normalizeFields(override.fields),
         updatedAt: typeof override.updatedAt === "string" ? override.updatedAt : null,
       },
