@@ -60,6 +60,7 @@ async function getBasePayload(context, id, url, project) {
 
   const base = {
     id: detail.id,
+    checkoutEventId: detail.id,
     title: detail.title,
     description: detail.description || "",
     startDate: detail.start_date || null,
@@ -108,6 +109,7 @@ async function getDraftPayload(env, id) {
   const rates = Array.isArray(draft.claudeDesign && draft.claudeDesign.rates) ? draft.claudeDesign.rates : [];
   return {
     id,
+    checkoutEventId: /^\d+$/.test(String(draft.otraGuideId || "")) ? String(draft.otraGuideId) : "",
     title: typeof draft.title === "string" && draft.title.trim() ? draft.title.trim() : "Claude Design Event",
     description:
       typeof draft.description === "string" && draft.description.trim()
@@ -120,6 +122,7 @@ async function getDraftPayload(env, id) {
     image: typeof draft.image === "string" ? draft.image : "",
     socialLinks: [],
     accent: "#1c9ebd",
+    checkoutBaseUrl: apiBase(env).replace(/\/api$/, ""),
     tickets: rates,
     isDraft: true,
     status: draft.status === "published" ? "published" : "draft",

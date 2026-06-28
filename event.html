@@ -1290,7 +1290,7 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
       // embed renders its own date/time + ticket picker, so it must be present
       // regardless of what the event-detail endpoint reported about tickets.
       $("book").hidden = false;
-      loadCheckout(ev.id, ev.checkoutBaseUrl || "https://otraguide.com");
+      loadCheckout(ev.checkoutEventId || ev.id, ev.checkoutBaseUrl || "https://otraguide.com");
 
       // re-run the reveal observer for the now-visible sections
       revealAll();
