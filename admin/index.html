@@ -1418,7 +1418,8 @@
 
     if (isText) {
       const saved = activeField && currentOverride && currentOverride.fields && currentOverride.fields[activeField.key];
-      $("description").value = saved && saved.value ? saved.value : activeField && activeField.element ? activeField.element.textContent.trim() : getPreviewDescription();
+      const hasSavedText = saved && saved.type === "text" && typeof saved.value === "string";
+      $("description").value = hasSavedText ? saved.value : activeField && activeField.element ? activeField.element.textContent.trim() : getPreviewDescription();
     }
     if (isImage) {
       const saved = activeField && currentOverride && currentOverride.fields && currentOverride.fields[activeField.key];
@@ -1602,11 +1603,11 @@
     const fields = [];
     const seen = new Set();
     main.querySelectorAll(textSelector).forEach((el) => {
-      if (!isEditableText(el)) return;
       const selector = selectorFor(el, doc);
-      if (!selector || seen.has("text:" + selector)) return;
-      seen.add("text:" + selector);
-      fields.push({ type: "text", key: "text:" + selector, element: el });
+      const key = selector ? "text:" + selector : "";
+      if (!key || !isEditableText(el, key) || seen.has(key)) return;
+      seen.add(key);
+      fields.push({ type: "text", key, element: el });
     });
     main.querySelectorAll(imageSelector).forEach((el) => {
       if (!isEditableImage(el)) return;
@@ -1708,10 +1709,12 @@
     }
   }
 
-  function isEditableText(el) {
+  function isEditableText(el, key) {
     if (el.closest("[data-otra-admin-edit]")) return false;
     if (el.closest("header, nav, .dd-panel, script, style")) return false;
-    return !!el.textContent.trim();
+    if (el.textContent.trim()) return true;
+    const saved = currentOverride && currentOverride.fields && currentOverride.fields[key];
+    return !!(saved && saved.type === "text");
   }
 
   function isEditableImage(el) {

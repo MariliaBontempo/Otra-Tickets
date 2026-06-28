@@ -53,7 +53,7 @@
   function applyFieldOverrides(fields, attempt = 0) {
     let applied = 0;
     for (const [key, field] of Object.entries(fields)) {
-      if (!field || (field.type !== "remove" && !field.value)) continue;
+      if (!field) continue;
       const index = key.indexOf(":");
       if (index < 0) continue;
       const type = key.slice(0, index);
@@ -72,10 +72,12 @@
         continue;
       }
       if (type === "text" && field.type === "text") {
-        el.textContent = field.value;
+        const value = typeof field.value === "string" ? field.value : "";
+        el.textContent = value;
+        if (value.includes("\n")) el.style.whiteSpace = "pre-line";
         applied++;
       }
-      if (type === "image" && field.type === "image") {
+      if (type === "image" && field.type === "image" && field.value) {
         applyImage(el, field.value);
         applied++;
       }
