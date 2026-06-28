@@ -173,12 +173,13 @@ async function buildPublishedSiteEvents(env) {
       if (!project || typeof project !== "object" || project.status !== "published") continue;
       const draftId = key.name.replace(/^site-event:/, "");
       const id = project.otraGuideId ? String(project.otraGuideId) : draftId;
+      const localCard = LOCAL_CARD_INFO[id];
       out.push({
         id,
         title: typeof project.title === "string" && project.title.trim() ? project.title.trim() : "Claude Design Event",
         date: project.publishedAt || project.createdAt || null,
-        venue: projectVenue(project),
-        dateLabel: projectDateLabel(project),
+        venue: (localCard && localCard.venue) || projectVenue(project),
+        dateLabel: (localCard && localCard.dateLabel) || projectDateLabel(project),
         img:
           (typeof project.image === "string" && project.image) ||
           (project.claudeDesign && typeof project.claudeDesign.image === "string" && project.claudeDesign.image) ||
