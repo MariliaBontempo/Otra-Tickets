@@ -1417,12 +1417,12 @@
     $("imageEditor").classList.toggle("hidden", !isImage);
 
     if (isText) {
-      const saved = activeField && currentOverride && currentOverride.fields && currentOverride.fields[activeField.key];
+      const saved = activeField && fieldOverrideForKey(activeField.key);
       const hasSavedText = saved && saved.type === "text" && typeof saved.value === "string";
       $("description").value = hasSavedText ? saved.value : activeField && activeField.element ? activeField.element.textContent.trim() : getPreviewDescription();
     }
     if (isImage) {
-      const saved = activeField && currentOverride && currentOverride.fields && currentOverride.fields[activeField.key];
+      const saved = activeField && fieldOverrideForKey(activeField.key);
       $("imageInput").value = "";
       $("imageUrl").value = saved && saved.value ? saved.value : activeField && activeField.element ? readImageValue(activeField.element) : getPreviewImage();
       showImage($("imageUrl").value);
@@ -1713,8 +1713,16 @@
     if (el.closest("[data-otra-admin-edit]")) return false;
     if (el.closest("header, nav, .dd-panel, script, style")) return false;
     if (el.textContent.trim()) return true;
-    const saved = currentOverride && currentOverride.fields && currentOverride.fields[key];
+    const saved = fieldOverrideForKey(key);
     return !!(saved && saved.type === "text");
+  }
+
+  function fieldOverrideForKey(key) {
+    const fields = currentOverride && currentOverride.fields;
+    if (!fields || !key) return null;
+    if (fields[key]) return fields[key];
+    const legacyKey = key.replace(/^(text|image|remove):#/, "$1:main > #");
+    return legacyKey !== key ? fields[legacyKey] || null : null;
   }
 
   function isEditableImage(el) {
@@ -1742,12 +1750,14 @@
     if (el.id) return "#" + cssEscape(el.id);
     const parts = [];
     let node = el;
+    let anchoredToId = false;
     const stop = doc.querySelector("main") || doc.body;
     while (node && node.nodeType === 1 && node !== stop && node !== doc.body) {
       let part = node.tagName.toLowerCase();
       if (node.id) {
         part = "#" + cssEscape(node.id);
         parts.unshift(part);
+        anchoredToId = true;
         break;
       }
       const parent = node.parentElement;
@@ -1757,6 +1767,7 @@
       parts.unshift(part);
       node = parent;
     }
+    if (anchoredToId) return parts.join(" > ");
     const prefix = stop === doc.body ? "body" : "main";
     return prefix + (parts.length ? " > " + parts.join(" > ") : "");
   }

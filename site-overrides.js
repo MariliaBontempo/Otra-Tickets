@@ -61,6 +61,9 @@
       let el = null;
       try {
         el = document.querySelector(selector);
+        if (!el && selector.startsWith("main > #")) {
+          el = document.querySelector(selector.slice("main > ".length));
+        }
       } catch {
         continue;
       }
