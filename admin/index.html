@@ -225,7 +225,7 @@
 
   .image-preview {
     width: 100%;
-    aspect-ratio: 16 / 9;
+    height: clamp(150px, 28vh, 240px);
     display: grid;
     place-items: center;
     overflow: hidden;
@@ -1465,7 +1465,6 @@
     }
     if (!doc || !doc.body) return;
 
-    doc.querySelectorAll("[data-otra-admin-edit]").forEach((el) => el.remove());
     if (attempt < 80 && candidateElements(doc).length < 3) {
       setTimeout(() => injectEditControls(attempt + 1), 250);
       return;
@@ -1488,7 +1487,13 @@
       host.appendChild(makeRemoveButton(doc, field));
     });
     avoidPreviewButtonOverlaps(doc);
-    setStatus(`Click a pencil in the preview to edit (${fields.length} editable fields).`, "ok");
+    const status = statusEl.textContent.trim();
+    if (
+      $("editModal").classList.contains("hidden") &&
+      (!status || /^(?:Loading override|No override|Override loaded|Click a pencil)/.test(status))
+    ) {
+      setStatus(`Click a pencil in the preview to edit (${fields.length} editable fields).`, "ok");
+    }
     if (attempt < 80) setTimeout(() => injectEditControls(attempt + 1), 250);
   }
 
