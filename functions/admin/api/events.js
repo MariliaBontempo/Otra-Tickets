@@ -31,6 +31,55 @@ export async function onRequestGet(context) {
   return json({ events });
 }
 
+export async function onRequestPut(context) {
+  const accessToken = await requireStaff(context.request, context.env);
+  if (!accessToken) return json({ error: "unauthorized" }, 401);
+
+  let body;
+  try {
+    body = await context.request.json();
+  } catch {
+    return json({ error: "invalid json" }, 400);
+  }
+
+  const eventId = cleanInteger(body && body.eventId);
+  const submitted = body && Array.isArray(body.tickets) ? body.tickets : [];
+  if (!eventId) return json({ error: "event id is required" }, 400);
+  if (!submitted.length) return json({ error: "at least one ticket type is required" }, 400);
+
+  const current = await hydrateEvent(context, accessToken, eventId);
+  if (!current) return json({ error: "event not found" }, 404);
+  const existingById = new Map(current.tickets.map((ticket) => [String(ticket.id), ticket]));
+
+  let tickets;
+  try {
+    tickets = submitted.map((ticket) => normalizeTicketInput(ticket, existingById));
+  } catch (error) {
+    return json({ error: error.message }, 400);
+  }
+
+  try {
+    for (const ticket of tickets) {
+      await otraWrite(context, accessToken, `/ticket/create/tickets/${eventId}/${ticket.id}/`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: ticket.name,
+          description: ticket.description,
+          price: ticket.price,
+          quantity: ticket.quantity,
+          base_currency: ticket.currency,
+        }),
+      });
+    }
+    await syncDraftTickets(context.env, body && body.draftId, eventId, tickets);
+    const updated = await hydrateEvent(context, accessToken, eventId);
+    return json({ event: updated });
+  } catch (error) {
+    return json({ error: error.message }, 502);
+  }
+}
+
 async function searchEvents(context, accessToken, query, region) {
   const ids = new Set();
 
@@ -154,6 +203,73 @@ async function otraJson(context, accessToken, path) {
   } catch {
     return null;
   }
+}
+
+async function otraWrite(context, accessToken, path, options) {
+  let response;
+  try {
+    response = await fetch(`${apiBase(context.env)}${path}`, {
+      ...options,
+      headers: {
+        accept: "application/json",
+        authorization: `Bearer ${accessToken}`,
+        ...(options.headers || {}),
+      },
+    });
+  } catch {
+    throw new Error("could not reach Otra Guide");
+  }
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const detail = data.detail || data.error || Object.values(data).flat().join(" ");
+    throw new Error(detail || `Otra Guide request failed (${response.status})`);
+  }
+  return data;
+}
+
+function normalizeTicketInput(ticket, existingById) {
+  const id = cleanInteger(ticket && ticket.id);
+  if (!id || !existingById.has(String(id))) throw new Error("invalid ticket type");
+  const name = String((ticket && ticket.name) || "").trim();
+  if (!name) throw new Error("ticket name is required");
+  const numericPrice = Number(ticket && ticket.price);
+  if (!Number.isFinite(numericPrice) || numericPrice < 0) throw new Error(`invalid price for ${name}`);
+  const quantity = cleanInteger(ticket && ticket.quantity);
+  if (!quantity) throw new Error(`invalid quantity for ${name}`);
+  const currency = String((ticket && ticket.currency) || "").toUpperCase();
+  if (!["USD", "EUR", "ANG"].includes(currency)) throw new Error(`invalid currency for ${name}`);
+  return {
+    id,
+    name,
+    description: String((ticket && ticket.description) || "").trim(),
+    price: numericPrice.toFixed(2),
+    quantity,
+    currency,
+  };
+}
+
+async function syncDraftTickets(env, draftId, eventId, tickets) {
+  const id = String(draftId || "").trim();
+  const kv = env && env.OVERRIDES;
+  if (!kv || !/^draft-[a-zA-Z0-9-]+$/.test(id)) return;
+  const key = `site-event:${id}`;
+  const project = await kv.get(key, "json");
+  if (!project || String(project.otraGuideId || "") !== String(eventId)) return;
+  const next = {
+    ...project,
+    claudeDesign: {
+      ...(project.claudeDesign || {}),
+      rates: tickets.map((ticket) => ({
+        name: ticket.name,
+        description: ticket.description,
+        price: ticket.price,
+        currency: ticket.currency,
+      })),
+    },
+    ticketQuantities: tickets.map((ticket) => ticket.quantity),
+    ticketTypeIds: tickets.map((ticket) => ticket.id),
+  };
+  await kv.put(key, JSON.stringify(next));
 }
 
 function cleanInteger(value) {

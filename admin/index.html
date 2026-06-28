@@ -291,6 +291,22 @@
     border: 1px solid var(--line);
     border-radius: var(--radius);
   }
+  .checkout-ticket-list { display: grid; gap: 12px; }
+  .checkout-ticket {
+    display: grid;
+    gap: 12px;
+    padding: 14px;
+    background: #0b0d11;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+  }
+  .checkout-ticket-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 110px 110px;
+    gap: 10px;
+  }
+  .checkout-ticket textarea { min-height: 88px; }
+  .checkout-ticket-note { color: var(--muted); font-size: 12px; }
 
   .icon-btn {
     width: 42px;
@@ -319,7 +335,7 @@
     .hub-actions { grid-template-columns: 1fr; }
     iframe { height: calc(100vh - 155px); }
     .top-status { white-space: normal; }
-    .form-grid, .ticket-quantity { grid-template-columns: 1fr; }
+    .form-grid, .ticket-quantity, .checkout-ticket-head { grid-template-columns: 1fr; }
   }
 </style>
 </head>
@@ -350,6 +366,7 @@
       <select id="pageSelect" aria-label="Select page"></select>
       <div class="row split">
         <div class="top-status" id="status"></div>
+        <button class="btn hidden" id="editCheckoutBtn" type="button">Edit checkout</button>
         <button class="btn ghost hidden" id="archivePageBtn" type="button">Archive</button>
         <button class="btn primary hidden" id="publishDraftBtn" type="button">Publish</button>
         <button class="btn ghost" id="logoutBtn" type="button">Sign out</button>
@@ -512,6 +529,27 @@
     </form>
   </div>
 
+  <div class="modal-backdrop hidden" id="checkoutModal" role="dialog" aria-modal="true" aria-labelledby="checkoutTitle">
+    <form class="modal stack" id="checkoutForm">
+      <div class="row split">
+        <div>
+          <h2 id="checkoutTitle">Edit checkout</h2>
+          <p id="checkoutMeta"></p>
+        </div>
+        <button class="icon-btn" id="closeCheckoutModalBtn" type="button" aria-label="Close">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
+      </div>
+      <p>Edit the ticket names, descriptions, prices, currencies, and total quantities used by the Otra Guide checkout.</p>
+      <div class="checkout-ticket-list" id="checkoutTickets"></div>
+      <div class="status" id="checkoutStatus"></div>
+      <div class="row split">
+        <button class="btn ghost" id="cancelCheckoutBtn" type="button">Cancel</button>
+        <button class="btn primary" id="saveCheckoutBtn" type="submit">Save checkout</button>
+      </div>
+    </form>
+  </div>
+
   <div class="modal-backdrop hidden" id="draftSetupModal" role="dialog" aria-modal="true" aria-labelledby="draftSetupTitle">
     <form class="modal stack" id="draftSetupForm">
       <div class="row split">
@@ -614,6 +652,7 @@
   let selectedExistingEvent = null;
   let existingEventSearchTimer = null;
   let draftSetupWarning = "";
+  let checkoutEvent = null;
 
   const $ = (id) => document.getElementById(id);
   const loginView = $("loginView");
@@ -642,6 +681,18 @@
       if (/^(?:\d+|draft-[a-zA-Z0-9-]+)$/.test(id)) return id;
     } catch {}
     return String(page.id || "").trim();
+  }
+
+  function eventIdForPage(page) {
+    if (!page) return "";
+    if (/^\d+$/.test(String(page.otraGuideId || ""))) return String(page.otraGuideId);
+    if (/^\d+$/.test(String(page.id || ""))) return String(page.id);
+    try {
+      const id = new URL(page.url || "", location.origin).searchParams.get("id") || "";
+      return /^\d+$/.test(id) ? id : "";
+    } catch {
+      return "";
+    }
   }
 
   async function api(path, options) {
@@ -1041,6 +1092,7 @@
   }
 
   $("pageSelect").addEventListener("change", () => selectPage($("pageSelect").value));
+  $("editCheckoutBtn").addEventListener("click", openCheckoutModal);
   $("archivePageBtn").addEventListener("click", archiveSelectedPage);
   $("publishDraftBtn").addEventListener("click", openPublishModal);
   $("previewFrame").addEventListener("load", () => injectEditControls());
@@ -1055,6 +1107,12 @@
     if (e.target === $("publishModal")) closePublishModal();
   });
   $("publishForm").addEventListener("submit", publishSelectedDraft);
+  $("closeCheckoutModalBtn").addEventListener("click", closeCheckoutModal);
+  $("cancelCheckoutBtn").addEventListener("click", closeCheckoutModal);
+  $("checkoutModal").addEventListener("click", (e) => {
+    if (e.target === $("checkoutModal")) closeCheckoutModal();
+  });
+  $("checkoutForm").addEventListener("submit", saveCheckout);
 
   $("uploadBtn").addEventListener("click", uploadCurrentImage);
 
@@ -1283,6 +1341,7 @@
     if (!selected) return;
     $("pageSelect").value = selected.id;
     $("archivePageBtn").classList.toggle("hidden", !selected);
+    $("editCheckoutBtn").classList.toggle("hidden", !eventIdForPage(selected));
     $("publishDraftBtn").classList.toggle("hidden", !isDraft(selected) || selected.status === "published");
     $("previewFrame").src = selected.url;
     $("description").value = "";
@@ -1298,6 +1357,94 @@
       setStatus(data.override ? "Override loaded." : "No override yet.");
     } catch (err) {
       setStatus(err.message, "error");
+    }
+  }
+
+  async function openCheckoutModal() {
+    const eventId = eventIdForPage(selected);
+    if (!eventId) return;
+    checkoutEvent = null;
+    $("checkoutMeta").textContent = `${selected.title} · Otra Guide ID ${eventId}`;
+    $("checkoutTickets").innerHTML = "";
+    $("checkoutStatus").textContent = "Loading checkout...";
+    $("checkoutStatus").className = "status";
+    $("saveCheckoutBtn").disabled = true;
+    $("checkoutModal").classList.remove("hidden");
+    try {
+      const data = await api(`/admin/api/events?id=${encodeURIComponent(eventId)}`, { headers: authHeaders() });
+      checkoutEvent = data.events && data.events[0] ? data.events[0] : null;
+      if (!checkoutEvent || !checkoutEvent.tickets || !checkoutEvent.tickets.length) throw new Error("No ticket types were found for this event.");
+      renderCheckoutTickets(checkoutEvent.tickets);
+      $("checkoutStatus").textContent = "";
+      $("saveCheckoutBtn").disabled = false;
+    } catch (err) {
+      $("checkoutStatus").textContent = err.message;
+      $("checkoutStatus").className = "status error";
+    }
+  }
+
+  function closeCheckoutModal() {
+    $("checkoutModal").classList.add("hidden");
+    checkoutEvent = null;
+  }
+
+  function renderCheckoutTickets(tickets) {
+    $("checkoutTickets").innerHTML = tickets.map((ticket) => {
+      const remaining = Number.isSafeInteger(ticket.remainingQuantity)
+        ? `<span class="checkout-ticket-note">${esc(ticket.remainingQuantity)} currently remaining</span>`
+        : "";
+      return `<section class="checkout-ticket" data-checkout-ticket="${esc(ticket.id)}">
+        <div class="checkout-ticket-head">
+          <label>Ticket name<input data-checkout-name type="text" maxlength="120" required value="${esc(ticket.name)}" /></label>
+          <label>Price<input data-checkout-price type="number" min="0" step="0.01" required value="${esc(ticket.price)}" /></label>
+          <label>Currency<select data-checkout-currency required>
+            ${["USD", "EUR", "ANG"].map((currency) => `<option value="${currency}"${currency === ticket.currency ? " selected" : ""}>${currency}</option>`).join("")}
+          </select></label>
+        </div>
+        <label>Description<textarea data-checkout-description>${esc(ticket.description || "")}</textarea></label>
+        <label>Total quantity<input data-checkout-quantity type="number" min="1" step="1" required value="${esc(ticket.quantity)}" /></label>
+        ${remaining}
+      </section>`;
+    }).join("");
+  }
+
+  async function saveCheckout(e) {
+    e.preventDefault();
+    const eventId = eventIdForPage(selected);
+    if (!eventId || !checkoutEvent) return;
+    const tickets = [...document.querySelectorAll("[data-checkout-ticket]")].map((card) => ({
+      id: Number(card.dataset.checkoutTicket),
+      name: card.querySelector("[data-checkout-name]").value.trim(),
+      description: card.querySelector("[data-checkout-description]").value.trim(),
+      price: card.querySelector("[data-checkout-price]").value,
+      currency: card.querySelector("[data-checkout-currency]").value,
+      quantity: Number(card.querySelector("[data-checkout-quantity]").value),
+    }));
+    $("saveCheckoutBtn").disabled = true;
+    $("checkoutStatus").textContent = "Saving checkout on Otra Guide...";
+    $("checkoutStatus").className = "status";
+    try {
+      const data = await api("/admin/api/events", {
+        method: "PUT",
+        headers: authHeaders({ "content-type": "application/json" }),
+        body: JSON.stringify({
+          eventId: Number(eventId),
+          draftId: isDraft(selected) ? selected.id : "",
+          tickets,
+        }),
+      });
+      checkoutEvent = data.event;
+      renderCheckoutTickets(checkoutEvent.tickets || []);
+      $("checkoutStatus").textContent = "Checkout saved.";
+      $("checkoutStatus").className = "status ok";
+      refreshPreview();
+      setStatus("Checkout saved on Otra Guide.", "ok");
+    } catch (err) {
+      $("checkoutStatus").textContent = err.message;
+      $("checkoutStatus").className = "status error";
+      setStatus(err.message, "error");
+    } finally {
+      $("saveCheckoutBtn").disabled = false;
     }
   }
 
