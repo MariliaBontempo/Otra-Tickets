@@ -44,62 +44,47 @@ const UPSTREAM_TTL = 300;
 
 export async function onRequestGet(context) {
   const url = new URL(context.request.url);
-  const cache = caches.default;
-  const cacheKey = new Request(new URL("/api/homepage-events", context.request.url));
-  const hasLocalEvents = await hasPublishedSiteEvents(context.env);
-  const bypassCache = url.searchParams.get("fresh") === "1" || hasLocalEvents;
-  if (bypassCache) {
-    return withClientHeaders(await rebuild(cache, cacheKey, Date.now(), context.env), hasLocalEvents ? 0 : 120);
-  }
-
-  const cached = await cache.match(cacheKey);
+  const forceFresh = url.searchParams.get("fresh") === "1";
   const now = Date.now();
+  const [siteEvents, upstreamEvents] = await Promise.all([
+    buildPublishedSiteEvents(context.env),
+    getUpstreamEvents(context, now, forceFresh),
+  ]);
+  const events = await applyImageOverrides([...siteEvents, ...upstreamEvents], context.env);
+  const rows = await buildRows(events, context.env);
+  return json({ events, rows }, 200, siteEvents.length ? 0 : 120);
+}
 
-  if (cached) {
+async function getUpstreamEvents(context, now, forceFresh) {
+  const cache = caches.default;
+  const cacheKey = new Request(new URL("/api/homepage-upstream-events", context.request.url));
+  const cached = await cache.match(cacheKey);
+  if (cached && !forceFresh) {
     const generatedAt = Number(cached.headers.get("x-generated-at")) || 0;
     const ageSeconds = (now - generatedAt) / 1000;
     if (ageSeconds >= FRESH_SECONDS) {
-      // Stale: hand back the cached copy now, rebuild in the background.
-      context.waitUntil(rebuild(cache, cacheKey, now, context.env));
+      context.waitUntil(storeUpstreamEvents(cache, cacheKey, now));
     }
-    return withClientHeaders(cached);
+    try {
+      const payload = await cached.json();
+      return Array.isArray(payload.events) ? payload.events : [];
+    } catch {
+      return [];
+    }
   }
 
-  // Cold cache: build synchronously (the only time a visitor waits).
-  const fresh = await rebuild(cache, cacheKey, now, context.env);
-  return withClientHeaders(fresh);
-}
-
-async function hasPublishedSiteEvents(env) {
-  const kv = env && env.OVERRIDES;
-  if (!kv) return false;
+  const stored = await storeUpstreamEvents(cache, cacheKey, now);
   try {
-    const page = await kv.list({ prefix: "site-event:" });
-    for (const key of page.keys || []) {
-      const project = await kv.get(key.name, "json");
-      if (project && typeof project === "object" && project.status === "published") return true;
-    }
+    const payload = await stored.json();
+    return Array.isArray(payload.events) ? payload.events : [];
   } catch {
-    return false;
+    return [];
   }
-  return false;
 }
 
-// Returns the client-facing response (short browser cache) for a stored body.
-function withClientHeaders(response, maxAge = 120) {
-  const headers = new Headers(response.headers);
-  headers.set("cache-control", maxAge ? `public, max-age=${maxAge}, stale-while-revalidate=${EDGE_TTL}` : "no-store");
-  return new Response(response.body, { headers });
-}
-
-// Build the events list, store it in the edge cache, and return the response.
-async function rebuild(cache, cacheKey, now, env) {
-  const [siteEvents, upstreamEvents] = await Promise.all([buildPublishedSiteEvents(env), buildEvents()]);
-  const events = await applyImageOverrides([...siteEvents, ...upstreamEvents], env);
-  const rows = await buildRows(events, env);
-  const body = JSON.stringify({ events, rows });
-  // Stored with a long max-age so caches.default keeps it for SWR; freshness
-  // is tracked by us via the x-generated-at timestamp.
+async function storeUpstreamEvents(cache, cacheKey, now) {
+  const events = await buildEvents();
+  const body = JSON.stringify({ events });
   const stored = new Response(body, {
     headers: {
       "content-type": "application/json; charset=utf-8",
@@ -109,6 +94,16 @@ async function rebuild(cache, cacheKey, now, env) {
   });
   await cache.put(cacheKey, stored.clone());
   return stored;
+}
+
+function json(obj, status = 200, maxAge = 0) {
+  return new Response(JSON.stringify(obj), {
+    status,
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": maxAge ? `public, max-age=${maxAge}, stale-while-revalidate=${EDGE_TTL}` : "no-store",
+    },
+  });
 }
 
 async function buildRows(events, env) {
@@ -271,7 +266,9 @@ async function buildEvents() {
     // Perennial top-shelf events recur (e.g. daily tours); a single start
     // date would be misleading, so the card shows no date for them.
     date: ev.is_perennial ? null : ev.start_date,
-    img: LOCAL_MAIN_IMAGES[String(ev.id)] || ev.full_web_image_url || ev.half_web_image_url || ev.card_image_url,
+    // Homepage cards render at roughly 400px wide. Prefer the 800px variant
+    // for retina displays instead of downloading the 1600px event hero.
+    img: LOCAL_MAIN_IMAGES[String(ev.id)] || ev.half_web_image_url || ev.card_image_url || ev.full_web_image_url,
   }));
 }
 
