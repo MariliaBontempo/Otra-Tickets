@@ -1056,7 +1056,9 @@
   });
   $("publishForm").addEventListener("submit", publishSelectedDraft);
 
-  $("uploadBtn").addEventListener("click", async () => {
+  $("uploadBtn").addEventListener("click", uploadCurrentImage);
+
+  async function uploadCurrentImage() {
     if (!selected) return;
     const file = $("imageInput").files[0];
     if (!file) return setStatus("Choose an image first.", "error");
@@ -1076,6 +1078,7 @@
       $("saveBtn").disabled = true;
       setStatus("Image uploaded. Saving...");
       await persistCurrentOverride();
+      $("imageInput").value = "";
       closeModal();
       refreshPreview();
       setStatus("Image uploaded and saved.", "ok");
@@ -1085,7 +1088,7 @@
       $("uploadBtn").disabled = false;
       $("saveBtn").disabled = false;
     }
-  });
+  }
 
   $("clearImageBtn").addEventListener("click", () => {
     $("imageUrl").value = "";
@@ -1098,6 +1101,10 @@
   $("editForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!selected) return;
+    if (modalMode === "image" && $("imageInput").files[0]) {
+      await uploadCurrentImage();
+      return;
+    }
     $("saveBtn").disabled = true;
     setStatus("Saving...");
     try {
@@ -1415,6 +1422,7 @@
     }
     if (isImage) {
       const saved = activeField && currentOverride && currentOverride.fields && currentOverride.fields[activeField.key];
+      $("imageInput").value = "";
       $("imageUrl").value = saved && saved.value ? saved.value : activeField && activeField.element ? readImageValue(activeField.element) : getPreviewImage();
       showImage($("imageUrl").value);
     }
