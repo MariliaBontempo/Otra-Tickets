@@ -27,6 +27,17 @@ export async function onRequestGet(context) {
 
   const kv = context.env.OVERRIDES;
   if (!kv) return new Response("not found", { status: 404 });
+  if (typeof kv.getWithMetadata === "function") {
+    const stored = await kv.getWithMetadata(`${KV_IMAGE_PREFIX}${key}`, "arrayBuffer");
+    if (stored && stored.value && stored.metadata && stored.metadata.storage === "binary") {
+      return new Response(stored.value, {
+        headers: {
+          "content-type": stored.metadata.contentType || "application/octet-stream",
+          "cache-control": "public, max-age=31536000, immutable",
+        },
+      });
+    }
+  }
   const image = await kv.get(`${KV_IMAGE_PREFIX}${key}`, "json");
   if (!image || !image.dataUrl) return new Response("not found", { status: 404 });
 

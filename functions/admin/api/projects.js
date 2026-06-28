@@ -103,6 +103,8 @@ export async function onRequestPost(context) {
   const originalName = file.name || "claude-design.zip";
   const parsed = await parseClaudeDesignZip(bytes, id, { collectFiles: true });
   const eventFiles = parsed.eventFiles || {};
+  const projectImageUrls = await storeProjectImages(context.env, id, eventFiles.gallery || []);
+  remapProjectImages(parsed, projectImageUrls);
   delete parsed.eventFiles;
   const existingEventId = cleanInteger(form.get("existingEventId"));
 
@@ -491,10 +493,13 @@ async function collectReferencedAssets(zip, html, baseDir) {
     if (!entry) return;
     const ext = normalized.split(".").pop().toLowerCase();
     if (!["jpg", "jpeg", "png", "webp", "avif", "gif"].includes(ext)) return;
+    const name = safeFileName(normalized.split("/").pop() || `asset.${ext}`);
+    const isSiteChrome = /(?:^|[\s_-])(?:logo|texture|background)(?:[\s_.-]|$)|^bg[_\s-]*otra/i.test(name);
+    if (isSiteChrome) return;
 
     const image = {
       path: normalized,
-      name: safeFileName(normalized.split("/").pop() || `asset.${ext}`),
+      name,
       type: contentTypeFor(ext),
       buffer: await entry.async("arraybuffer"),
     };
@@ -517,6 +522,53 @@ async function collectReferencedAssets(zip, html, baseDir) {
   }
 
   return { assets, files, galleryImages, galleryFiles };
+}
+
+async function storeProjectImages(env, draftId, images) {
+  const bucket = env && env.OVERRIDE_IMAGES;
+  const kv = env && env.OVERRIDES;
+  const urls = new Map();
+  const seen = new Set();
+  let index = 0;
+
+  for (const image of images) {
+    if (!image || !image.buffer || !image.path || seen.has(image.path)) continue;
+    seen.add(image.path);
+    index += 1;
+    const key = `${draftId}/claude-design/${String(index).padStart(2, "0")}-${image.name}`;
+    const metadata = {
+      contentType: image.type || "application/octet-stream",
+      draftId,
+      sourcePath: image.path,
+      storage: "binary",
+    };
+    if (bucket) {
+      await bucket.put(key, image.buffer, {
+        httpMetadata: {
+          contentType: metadata.contentType,
+          cacheControl: "public, max-age=31536000, immutable",
+        },
+        customMetadata: { draftId, sourcePath: image.path },
+      });
+    } else {
+      if (!kv) throw new Error("project image store not configured");
+      await kv.put(`uploaded-image:${key}`, image.buffer, { metadata });
+    }
+    urls.set(image.path, `/override-images/${key}`);
+  }
+  return urls;
+}
+
+function remapProjectImages(parsed, urls) {
+  if (!parsed || !urls || !urls.size) return;
+  const resolve = (value) => (typeof value === "string" && urls.get(value)) || value || "";
+  parsed.image = resolve(parsed.image);
+  parsed.storyImage = resolve(parsed.storyImage);
+  parsed.videoImage = resolve(parsed.videoImage);
+  parsed.bandImage = resolve(parsed.bandImage);
+  parsed.photoBandImage = resolve(parsed.photoBandImage);
+  parsed.galleryImages = Array.isArray(parsed.galleryImages) ? parsed.galleryImages.map(resolve).filter(Boolean) : [];
+  parsed.assets = Array.isArray(parsed.assets) ? parsed.assets.map(resolve).filter(Boolean) : [];
 }
 
 async function storeReferencedAssets(zip, html, baseDir, draftId, bucket) {
