@@ -696,6 +696,9 @@ main.detail { padding: 0; }
 .ev-video.is-live { cursor: default; }
 .ev-video.is-live::after { display: none; }
 .ev-video.is-live .play, .ev-video.is-live .vlabel { display: none; }
+.ev-video.is-image { cursor: default; }
+.ev-video.is-image::after { display: none; }
+.ev-video.is-image .play, .ev-video.is-image .vlabel { display: none; }
 
 @media (max-width: 980px) {
   .ev-story, .ev-book-lower { grid-template-columns: 1fr; }
@@ -909,7 +912,7 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
     </section>
 
     <!-- ============ VIDEO / FEATURE IMAGE ============ -->
-    <section class="ev-video reveal" id="evVideoSection" data-screen-label="Video" hidden>
+    <section class="ev-video reveal" id="evVideoSection" data-screen-label="Feature image" hidden>
       <img id="evVideoImg" alt="" loading="lazy" />
       <div class="play"><span><svg viewBox="0 0 24 24"><polygon points="8 5 19 12 8 19"/></svg></span></div>
     </section>
@@ -1189,6 +1192,7 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
       if (design.videoImage) {
         $("evVideoImg").src = design.videoImage;
         $("evVideoImg").alt = ev.title;
+        $("evVideoSection").classList.add("is-image");
         $("evVideoSection").hidden = false;
       }
 
