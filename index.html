@@ -864,7 +864,8 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
         .map((ev) => ({
           img: ev.img,
           title: ev.title,
-          date: fmtDate(ev.date),
+          venue: ev.venue || "Curaçao",
+          date: ev.dateLabel || fmtDate(ev.date) || "Flexible dates",
           href: LOCAL_PAGES[ev.id] || ("event?id=" + ev.id),
         }));
       if (!items.length) return;
@@ -904,13 +905,13 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
         const titleEl = document.createElement("div");
         titleEl.className = "card-title";
         titleEl.textContent = ev.title;
-        body.append(titleEl);
-        if (ev.date) {
-          const dateEl = document.createElement("div");
-          dateEl.className = "card-date";
-          dateEl.textContent = ev.date;
-          body.append(dateEl);
-        }
+        const venueEl = document.createElement("div");
+        venueEl.className = "card-venue";
+        venueEl.textContent = ev.venue;
+        const dateEl = document.createElement("div");
+        dateEl.className = "card-date";
+        dateEl.textContent = ev.date;
+        body.append(titleEl, venueEl, dateEl);
         card.append(img, body);
         // Every card opens its event page (bespoke slug, or the generic template).
         if (ev.href) {

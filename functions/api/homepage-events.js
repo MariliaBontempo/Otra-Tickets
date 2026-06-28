@@ -25,6 +25,14 @@ const LOCAL_MAIN_IMAGES = {
   "7275": "uploads/We Love R&B July 4th TJ-5.webp",
   "6113": "uploads/Clearboat Hero.webp",
 };
+const LOCAL_CARD_INFO = {
+  "6194": { venue: "Daaibooi Beach", dateLabel: "Fri & Sat · 5PM" },
+  "7275": { venue: "Cascada Rooftop", dateLabel: "Saturday July 4 · 6PM" },
+  "6113": { venue: "Daaibooi Beach", dateLabel: "Daily · 10AM" },
+  "7176": { venue: "Barber Westpunt", dateLabel: "Daily" },
+  "6827": { venue: "Pietermaai", dateLabel: "Daily" },
+  "7359": { venue: "Curaçao", dateLabel: "Sunday July 5 · 5PM" },
+};
 const PAGE_SIZE = 20;
 const MAX_PAGES = 8;
 // Pages fetched together in the first parallel round (covers the usual feed
@@ -169,6 +177,8 @@ async function buildPublishedSiteEvents(env) {
         id,
         title: typeof project.title === "string" && project.title.trim() ? project.title.trim() : "Claude Design Event",
         date: project.publishedAt || project.createdAt || null,
+        venue: projectVenue(project),
+        dateLabel: projectDateLabel(project),
         img:
           (typeof project.image === "string" && project.image) ||
           (project.claudeDesign && typeof project.claudeDesign.image === "string" && project.claudeDesign.image) ||
@@ -266,6 +276,8 @@ async function buildEvents() {
     // Perennial top-shelf events recur (e.g. daily tours); a single start
     // date would be misleading, so the card shows no date for them.
     date: ev.is_perennial ? null : ev.start_date,
+    venue: cardVenue(ev),
+    dateLabel: cardDateLabel(ev),
     // Homepage cards render at roughly 400px wide. Prefer the 800px variant
     // for retina displays instead of downloading the 1600px event hero.
     img: LOCAL_MAIN_IMAGES[String(ev.id)] || ev.half_web_image_url || ev.card_image_url || ev.full_web_image_url,
@@ -312,4 +324,40 @@ function homepageOverrideImage(override) {
 
   const firstImage = entries.find(([, field]) => field && field.type === "image" && typeof field.value === "string" && field.value);
   return firstImage ? firstImage[1].value : "";
+}
+
+function cardVenue(ev) {
+  const local = LOCAL_CARD_INFO[String(ev.id)];
+  if (local && local.venue) return local.venue;
+  const fromDescription = venueFromText(ev.description || ev.group_description || "");
+  if (fromDescription) return fromDescription;
+  if (ev.group_name && ev.group_name !== ev.title) return ev.group_name;
+  return "Curaçao";
+}
+
+function cardDateLabel(ev) {
+  const local = LOCAL_CARD_INFO[String(ev.id)];
+  if (local && local.dateLabel) return local.dateLabel;
+  return ev.is_perennial ? "Flexible dates" : "";
+}
+
+function projectVenue(project) {
+  const info = project.claudeDesign && Array.isArray(project.claudeDesign.practicalInfo)
+    ? project.claudeDesign.practicalInfo
+    : [];
+  const location = info.find((item) => item && /^location$/i.test(item.key || ""));
+  if (location && location.value) return location.value;
+  const eyebrow = project.claudeDesign && typeof project.claudeDesign.eyebrow === "string" ? project.claudeDesign.eyebrow : "";
+  const parts = eyebrow.split("·").map((part) => part.trim()).filter(Boolean);
+  return parts[1] || "Curaçao";
+}
+
+function projectDateLabel(project) {
+  const meta = project.claudeDesign && Array.isArray(project.claudeDesign.meta) ? project.claudeDesign.meta : [];
+  return meta.length ? meta.join(" · ") : "Flexible dates";
+}
+
+function venueFromText(value) {
+  const match = String(value || "").match(/(?:^|\n)\s*(?:Venue|Location):\s*([^\n\r]+)/i);
+  return match ? match[1].trim() : "";
 }
