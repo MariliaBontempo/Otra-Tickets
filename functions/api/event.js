@@ -80,16 +80,18 @@ async function getBasePayload(context, id, url, project) {
 async function findProjectByOtraGuideId(env, id) {
   const kv = env && env.OVERRIDES;
   if (!kv) return null;
+  let latest = null;
   let cursor;
   do {
     const page = await kv.list({ prefix: "site-event:", cursor });
     for (const key of page.keys || []) {
       const project = await kv.get(key.name, "json");
-      if (project && String(project.otraGuideId || "") === String(id)) return project;
+      if (!project || project.archivedAt || String(project.otraGuideId || "") !== String(id)) continue;
+      if (!latest || String(project.createdAt || "") > String(latest.createdAt || "")) latest = project;
     }
     cursor = page.list_complete ? undefined : page.cursor;
   } while (cursor);
-  return null;
+  return latest;
 }
 
 function apiBase(env) {

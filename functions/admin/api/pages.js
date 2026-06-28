@@ -79,9 +79,10 @@ async function buildDraftPages(env) {
         status: project.status === "published" ? "published" : "draft",
         otraGuideId: project.otraGuideId ? String(project.otraGuideId) : "",
         syncError: typeof project.syncError === "string" ? project.syncError : "",
-        url: project.otraGuideId
-          ? `/event.html?id=${encodeURIComponent(project.otraGuideId)}`
-          : `/event.html?id=${encodeURIComponent(id)}`,
+        // Preview the exact Otra Tickets draft selected in the admin. Using
+        // otraGuideId here is ambiguous when multiple drafts target the same
+        // event and can load an older project's design/assets.
+        url: `/event.html?id=${encodeURIComponent(id)}`,
       });
     }
     cursor = page.list_complete ? undefined : page.cursor;
