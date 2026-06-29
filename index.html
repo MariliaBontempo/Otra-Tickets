@@ -839,9 +839,6 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
       }
     }
 
-    // Events on this site that have their own page (keyed by Otra Guide event id).
-    const LOCAL_PAGES = { 7275: "rnb", 6113: "clearboat" };
-
     // The track is fed by the Otra Guide API (category 339, ticketed events
     // only) through the same-origin /api/homepage-events Pages Function.
     let events = [];
@@ -874,8 +871,8 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
       return day + " " + month + " " + dayNum + " · " + time;
     }
 
-    // Every card links somewhere: events with a bespoke page use its slug,
-    // all others open the generic template populated from the API by id.
+    // Every published event uses its canonical title slug. The server route
+    // resolves that slug to the event id and preserves bespoke templates.
     const byId = new Map(events.map((ev) => [String(ev.id), ev]));
     const rowData = Array.isArray(feedData.rows) && feedData.rows.length
       ? feedData.rows
@@ -896,7 +893,7 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
           title: ev.title,
           venue: ev.venue || "Curaçao",
           date: ev.dateLabel || fmtDate(ev.date) || "Flexible dates",
-          href: LOCAL_PAGES[ev.id] || ("event?id=" + ev.id),
+          href: ev.slug ? ("/" + ev.slug) : ("event?id=" + ev.id),
         }));
       if (!items.length) return;
 

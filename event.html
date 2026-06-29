@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-event-id="">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -1069,12 +1069,13 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
   </script>
   <script>
     /* ============ POPULATE THE TEMPLATE FROM THE API ============
-       The card on the homepage links here as event.html?id=<otra event id>.
+       The canonical title route injects data-event-id. Legacy links using
+       event.html?id=<otra event id> remain supported.
        We fetch that event's detail + ticket types via the same-origin Pages
        Function and fill the template sections, hiding the ones with no data. */
     (async function () {
       const $ = (id) => document.getElementById(id);
-      const id = new URLSearchParams(location.search).get("id");
+      const id = document.documentElement.dataset.eventId || new URLSearchParams(location.search).get("id");
       if (!id) { showError("No event was specified."); return; }
 
       let ev;
@@ -1083,6 +1084,19 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
         if (!resp.ok) throw new Error("HTTP " + resp.status);
         ev = await resp.json();
         if (!ev || ev.error) throw new Error(ev && ev.error ? ev.error : "no data");
+        if (/^\d+$/.test(String(id)) && ev.slug) {
+          const canonicalPath = "/" + ev.slug;
+          let canonical = document.querySelector('link[rel="canonical"]');
+          if (!canonical) {
+            canonical = document.createElement("link");
+            canonical.rel = "canonical";
+            document.head.appendChild(canonical);
+          }
+          canonical.href = location.origin + canonicalPath;
+          if (/^\/event(?:\.html)?\/?$/i.test(location.pathname)) {
+            history.replaceState(null, "", canonicalPath + location.hash);
+          }
+        }
       } catch (err) {
         console.error("Could not load event:", err);
         showError("We couldn't load this event.");

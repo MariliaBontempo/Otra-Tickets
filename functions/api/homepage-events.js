@@ -15,6 +15,8 @@
 //     so background rebuilds are cheap.
 //   * feed pages are fetched in parallel rather than one after another.
 
+import { eventSlug } from "../_lib/event-slug.js";
+
 const API = "https://otraguide.com/api";
 const CATEGORY_ID = 339;
 // We Love R&B is the headliner: it always leads the homepage row.
@@ -64,6 +66,7 @@ export async function onRequestGet(context) {
   const visibleEvents = dedupeEvents([...siteEvents, ...upstreamEvents])
     .filter((event) => isCurrentOrFutureEvent(event, now));
   const events = await applyImageOverrides(visibleEvents, context.env);
+  for (const event of events) event.slug = eventSlug(event.title);
   const rows = await buildRows(events, context.env);
   return json({ events, rows }, 200, siteEvents.length ? 0 : 120);
 }

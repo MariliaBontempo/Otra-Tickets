@@ -4,6 +4,8 @@
 // generic event template (event.html). The expensive Otra Guide data is cached;
 // the site-side content override is read fresh and merged last.
 
+import { eventSlug } from "../_lib/event-slug.js";
+
 const API = "https://otraguide.com/api";
 const UPSTREAM_TTL = 300;
 const EDGE_TTL = 600;
@@ -31,6 +33,7 @@ export async function onRequestGet(context) {
       design: project.claudeDesign || null,
     };
   }
+  payload.slug = eventSlug(payload.title);
   return json(payload, 200, override ? 0 : 60);
 }
 
