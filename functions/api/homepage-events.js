@@ -59,7 +59,10 @@ export async function onRequestGet(context) {
     buildPublishedSiteEvents(context.env),
     getUpstreamEvents(context, now, forceFresh),
   ]);
-  const visibleEvents = [...siteEvents, ...upstreamEvents].filter((event) => isCurrentOrFutureEvent(event, now));
+  // Site events come first so their curated title/image win when the same
+  // published Otra Guide event also appears in the upstream public feed.
+  const visibleEvents = dedupeEvents([...siteEvents, ...upstreamEvents])
+    .filter((event) => isCurrentOrFutureEvent(event, now));
   const events = await applyImageOverrides(visibleEvents, context.env);
   const rows = await buildRows(events, context.env);
   return json({ events, rows }, 200, siteEvents.length ? 0 : 120);
@@ -301,6 +304,16 @@ function isCurrentOrFutureEvent(event, now = Date.now()) {
   // events must have a current/future end (or start when no end is supplied).
   if (!boundary) return event.isPerennial === true;
   return dateKeyInTimeZone(boundary, HOMEPAGE_TIME_ZONE) >= today;
+}
+
+function dedupeEvents(events) {
+  const seen = new Set();
+  return events.filter((event) => {
+    const id = String(event && event.id || "");
+    if (!id || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
 }
 
 function validDateValue(value) {
