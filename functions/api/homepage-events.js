@@ -49,6 +49,7 @@ const FRESH_SECONDS = 600;
 const EDGE_TTL = 86400;
 // Edge-cache the upstream otraguide responses to speed up rebuilds.
 const UPSTREAM_TTL = 300;
+const HOMEPAGE_TIME_ZONE = "America/Curacao";
 
 export async function onRequestGet(context) {
   const url = new URL(context.request.url);
@@ -58,7 +59,8 @@ export async function onRequestGet(context) {
     buildPublishedSiteEvents(context.env),
     getUpstreamEvents(context, now, forceFresh),
   ]);
-  const events = await applyImageOverrides([...siteEvents, ...upstreamEvents], context.env);
+  const visibleEvents = [...siteEvents, ...upstreamEvents].filter((event) => isCurrentOrFutureEvent(event, now));
+  const events = await applyImageOverrides(visibleEvents, context.env);
   const rows = await buildRows(events, context.env);
   return json({ events, rows }, 200, siteEvents.length ? 0 : 120);
 }
@@ -174,10 +176,14 @@ async function buildPublishedSiteEvents(env) {
       const draftId = key.name.replace(/^site-event:/, "");
       const id = project.otraGuideId ? String(project.otraGuideId) : draftId;
       const localCard = LOCAL_CARD_INFO[id];
+      const startDate = validDateValue(project.startDate);
+      const endDate = validDateValue(project.endDate);
       out.push({
         id,
         title: typeof project.title === "string" && project.title.trim() ? project.title.trim() : "Claude Design Event",
-        date: project.publishedAt || project.createdAt || null,
+        date: startDate,
+        endDate,
+        isPerennial: project.isPerennial === true,
         venue: (localCard && localCard.venue) || projectVenue(project),
         dateLabel: (localCard && localCard.dateLabel) || projectDateLabel(project),
         img:
@@ -277,12 +283,40 @@ async function buildEvents() {
     // Perennial top-shelf events recur (e.g. daily tours); a single start
     // date would be misleading, so the card shows no date for them.
     date: ev.is_perennial ? null : ev.start_date,
+    endDate: ev.end_date || ev.start_date || null,
+    isPerennial: !!ev.is_perennial,
     venue: cardVenue(ev),
     dateLabel: cardDateLabel(ev),
     // Homepage cards render at roughly 400px wide. Prefer the 800px variant
     // for retina displays instead of downloading the 1600px event hero.
     img: LOCAL_MAIN_IMAGES[String(ev.id)] || ev.half_web_image_url || ev.card_image_url || ev.full_web_image_url,
   }));
+}
+
+function isCurrentOrFutureEvent(event, now = Date.now()) {
+  if (!event || typeof event !== "object") return false;
+  const today = dateKeyInTimeZone(now, HOMEPAGE_TIME_ZONE);
+  const boundary = validDateValue(event.endDate) || validDateValue(event.date);
+  // A perennial event with no finite end date is considered ongoing. Dated
+  // events must have a current/future end (or start when no end is supplied).
+  if (!boundary) return event.isPerennial === true;
+  return dateKeyInTimeZone(boundary, HOMEPAGE_TIME_ZONE) >= today;
+}
+
+function validDateValue(value) {
+  if (typeof value !== "string" || !value.trim()) return null;
+  return Number.isFinite(new Date(value).getTime()) ? value : null;
+}
+
+function dateKeyInTimeZone(value, timeZone) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date(value));
+  const get = (type) => parts.find((part) => part.type === type)?.value || "";
+  return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
 async function applyImageOverrides(events, env) {
