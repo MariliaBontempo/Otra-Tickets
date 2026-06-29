@@ -186,7 +186,7 @@ async function buildPublishedSiteEvents(env) {
       const endDate = validDateValue(project.endDate);
       out.push({
         id,
-        title: typeof project.title === "string" && project.title.trim() ? project.title.trim() : "Claude Design Event",
+        title: projectCardTitle(project),
         date: startDate,
         endDate,
         isPerennial: project.isPerennial === true,
@@ -403,9 +403,40 @@ function projectVenue(project) {
   return parts[1] || "Curaçao";
 }
 
+function projectCardTitle(project) {
+  const title = typeof project.title === "string" ? project.title.trim() : "";
+  const design = project.claudeDesign && typeof project.claudeDesign === "object" ? project.claudeDesign : {};
+  const displayTitle = typeof design.displayTitle === "string" ? design.displayTitle.trim() : "";
+  const subtitle = typeof design.subtitle === "string" ? design.subtitle.trim() : "";
+
+  // Claude designs store the hero subtitle alongside the event title for the
+  // event detail page. On homepage cards that subtitle can be a ticket type,
+  // so keep the card's first line limited to the actual event title.
+  if (displayTitle && (!title || (subtitle && title === `${displayTitle} - ${subtitle}`))) return displayTitle;
+  return title || displayTitle || "Claude Design Event";
+}
+
 function projectDateLabel(project) {
-  const meta = project.claudeDesign && Array.isArray(project.claudeDesign.meta) ? project.claudeDesign.meta : [];
-  return meta.length ? meta.join(" · ") : "Flexible dates";
+  const design = project.claudeDesign && typeof project.claudeDesign === "object" ? project.claudeDesign : {};
+  const meta = Array.isArray(design.meta) ? design.meta : [];
+  const rateNames = Array.isArray(design.rates)
+    ? design.rates.map((rate) => String(rate && rate.name || "").trim().toLowerCase()).filter(Boolean)
+    : [];
+  const schedule = meta
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .filter((item) => !isTicketMetadata(item, rateNames));
+
+  // If a dated design has no schedule metadata, let the browser format the
+  // event start date. "Flexible dates" is only accurate for perennial events.
+  return schedule.length ? schedule.join(" · ") : (project.isPerennial ? "Flexible dates" : "");
+}
+
+function isTicketMetadata(value, rateNames) {
+  const text = value.toLowerCase().replace(/\s+/g, " ").trim();
+  if (rateNames.some((name) => text === name || text.startsWith(`${name} `))) return true;
+  if (/(?:[$€£ƒ]|\b(?:usd|ang|xcg|awg|eur|naf|fl\.?)\b)\s*\d/i.test(value)) return true;
+  return /\b(?:early bird|general admission|ticket(?:s| type)?|presale|door price)\b/i.test(value);
 }
 
 function venueFromText(value) {
