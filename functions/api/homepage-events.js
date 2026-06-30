@@ -191,6 +191,9 @@ async function buildPublishedSiteEvents(env) {
         endDate,
         isPerennial: project.isPerennial === true,
         venue: (localCard && localCard.venue) || projectVenue(project),
+        // KV drafts carry no Otra Guide location; dedupe backfills it from the
+        // matching upstream event so the card location still comes from there.
+        location: "",
         dateLabel: (localCard && localCard.dateLabel) || projectDateLabel(project),
         img:
           (typeof project.image === "string" && project.image) ||
@@ -292,6 +295,9 @@ async function buildEvents() {
     endDate: ev.end_date || ev.start_date || null,
     isPerennial: !!ev.is_perennial,
     venue: cardVenue(ev),
+    // Real Otra Guide event location (empty when unset) — wins over a curated
+    // venue during dedupe so the location always reflects the event.
+    location: eventLocation(ev),
     dateLabel: cardDateLabel(ev),
     // Homepage cards render at roughly 400px wide. Prefer the 800px variant
     // for retina displays instead of downloading the 1600px event hero.
@@ -310,10 +316,10 @@ function isCurrentOrFutureEvent(event, now = Date.now()) {
 }
 
 function dedupeEvents(events) {
-  // Site events come first so their curated title/image win. When the same
-  // event also appears in the upstream Otra Guide feed, adopt the upstream
-  // event's real location if the curated card would otherwise show the generic
-  // "Curaçao" — the location should reflect the Otra Guide event.
+  // Site events come first so their curated title/image win. But the location
+  // must come from the Otra Guide event: when a real event location exists on
+  // either copy (e.g. the upstream feed duplicate of a published draft), it
+  // overrides the curated venue.
   const byId = new Map();
   for (const event of events) {
     const id = String((event && event.id) || "");
@@ -323,9 +329,8 @@ function dedupeEvents(events) {
       byId.set(id, event);
       continue;
     }
-    if ((!kept.venue || kept.venue === "Curaçao") && event.venue && event.venue !== "Curaçao") {
-      kept.venue = event.venue;
-    }
+    const loc = String(kept.location || event.location || "").trim();
+    if (loc) kept.venue = loc;
   }
   return [...byId.values()];
 }
@@ -388,12 +393,17 @@ function homepageOverrideImage(override) {
   return firstImage ? firstImage[1].value : "";
 }
 
+// The card location comes from the Otra Guide event itself (Event.location).
+// Ignore a value that merely repeats the title — some events store the title
+// in that field instead of a real venue.
+function eventLocation(ev) {
+  const loc = ev && typeof ev.location === "string" ? ev.location.trim() : "";
+  return loc && loc !== String((ev && ev.title) || "").trim() ? loc : "";
+}
+
 function cardVenue(ev) {
-  // The card location comes from the Otra Guide event itself (Event.location).
-  // Ignore a value that merely repeats the title — some events store the title
-  // in that field instead of a real venue.
-  const location = typeof ev.location === "string" ? ev.location.trim() : "";
-  if (location && location !== String(ev.title || "").trim()) return location;
+  const loc = eventLocation(ev);
+  if (loc) return loc;
   // Fallbacks for events whose Otra Guide location is empty or unhelpful.
   const local = LOCAL_CARD_INFO[String(ev.id)];
   if (local && local.venue) return local.venue;
