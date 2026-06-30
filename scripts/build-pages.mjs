@@ -12,6 +12,7 @@ const copyEntries = [
   "clearboat.html",
   "event.html",
   "events.html",
+  "_headers",
   "favicon.png",
   "fonts",
   "image-slot.js",
