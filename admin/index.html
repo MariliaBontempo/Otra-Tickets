@@ -82,7 +82,39 @@
   .btn.ghost { background: transparent; }
   .btn:disabled { opacity: 0.55; cursor: not-allowed; }
 
-  .app { min-height: 100vh; display: grid; grid-template-rows: auto 1fr; }
+  .app { min-height: 100vh; display: grid; grid-template-rows: auto auto 1fr; }
+  .color-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 18px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .color-bar label { display: flex; align-items: center; gap: 8px; color: var(--text); }
+  #accentColorPicker {
+    width: 32px;
+    height: 28px;
+    padding: 1px 2px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: transparent;
+    cursor: pointer;
+  }
+  #accentColorHex {
+    width: 80px;
+    font-family: monospace;
+    font-size: 13px;
+    padding: 4px 8px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    color: var(--text);
+    text-transform: uppercase;
+  }
+  #saveColorBtn { margin-left: 4px; }
   .hub {
     min-height: 100vh;
     display: grid;
@@ -404,6 +436,15 @@
         <button class="btn ghost" id="logoutBtn" type="button">Sign out</button>
       </div>
     </header>
+
+    <div class="color-bar">
+      <label>
+        Accent color
+        <input id="accentColorPicker" type="color" value="#1c9ebd" title="Accent color" />
+        <input id="accentColorHex" type="text" value="#1C9EBD" maxlength="7" spellcheck="false" />
+      </label>
+      <button class="btn ghost" id="saveColorBtn" type="button">Save color</button>
+    </div>
 
     <main class="workspace">
       <section class="preview">
@@ -1195,6 +1236,44 @@
 
   $("imageUrl").addEventListener("input", () => showImage($("imageUrl").value));
 
+  function applyAccentToPreview(color) {
+    const frame = $("previewFrame");
+    try {
+      frame.contentDocument && frame.contentDocument.documentElement.style.setProperty("--accent", color);
+    } catch {}
+  }
+
+  function setAccentColor(hex) {
+    if (!/^#[0-9A-Fa-f]{6}$/.test(hex)) return;
+    $("accentColorPicker").value = hex;
+    $("accentColorHex").value = hex.toUpperCase();
+    if (!currentOverride) currentOverride = { fields: {} };
+    currentOverride.accentColor = hex;
+    applyAccentToPreview(hex);
+  }
+
+  $("accentColorPicker").addEventListener("input", (e) => setAccentColor(e.target.value));
+  $("accentColorHex").addEventListener("change", (e) => {
+    const v = e.target.value.trim();
+    const hex = v.startsWith("#") ? v : "#" + v;
+    setAccentColor(hex);
+  });
+
+  $("saveColorBtn").addEventListener("click", async () => {
+    if (!selected) return;
+    $("saveColorBtn").disabled = true;
+    setStatus("Saving color...");
+    try {
+      await persistCurrentOverride();
+      refreshPreview();
+      setStatus("Color saved.", "ok");
+    } catch (err) {
+      setStatus(err.message, "error");
+    } finally {
+      $("saveColorBtn").disabled = false;
+    }
+  });
+
   $("editForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!selected) return;
@@ -1221,6 +1300,7 @@
       description: currentOverride && currentOverride.description ? currentOverride.description : "",
       image: currentOverride && currentOverride.image ? currentOverride.image : "",
       checkoutEventId: currentOverride && currentOverride.checkoutEventId ? currentOverride.checkoutEventId : "",
+      accentColor: currentOverride && currentOverride.accentColor ? currentOverride.accentColor : "",
       fields: Object.assign({}, currentOverride && currentOverride.fields ? currentOverride.fields : {}),
     };
     if (activeField) {
@@ -1637,6 +1717,9 @@
     $("description").value = override && override.description ? override.description : "";
     $("imageUrl").value = override && override.image ? override.image : "";
     $("checkoutEventId").value = override && override.checkoutEventId ? override.checkoutEventId : "";
+    const color = (override && override.accentColor) || "#1c9ebd";
+    $("accentColorPicker").value = color;
+    $("accentColorHex").value = color.toUpperCase();
     showImage($("imageUrl").value);
   }
 
