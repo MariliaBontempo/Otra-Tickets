@@ -4,6 +4,7 @@
 <meta charset="UTF-8" />
 
 <link rel="icon" type="image/png" href="favicon.png" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<link rel="preload" as="image" href="uploads/variants/clearboat-hero-1600.webp" type="image/webp" fetchpriority="high" />
 <title>Otra Tickets — Clearboat</title>
 <style>
 @font-face { font-family: "Inter"; font-style: normal; font-weight: 400; font-display: swap; src: url("fonts/inter-400.woff2") format("woff2"); }
@@ -831,7 +832,7 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
 
     <!-- ============ HERO (image only) ============ -->
     <section class="ev-hero" data-screen-label="Hero">
-      <img class="ev-hero-img" src="uploads/Clearboat Hero.webp" alt="Clearboat glass-bottom boat on the turquoise west coast of Curaçao" />
+      <img class="ev-hero-img" src="uploads/variants/clearboat-hero-1600.webp" alt="Clearboat glass-bottom boat on the turquoise west coast of Curaçao" width="1600" height="900" decoding="async" fetchpriority="high" />
       <div class="ev-hero-veil"></div>
       <div class="scroll-cue">
         <span>Scroll</span>
@@ -865,19 +866,23 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
           <p>It's a favourite of the Otra Guide team: an immersive way into Curaçao's marine world for anyone who'd rather not dive or snorkel, and for those who prefer to stay dry and still see what's beneath the turquoise.</p>
         </div>
       </div>
-      <img class="ev-story-img" src="uploads/Clearboat Story 1.webp" alt="Guests aboard the Clearboat looking down through the transparent floor" />
+      <img class="ev-story-img" src="uploads/variants/clearboat-story1-1600.webp" alt="Guests aboard the Clearboat looking down through the transparent floor" width="1600" height="900" decoding="async" loading="lazy" />
     </section>
 
     <!-- ============ VIDEO ============ -->
     <section class="ev-video reveal" data-screen-label="Video">
-      <img src="uploads/ClearBoat Video Place holder .webp" alt="Clearboat tour video — coming soon" loading="lazy" />
+      <picture>
+        <source type="image/avif" srcset="uploads/variants/clearboat-video-1600.avif">
+        <source type="image/webp" srcset="uploads/variants/clearboat-video-1600.webp">
+        <img src="uploads/variants/clearboat-video-1600.webp" alt="Clearboat tour video — coming soon" width="1600" height="900" decoding="async" loading="lazy">
+      </picture>
       <div class="play"><span><svg viewBox="0 0 24 24"><polygon points="8 5 19 12 8 19"/></svg></span></div>
       <div class="vlabel"><div class="tag">Watch</div><div class="ttl">A look beneath the surface</div></div>
     </section>
 
     <!-- ============ WHAT WE APPRECIATE ============ -->
     <section class="ev-band reveal">
-      <div class="ev-band-bg" style="background-image:url('uploads/Clearboat Appreciate 1 web.webp');"></div>
+      <div class="ev-band-bg" style="background-image:url('uploads/variants/clearboat-appreciate-1600.webp');"></div>
       <div class="ev-band-veil"></div>
       <div class="ev-band-inner">
         <span class="ev-eyebrow">What We Appreciate</span>
@@ -893,7 +898,11 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
 
     <!-- ============ FULL-BLEED PHOTO BREAK ============ -->
     <section class="ev-photoband reveal">
-      <img src="uploads/Clearboat Story 2 web.webp" alt="The Clearboat crew and guests over the reef on Curaçao's west coast" loading="lazy" />
+      <picture>
+        <source type="image/avif" srcset="uploads/variants/clearboat-photoband-1600.avif">
+        <source type="image/webp" srcset="uploads/variants/clearboat-photoband-1600.webp">
+        <img src="uploads/variants/clearboat-photoband-1600.webp" alt="The Clearboat crew and guests over the reef on Curaçao's west coast" width="1600" height="900" decoding="async" loading="lazy">
+      </picture>
     </section>
 
     <!-- ============ PRACTICAL INFO ============ -->
