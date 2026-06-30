@@ -214,12 +214,23 @@
     border-radius: var(--radius);
     padding: 16px;
   }
+  .layout-row-card.dragging { opacity: 0.4; }
+  .layout-row-card.drag-over { border-color: var(--accent, #4a90d9); }
   .layout-row-card header {
     display: grid;
-    grid-template-columns: 1fr auto;
+    grid-template-columns: auto 1fr auto;
     gap: 12px;
     align-items: end;
   }
+  .row-drag-handle {
+    color: var(--muted);
+    font-size: 18px;
+    cursor: grab;
+    user-select: none;
+    padding: 0 2px;
+    align-self: center;
+  }
+  .row-drag-handle:active { cursor: grabbing; }
   .event-order-list {
     display: flex;
     flex-direction: column;
@@ -743,6 +754,7 @@
   const statusEl = $("status");
   let homepageEvents = [];
   let homepageRows = [];
+  let draggingRowCard = null;
 
   function setStatus(text, type) {
     statusEl.textContent = text || "";
@@ -1426,6 +1438,7 @@
 
       card.innerHTML = `
         <header>
+          <span class="row-drag-handle" data-row-handle>⠿</span>
           <label>Row title
             <input data-row-title type="text" value="${esc(row.title || "")}" placeholder="Example: Boat tours" />
           </label>
@@ -1456,6 +1469,44 @@
       card.querySelector("[data-row-up]").addEventListener("click", () => moveHomepageRow(rowIndex, -1));
       card.querySelector("[data-row-down]").addEventListener("click", () => moveHomepageRow(rowIndex, 1));
       card.querySelector("[data-row-delete]").addEventListener("click", () => deleteHomepageRow(rowIndex));
+
+      const rowHandle = card.querySelector("[data-row-handle]");
+      rowHandle.draggable = true;
+      rowHandle.addEventListener("dragstart", (e) => {
+        draggingRowCard = card;
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", `row:${row.id}`);
+        const rect = card.getBoundingClientRect();
+        e.dataTransfer.setDragImage(card, e.clientX - rect.left, e.clientY - rect.top);
+        setTimeout(() => card.classList.add("dragging"), 0);
+      });
+      rowHandle.addEventListener("dragend", () => {
+        card.classList.remove("dragging");
+        draggingRowCard = null;
+        document.querySelectorAll(".layout-row-card.drag-over").forEach((c) => c.classList.remove("drag-over"));
+      });
+
+      card.addEventListener("dragover", (e) => {
+        if (!draggingRowCard || draggingRowCard === card) return;
+        e.preventDefault();
+        card.classList.add("drag-over");
+      });
+      card.addEventListener("dragleave", (e) => {
+        if (!card.contains(e.relatedTarget)) card.classList.remove("drag-over");
+      });
+      card.addEventListener("drop", (e) => {
+        e.preventDefault();
+        card.classList.remove("drag-over");
+        if (!draggingRowCard || draggingRowCard === card) return;
+        const host = $("homepageRows");
+        const cards = [...host.children];
+        const fromIndex = cards.indexOf(draggingRowCard);
+        const toIndex = cards.indexOf(card);
+        if (fromIndex < toIndex) host.insertBefore(draggingRowCard, card.nextSibling);
+        else host.insertBefore(draggingRowCard, card);
+        syncHomepageRowsFromDom();
+        renderHomepageRows();
+      });
 
       const orderList = card.querySelector("[data-order-list]");
 
