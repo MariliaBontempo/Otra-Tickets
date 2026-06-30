@@ -3,6 +3,7 @@
   "type": "module",
   "scripts": {
     "build": "node scripts/build-pages.mjs",
-    "check:fonts": "node scripts/check-fonts.mjs"
+    "check:fonts": "node scripts/check-fonts.mjs",
+    "gen:variants": "node scripts/gen-image-variants.mjs"
   }
 }
