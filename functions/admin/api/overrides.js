@@ -39,6 +39,8 @@ export async function onRequestPut(context) {
   const image = typeof body.image === "string" ? body.image.trim() : "";
   const rawCheckoutEventId = String(body.checkoutEventId ?? "").trim();
   const checkoutEventId = normalizeCheckoutEventId(rawCheckoutEventId);
+  const rawAccentColor = typeof body.accentColor === "string" ? body.accentColor.trim() : "";
+  const accentColor = /^#[0-9A-Fa-f]{6}$/.test(rawAccentColor) ? rawAccentColor.toLowerCase() : "";
   const fields = normalizeFields(body.fields);
   if (description.length > 20000) return json({ error: "description is too long" }, 400);
   if (image && !isAllowedImageUrl(image)) return json({ error: "invalid image url" }, 400);
@@ -57,6 +59,7 @@ export async function onRequestPut(context) {
     description,
     image,
     checkoutEventId,
+    accentColor,
     fields,
     updatedAt: new Date().toISOString(),
   };
@@ -71,11 +74,13 @@ async function readOverride(kv, id) {
 
 function normalizeOverride(raw, id) {
   if (!raw || typeof raw !== "object") return null;
+  const rawAccent = typeof raw.accentColor === "string" ? raw.accentColor.trim() : "";
   return {
     id,
     description: typeof raw.description === "string" ? raw.description : "",
     image: typeof raw.image === "string" ? raw.image : "",
     checkoutEventId: normalizeCheckoutEventId(raw.checkoutEventId),
+    accentColor: /^#[0-9A-Fa-f]{6}$/.test(rawAccent) ? rawAccent.toLowerCase() : "",
     fields: normalizeFields(raw.fields),
     updatedAt: typeof raw.updatedAt === "string" ? raw.updatedAt : null,
   };

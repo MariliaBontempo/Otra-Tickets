@@ -16,11 +16,13 @@ export async function onRequestGet(context) {
       (await context.env.OVERRIDES.get(`override:${id}`, "json")) ||
       (await readDraftOverrideForOtraGuideId(context.env.OVERRIDES, id));
     if (!override || typeof override !== "object") return json({ override: null });
+    const rawAccent = typeof override.accentColor === "string" ? override.accentColor.trim() : "";
     return json({
       override: {
         description: typeof override.description === "string" ? override.description : "",
         image: typeof override.image === "string" ? override.image : "",
         checkoutEventId: typeof override.checkoutEventId === "string" && /^\d+$/.test(override.checkoutEventId) ? override.checkoutEventId : "",
+        accentColor: /^#[0-9A-Fa-f]{6}$/.test(rawAccent) ? rawAccent.toLowerCase() : "",
         fields: normalizeFields(override.fields),
         updatedAt: typeof override.updatedAt === "string" ? override.updatedAt : null,
       },

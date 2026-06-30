@@ -27,6 +27,10 @@
   }
 
   function applyLegacyOverride(override) {
+    if (override.accentColor && /^#[0-9A-Fa-f]{6}$/.test(override.accentColor)) {
+      document.documentElement.style.setProperty("--accent", override.accentColor);
+    }
+
     if (override.description) {
       const body = document.querySelector("#story .ev-body");
       if (body) {
