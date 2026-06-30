@@ -310,13 +310,24 @@ function isCurrentOrFutureEvent(event, now = Date.now()) {
 }
 
 function dedupeEvents(events) {
-  const seen = new Set();
-  return events.filter((event) => {
-    const id = String(event && event.id || "");
-    if (!id || seen.has(id)) return false;
-    seen.add(id);
-    return true;
-  });
+  // Site events come first so their curated title/image win. When the same
+  // event also appears in the upstream Otra Guide feed, adopt the upstream
+  // event's real location if the curated card would otherwise show the generic
+  // "Curaçao" — the location should reflect the Otra Guide event.
+  const byId = new Map();
+  for (const event of events) {
+    const id = String((event && event.id) || "");
+    if (!id) continue;
+    const kept = byId.get(id);
+    if (!kept) {
+      byId.set(id, event);
+      continue;
+    }
+    if ((!kept.venue || kept.venue === "Curaçao") && event.venue && event.venue !== "Curaçao") {
+      kept.venue = event.venue;
+    }
+  }
+  return [...byId.values()];
 }
 
 function validDateValue(value) {
@@ -378,6 +389,12 @@ function homepageOverrideImage(override) {
 }
 
 function cardVenue(ev) {
+  // The card location comes from the Otra Guide event itself (Event.location).
+  // Ignore a value that merely repeats the title — some events store the title
+  // in that field instead of a real venue.
+  const location = typeof ev.location === "string" ? ev.location.trim() : "";
+  if (location && location !== String(ev.title || "").trim()) return location;
+  // Fallbacks for events whose Otra Guide location is empty or unhelpful.
   const local = LOCAL_CARD_INFO[String(ev.id)];
   if (local && local.venue) return local.venue;
   const fromDescription = venueFromText(ev.description || ev.group_description || "");
