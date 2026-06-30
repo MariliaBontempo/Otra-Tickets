@@ -1,0 +1,28 @@
+{
+  "R2C5.webp": [
+    {
+      "path": "uploads/variants/R2C5-400.avif",
+      "width": 400,
+      "format": "avif",
+      "bytes": 5399
+    },
+    {
+      "path": "uploads/variants/R2C5-400.webp",
+      "width": 400,
+      "format": "webp",
+      "bytes": 5364
+    },
+    {
+      "path": "uploads/variants/R2C5-800.avif",
+      "width": 800,
+      "format": "avif",
+      "bytes": 14110
+    },
+    {
+      "path": "uploads/variants/R2C5-800.webp",
+      "width": 800,
+      "format": "webp",
+      "bytes": 12520
+    }
+  ]
+}
