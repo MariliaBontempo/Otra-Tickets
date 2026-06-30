@@ -188,6 +188,37 @@
     gap: 12px;
     align-items: end;
   }
+  .event-order-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-height: 32px;
+  }
+  .event-order-list:empty::before {
+    content: "No events selected";
+    display: block;
+    padding: 8px;
+    color: var(--muted);
+    font-size: 13px;
+  }
+  .event-order-item {
+    display: grid;
+    grid-template-columns: 24px 1fr;
+    gap: 8px;
+    align-items: center;
+    padding: 8px 10px;
+    background: #0b0d11;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    cursor: grab;
+    user-select: none;
+  }
+  .event-order-item:active { cursor: grabbing; }
+  .event-order-item.drag-over { border-color: var(--accent, #4a90d9); background: #111520; }
+  .event-order-item.dragging { opacity: 0.4; }
+  .event-order-handle { color: var(--muted); font-size: 16px; text-align: center; }
+  .event-order-name { font-size: 13px; line-height: 1.35; }
+  .event-order-name small { display: block; margin-top: 2px; color: var(--muted); }
   .event-picker {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
@@ -196,6 +227,7 @@
     overflow: auto;
     padding: 4px;
   }
+  .event-picker-label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px; }
   .event-choice {
     display: grid;
     grid-template-columns: auto 1fr;
@@ -1292,7 +1324,7 @@
     homepageRows = [...document.querySelectorAll(".layout-row-card")].map((card) => ({
       id: card.dataset.rowId,
       title: card.querySelector("[data-row-title]").value,
-      eventIds: [...card.querySelectorAll("[data-event-id]:checked")].map((input) => input.dataset.eventId),
+      eventIds: [...card.querySelectorAll("[data-order-list] [data-order-id]")].map((el) => el.dataset.orderId),
     }));
   }
 
@@ -1303,6 +1335,10 @@
       const card = document.createElement("section");
       card.className = "layout-row-card";
       card.dataset.rowId = row.id;
+
+      const selectedIds = (row.eventIds || []).map(String);
+      const eventMap = Object.fromEntries(homepageEvents.map((e) => [String(e.id), e]));
+
       card.innerHTML = `
         <header>
           <label>Row title
@@ -1314,19 +1350,79 @@
             <button class="btn ghost" data-row-delete type="button">Delete</button>
           </div>
         </header>
-        <div class="event-picker">
-          ${homepageEvents.map((event) => {
-            const id = String(event.id);
-            const checked = (row.eventIds || []).map(String).includes(id) ? " checked" : "";
-            return `<label class="event-choice"><input data-event-id="${esc(id)}" type="checkbox"${checked} /><span>${esc(event.title)}<small>${esc(id)}</small></span></label>`;
-          }).join("")}
+        <div>
+          <p class="event-picker-label">Order (drag to reorder)</p>
+          <div class="event-order-list" data-order-list></div>
+        </div>
+        <div>
+          <p class="event-picker-label">Add / remove events</p>
+          <div class="event-picker">
+            ${homepageEvents.map((event) => {
+              const id = String(event.id);
+              const checked = selectedIds.includes(id) ? " checked" : "";
+              return `<label class="event-choice"><input data-event-id="${esc(id)}" type="checkbox"${checked} /><span>${esc(event.title)}<small>${esc(id)}</small></span></label>`;
+            }).join("")}
+          </div>
         </div>
       `;
+
       card.querySelector("[data-row-up]").disabled = rowIndex === 0;
       card.querySelector("[data-row-down]").disabled = rowIndex === homepageRows.length - 1;
       card.querySelector("[data-row-up]").addEventListener("click", () => moveHomepageRow(rowIndex, -1));
       card.querySelector("[data-row-down]").addEventListener("click", () => moveHomepageRow(rowIndex, 1));
       card.querySelector("[data-row-delete]").addEventListener("click", () => deleteHomepageRow(rowIndex));
+
+      const orderList = card.querySelector("[data-order-list]");
+
+      function buildOrderItem(id) {
+        const event = eventMap[id];
+        const item = document.createElement("div");
+        item.className = "event-order-item";
+        item.draggable = true;
+        item.dataset.orderId = id;
+        item.innerHTML = `<span class="event-order-handle">⠿</span><span class="event-order-name">${esc(event ? event.title : id)}<small>${esc(id)}</small></span>`;
+
+        item.addEventListener("dragstart", (e) => {
+          e.dataTransfer.effectAllowed = "move";
+          e.dataTransfer.setData("text/plain", id);
+          item.classList.add("dragging");
+        });
+        item.addEventListener("dragend", () => item.classList.remove("dragging"));
+        item.addEventListener("dragover", (e) => { e.preventDefault(); item.classList.add("drag-over"); });
+        item.addEventListener("dragleave", () => item.classList.remove("drag-over"));
+        item.addEventListener("drop", (e) => {
+          e.preventDefault();
+          item.classList.remove("drag-over");
+          const draggedId = e.dataTransfer.getData("text/plain");
+          if (draggedId === id) return;
+          const dragged = orderList.querySelector(`[data-order-id="${draggedId}"]`);
+          if (!dragged) return;
+          const items = [...orderList.children];
+          const fromIndex = items.indexOf(dragged);
+          const toIndex = items.indexOf(item);
+          if (fromIndex < toIndex) orderList.insertBefore(dragged, item.nextSibling);
+          else orderList.insertBefore(dragged, item);
+        });
+        return item;
+      }
+
+      // Render initially in saved order
+      selectedIds.forEach((id) => orderList.append(buildOrderItem(id)));
+
+      // Sync checkboxes → order list
+      card.querySelectorAll("[data-event-id]").forEach((cb) => {
+        cb.addEventListener("change", () => {
+          const id = cb.dataset.eventId;
+          if (cb.checked) {
+            if (!orderList.querySelector(`[data-order-id="${id}"]`)) {
+              orderList.append(buildOrderItem(id));
+            }
+          } else {
+            orderList.querySelector(`[data-order-id="${id}"]`)?.remove();
+          }
+        });
+      });
+
       host.append(card);
     });
   }
