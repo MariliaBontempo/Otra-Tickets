@@ -1390,5 +1390,31 @@
       "format": "webp",
       "bytes": 25080
     }
+  ],
+  "OTRA TICKETING Words.webp": [
+    {
+      "path": "uploads/variants/otra-ticketing-words-1200.avif",
+      "width": 1200,
+      "format": "avif",
+      "bytes": 15602
+    },
+    {
+      "path": "uploads/variants/otra-ticketing-words-1200.webp",
+      "width": 1200,
+      "format": "webp",
+      "bytes": 25582
+    },
+    {
+      "path": "uploads/variants/otra-ticketing-words-2000.avif",
+      "width": 2000,
+      "format": "avif",
+      "bytes": 23102
+    },
+    {
+      "path": "uploads/variants/otra-ticketing-words-2000.webp",
+      "width": 2000,
+      "format": "webp",
+      "bytes": 44780
+    }
   ]
 }

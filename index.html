@@ -12,12 +12,14 @@
   window.__eventsApi = "/api/homepage-events" + (location.search.includes("fresh=1") ? "?fresh=1" : "");
   window.__eventsPromise = fetch(window.__eventsApi).then(function (r) { return r.json(); });
 </script>
+<!-- LCP element is the hero wordmark that overlays the mosaic; preload it so it
+     is fetched before the render script runs (the mosaic tiles paint behind it). -->
 <link rel="preload" as="image" type="image/avif" fetchpriority="high"
-      imagesrcset="uploads/variants/R1C1-400.avif 400w, uploads/variants/R1C1-800.avif 800w, uploads/variants/R1C1-1200.avif 1200w"
-      imagesizes="368px">
+      imagesrcset="uploads/variants/otra-ticketing-words-1200.avif 1200w, uploads/variants/otra-ticketing-words-2000.avif 2000w"
+      imagesizes="100vw">
 <link rel="preload" as="image" type="image/webp" fetchpriority="high"
-      imagesrcset="uploads/variants/R1C1-400.webp 400w, uploads/variants/R1C1-800.webp 800w, uploads/variants/R1C1-1200.webp 1200w"
-      imagesizes="368px">
+      imagesrcset="uploads/variants/otra-ticketing-words-1200.webp 1200w, uploads/variants/otra-ticketing-words-2000.webp 2000w"
+      imagesizes="100vw">
 <style>
 @font-face { font-family: "Inter"; font-style: normal; font-weight: 400; font-display: swap; src: url("fonts/inter-400.woff2") format("woff2"); }
 @font-face { font-family: "Inter"; font-style: normal; font-weight: 500; font-display: swap; src: url("fonts/inter-500.woff2") format("woff2"); }
@@ -521,8 +523,8 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
   position: absolute;
   inset: 0;
   pointer-events: none;
-  -webkit-mask: url("uploads/OTRA TICKETING Words.webp") center / 100% 100% no-repeat;
-          mask: url("uploads/OTRA TICKETING Words.webp") center / 100% 100% no-repeat;
+  -webkit-mask: url("uploads/variants/otra-ticketing-words-1200.webp") center / 100% 100% no-repeat;
+          mask: url("uploads/variants/otra-ticketing-words-1200.webp") center / 100% 100% no-repeat;
   background-image: linear-gradient(100deg,
     rgba(255,255,255,0) 43%,
     rgba(255,255,255,0.85) 50%,
@@ -774,7 +776,11 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
     <div class="canvas" id="canvas" data-screen-label="Events Mosaic">
       <div class="mosaic" id="mosaic"></div>
       <div class="hero-wordmark">
-        <img class="wordmark-img" src="uploads/OTRA TICKETING Words.webp" alt="OTRA TICKETS" />
+        <picture>
+          <source type="image/avif" srcset="uploads/variants/otra-ticketing-words-1200.avif 1200w, uploads/variants/otra-ticketing-words-2000.avif 2000w" sizes="100vw">
+          <source type="image/webp" srcset="uploads/variants/otra-ticketing-words-1200.webp 1200w, uploads/variants/otra-ticketing-words-2000.webp 2000w" sizes="100vw">
+          <img class="wordmark-img" src="uploads/OTRA TICKETING Words.webp" alt="OTRA TICKETS" width="6000" height="3375" decoding="async" fetchpriority="high" />
+        </picture>
         <span class="wordmark-sheen" aria-hidden="true"></span>
       </div>
     </div>
