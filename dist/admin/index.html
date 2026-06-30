@@ -1,0 +1,1982 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Otra Tickets Admin</title>
+<link rel="icon" type="image/png" href="/favicon.png" />
+<style>
+  :root {
+    --bg: #08090b;
+    --panel: #111318;
+    --panel-2: #171a21;
+    --line: #282d36;
+    --text: #f1f3f5;
+    --muted: #969da8;
+    --accent: #1c9ebd;
+    --accent-dark: #157a99;
+    --danger: #e25c5c;
+    --ok: #44b885;
+    --radius: 8px;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    color: var(--text);
+    background: var(--bg);
+  }
+
+  button, input, textarea, select { font: inherit; }
+  button { cursor: pointer; }
+
+  .login {
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+  }
+
+  .login-box {
+    width: min(420px, 100%);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 28px;
+  }
+
+  h1, h2 { margin: 0; letter-spacing: 0; }
+  h1 { font-size: 24px; }
+  h2 { font-size: 18px; }
+  p { margin: 0; color: var(--muted); line-height: 1.45; }
+
+  label { display: grid; gap: 8px; color: var(--muted); font-size: 13px; }
+  input, textarea, select {
+    width: 100%;
+    color: var(--text);
+    background: #0b0d11;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 11px 12px;
+    outline: none;
+  }
+  textarea { min-height: 240px; resize: vertical; line-height: 1.5; }
+  input:focus, textarea:focus, select:focus { border-color: var(--accent); }
+
+  .stack { display: grid; gap: 16px; }
+  .row { display: flex; align-items: center; gap: 12px; }
+  .row.split { justify-content: space-between; }
+
+  .btn {
+    min-height: 42px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    color: var(--text);
+    background: var(--panel-2);
+    padding: 0 14px;
+  }
+  .btn.primary { border-color: var(--accent); background: var(--accent); color: #fff; }
+  .btn.primary:hover { border-color: var(--accent-dark); background: var(--accent-dark); }
+  .btn.ghost { background: transparent; }
+  .btn:disabled { opacity: 0.55; cursor: not-allowed; }
+
+  .app { min-height: 100vh; display: grid; grid-template-rows: auto 1fr; }
+  .hub {
+    min-height: 100vh;
+    display: grid;
+    grid-template-rows: auto 1fr;
+  }
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    display: grid;
+    grid-template-columns: minmax(220px, 360px) 1fr auto;
+    gap: 16px;
+    align-items: center;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--line);
+    background: rgba(8, 9, 11, 0.94);
+    backdrop-filter: blur(12px);
+  }
+
+  .brand { display: grid; gap: 2px; }
+  .brand strong { font-size: 15px; text-transform: uppercase; letter-spacing: 0.08em; }
+  .brand span { color: var(--muted); font-size: 13px; }
+
+  .workspace { min-height: 0; }
+
+  .hub-main {
+    display: grid;
+    align-content: center;
+    gap: 28px;
+    width: min(980px, calc(100% - 40px));
+    margin: 0 auto;
+    padding: 48px 0;
+  }
+
+  .hub-head { display: grid; gap: 8px; }
+  .hub-head h1 { font-size: clamp(28px, 4vw, 44px); }
+  .hub-actions {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+  }
+  .choice-card {
+    min-height: 190px;
+    display: grid;
+    align-content: space-between;
+    gap: 22px;
+    text-align: left;
+    color: var(--text);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 22px;
+  }
+  .choice-card:hover { border-color: var(--accent); background: #131821; }
+  .choice-card strong { display: block; font-size: 22px; }
+  .choice-card span { display: block; margin-top: 8px; color: var(--muted); line-height: 1.45; }
+  .choice-card svg { width: 28px; height: 28px; color: var(--accent); stroke-width: 1.8; }
+
+  .add-main {
+    width: min(760px, calc(100% - 40px));
+    margin: 0 auto;
+    padding: 38px 0;
+  }
+  .upload-panel {
+    display: grid;
+    gap: 18px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 22px;
+  }
+  .dropzone {
+    display: grid;
+    place-items: center;
+    min-height: 170px;
+    text-align: center;
+    color: var(--muted);
+    border: 1px dashed #3b4350;
+    border-radius: var(--radius);
+    background: #0b0d11;
+    padding: 20px;
+  }
+  .dropzone strong { color: var(--text); }
+  .dropzone input { margin-top: 14px; max-width: 360px; }
+
+  .homepage-main {
+    width: min(1180px, calc(100% - 40px));
+    margin: 0 auto;
+    padding: 28px 0 48px;
+  }
+  .layout-panel { display: grid; gap: 16px; }
+  .layout-row-card {
+    display: grid;
+    gap: 14px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 16px;
+  }
+  .layout-row-card header {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 12px;
+    align-items: end;
+  }
+  .event-picker {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 8px;
+    max-height: 310px;
+    overflow: auto;
+    padding: 4px;
+  }
+  .event-choice {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 10px;
+    align-items: start;
+    padding: 10px;
+    color: var(--text);
+    background: #0b0d11;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+  }
+  .event-choice input { width: auto; margin-top: 3px; }
+  .event-choice span { line-height: 1.35; }
+  .event-choice small { display: block; margin-top: 3px; color: var(--muted); }
+
+  .preview {
+    min-width: 0;
+    background: #050608;
+  }
+  iframe {
+    width: 100%;
+    height: calc(100vh - 71px);
+    border: 0;
+    display: block;
+    background: #000;
+  }
+
+  .image-preview {
+    width: 100%;
+    height: clamp(150px, 28vh, 240px);
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    color: var(--muted);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: #0b0d11;
+  }
+  .image-preview img { width: 100%; height: 100%; object-fit: cover; display: none; }
+  .image-preview.has-image span { display: none; }
+  .image-preview.has-image img { display: block; }
+
+  .status { min-height: 20px; color: var(--muted); font-size: 13px; }
+  .status.error { color: var(--danger); }
+  .status.ok { color: var(--ok); }
+  .hidden { display: none !important; }
+
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    display: grid;
+    place-items: center;
+    padding: 20px;
+    background: rgba(0, 0, 0, 0.64);
+  }
+
+  .modal {
+    width: min(620px, 100%);
+    max-height: min(760px, calc(100vh - 40px));
+    overflow: auto;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
+    padding: 18px;
+  }
+  .publish-options { display: grid; gap: 10px; }
+  .publish-option {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 12px;
+    align-items: start;
+    padding: 14px;
+    color: var(--text);
+    background: #0b0d11;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+  }
+  .publish-option:has(input:checked) { border-color: var(--accent); background: #0d1720; }
+  .publish-option input { width: auto; margin-top: 3px; }
+  .publish-option strong { display: block; font-size: 14px; }
+  .publish-option span { display: block; margin-top: 4px; color: var(--muted); line-height: 1.4; }
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .ticket-quantity-list { display: grid; gap: 10px; }
+  .ticket-quantity {
+    display: grid;
+    grid-template-columns: 1fr 130px;
+    gap: 12px;
+    align-items: end;
+    padding: 12px;
+    background: #0b0d11;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+  }
+  .checkout-ticket-list { display: grid; gap: 12px; }
+  .checkout-ticket {
+    display: grid;
+    gap: 12px;
+    padding: 14px;
+    background: #0b0d11;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+  }
+  .checkout-ticket-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 110px 110px;
+    gap: 10px;
+  }
+  .checkout-ticket textarea { min-height: 88px; }
+  .checkout-ticket-note { color: var(--muted); font-size: 12px; }
+
+  .icon-btn {
+    width: 42px;
+    height: 42px;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    color: var(--text);
+    background: transparent;
+  }
+  .icon-btn svg { width: 19px; height: 19px; stroke-width: 2; }
+
+  .top-status {
+    color: var(--muted);
+    font-size: 13px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .top-status.error { color: var(--danger); }
+  .top-status.ok { color: var(--ok); }
+
+  @media (max-width: 980px) {
+    .topbar { grid-template-columns: 1fr; }
+    .hub-actions { grid-template-columns: 1fr; }
+    iframe { height: calc(100vh - 155px); }
+    .top-status { white-space: normal; }
+    .form-grid, .ticket-quantity, .checkout-ticket-head { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+  <section class="login" id="loginView">
+    <form class="login-box stack" id="loginForm">
+      <div class="stack" style="gap:8px">
+        <h1>Otra Tickets Admin</h1>
+        <p>Use your Otra Guide staff/admin account.</p>
+      </div>
+      <label>Email
+        <input id="email" type="email" autocomplete="username" required />
+      </label>
+      <label>Password
+        <input id="password" type="password" autocomplete="current-password" required />
+      </label>
+      <button class="btn primary" id="loginBtn" type="submit">Sign in</button>
+      <div class="status" id="loginStatus"></div>
+    </form>
+  </section>
+
+  <section class="app hidden" id="appView">
+    <header class="topbar">
+      <div class="brand">
+        <strong>Otra Tickets Admin</strong>
+        <span>Overrides are stored on the site only.</span>
+      </div>
+      <select id="pageSelect" aria-label="Select page"></select>
+      <div class="row split">
+        <div class="top-status" id="status"></div>
+        <button class="btn hidden" id="editCheckoutBtn" type="button">Edit checkout</button>
+        <button class="btn ghost hidden" id="archivePageBtn" type="button">Archive</button>
+        <button class="btn primary hidden" id="publishDraftBtn" type="button">Publish</button>
+        <button class="btn ghost" id="logoutBtn" type="button">Sign out</button>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <section class="preview">
+        <iframe id="previewFrame" title="Public page preview"></iframe>
+      </section>
+    </main>
+  </section>
+
+  <section class="hub hidden" id="hubView">
+    <header class="topbar">
+      <div class="brand">
+        <strong>Otra Tickets Admin</strong>
+        <span>Choose what you want to do.</span>
+      </div>
+      <div></div>
+      <div class="row split">
+        <div class="top-status" id="hubStatus"></div>
+        <button class="btn ghost" id="hubLogoutBtn" type="button">Sign out</button>
+      </div>
+    </header>
+    <main class="hub-main">
+      <div class="hub-head">
+        <h1>What do you want to manage?</h1>
+        <p>Add a Claude Design project as a new event, or edit an event that already exists.</p>
+      </div>
+      <div class="hub-actions">
+        <button class="choice-card" id="addEventBtn" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+          <span><strong>Add a new event</strong><span>Upload a Claude Design project ZIP and start a new Otra Tickets event draft.</span></span>
+        </button>
+        <button class="choice-card" id="editExistingBtn" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+          <span><strong>Edit an existing event</strong><span>Open the current preview editor with the same pencil buttons.</span></span>
+        </button>
+        <button class="choice-card" id="manageHomepageBtn" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 6h16"/><path d="M4 12h10"/><path d="M4 18h16"/><path d="M18 10v4"/><path d="M16 12h4"/></svg>
+          <span><strong>Manage homepage</strong><span>Reorder homepage rows, add rows, and choose which cards appear in each row.</span></span>
+        </button>
+      </div>
+    </main>
+  </section>
+
+  <section class="app hidden" id="addView">
+    <header class="topbar">
+      <div class="brand">
+        <strong>Add a new event</strong>
+        <span>Upload a Claude Design project.</span>
+      </div>
+      <div></div>
+      <div class="row split">
+        <div class="top-status" id="addStatus"></div>
+        <button class="btn ghost" id="backToHubBtn" type="button">Back</button>
+      </div>
+    </header>
+    <main class="add-main">
+      <form class="upload-panel" id="newEventForm">
+        <div>
+          <h2>Claude Design project</h2>
+          <p>Upload a ZIP project. The title, description, and images are read from the Claude Design project.</p>
+        </div>
+        <div class="dropzone">
+          <div>
+            <strong>Upload Claude Design ZIP</strong>
+            <p>Use a .zip file exported from Claude Design.</p>
+            <input id="cloudProjectZip" type="file" accept=".zip,application/zip,application/x-zip-compressed" required />
+          </div>
+        </div>
+        <div class="row split">
+          <button class="btn ghost" id="clearNewEventBtn" type="button">Clear</button>
+          <button class="btn primary" id="createNewEventBtn" type="submit">Create event draft</button>
+        </div>
+      </form>
+    </main>
+  </section>
+
+  <section class="app hidden" id="homepageView">
+    <header class="topbar">
+      <div class="brand">
+        <strong>Homepage rows</strong>
+        <span>Controls the public Otra Tickets homepage layout.</span>
+      </div>
+      <div class="top-status" id="homepageStatus"></div>
+      <div class="row split">
+        <button class="btn" id="addHomepageRowBtn" type="button">Add row</button>
+        <button class="btn primary" id="saveHomepageBtn" type="button">Save</button>
+        <button class="btn ghost" id="homepageBackBtn" type="button">Back</button>
+      </div>
+    </header>
+    <main class="homepage-main">
+      <div class="layout-panel" id="homepageRows"></div>
+    </main>
+  </section>
+
+  <div class="modal-backdrop hidden" id="editModal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <form class="modal stack" id="editForm">
+      <div class="row split">
+        <div>
+          <h2 id="modalTitle">Edit</h2>
+          <p id="modalMeta"></p>
+        </div>
+        <button class="icon-btn" id="closeModalBtn" type="button" aria-label="Close">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
+      </div>
+
+      <div class="stack hidden" id="textEditor">
+        <label>Description
+          <textarea id="description" placeholder="Public description override"></textarea>
+        </label>
+      </div>
+
+      <div class="stack hidden" id="imageEditor">
+        <label>Main image
+          <input id="imageInput" type="file" accept="image/png,image/jpeg,image/webp,image/avif" />
+        </label>
+        <div class="image-preview" id="imagePreview">
+          <span>No override image</span>
+          <img alt="" id="imagePreviewImg" />
+        </div>
+        <label>Image URL
+          <input id="imageUrl" type="text" placeholder="/override-images/..." />
+        </label>
+        <div class="row">
+          <button class="btn" id="uploadBtn" type="button">Upload image</button>
+          <button class="btn ghost" id="clearImageBtn" type="button">Clear image</button>
+        </div>
+      </div>
+
+      <div class="stack hidden" id="checkoutEditor">
+        <label>Checkout event ID
+          <input id="checkoutEventId" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="7428" />
+        </label>
+        <p>The checkout embed will load tickets from this Otra Guide event instead of the page event ID.</p>
+      </div>
+
+      <div class="row split">
+        <button class="btn ghost" id="cancelBtn" type="button">Cancel</button>
+        <button class="btn primary" id="saveBtn" type="submit">Save</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="modal-backdrop hidden" id="publishModal" role="dialog" aria-modal="true" aria-labelledby="publishTitle">
+    <form class="modal stack" id="publishForm">
+      <div class="row split">
+        <div>
+          <h2 id="publishTitle">Publish draft</h2>
+          <p id="publishMeta"></p>
+        </div>
+        <button class="icon-btn" id="closePublishModalBtn" type="button" aria-label="Close">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
+      </div>
+
+      <p>This reconciles the saved ticket types and makes the existing Otra Guide event public.</p>
+
+      <div class="status" id="publishStatus"></div>
+      <div class="row split">
+        <button class="btn ghost" id="cancelPublishBtn" type="button">Cancel</button>
+        <button class="btn primary" id="confirmPublishBtn" type="submit">Publish</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="modal-backdrop hidden" id="checkoutModal" role="dialog" aria-modal="true" aria-labelledby="checkoutTitle">
+    <form class="modal stack" id="checkoutForm">
+      <div class="row split">
+        <div>
+          <h2 id="checkoutTitle">Edit checkout</h2>
+          <p id="checkoutMeta"></p>
+        </div>
+        <button class="icon-btn" id="closeCheckoutModalBtn" type="button" aria-label="Close">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
+      </div>
+      <p>Edit the ticket names, descriptions, prices, currencies, and total quantities used by the Otra Guide checkout.</p>
+      <div class="checkout-ticket-list" id="checkoutTickets"></div>
+      <div class="status" id="checkoutStatus"></div>
+      <div class="row split">
+        <button class="btn ghost" id="cancelCheckoutBtn" type="button">Cancel</button>
+        <button class="btn primary" id="saveCheckoutBtn" type="submit">Save checkout</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="modal-backdrop hidden" id="draftSetupModal" role="dialog" aria-modal="true" aria-labelledby="draftSetupTitle">
+    <form class="modal stack" id="draftSetupForm">
+      <div class="row split">
+        <div>
+          <h2 id="draftSetupTitle">Create Otra Guide draft</h2>
+          <p id="draftSetupMeta"></p>
+        </div>
+        <button class="icon-btn" id="closeDraftSetupBtn" type="button" aria-label="Close">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
+      </div>
+
+      <div class="publish-options">
+        <label class="publish-option">
+          <input type="radio" name="eventMode" value="new" checked />
+          <span><strong>Create new Otra Guide event</strong><span>Use the Claude Design data and create a hidden event first.</span></span>
+        </label>
+        <label class="publish-option">
+          <input type="radio" name="eventMode" value="existing" />
+          <span><strong>Event already exists in Otra Guide</strong><span>Search/select it and create the draft with its current ticket types.</span></span>
+        </label>
+      </div>
+
+      <div class="stack hidden" id="existingEventFields" style="gap:10px">
+        <label>Region
+          <select id="existingEventRegionSelect" required></select>
+        </label>
+        <label>Search Otra Guide event
+          <input id="existingEventSearch" type="search" placeholder="Type event name or ID" />
+        </label>
+        <label>Select event
+          <select id="existingEventSelect"></select>
+        </label>
+        <p id="existingEventMeta"></p>
+      </div>
+
+      <div class="stack" id="newEventFields" style="gap:16px">
+      <div class="publish-options">
+        <label class="publish-option">
+          <input type="radio" name="teamMode" value="existing" checked />
+          <span><strong>Existing team</strong><span>Choose one of the teams available to this account.</span></span>
+        </label>
+        <label class="publish-option">
+          <input type="radio" name="teamMode" value="new" />
+          <span><strong>New team</strong><span>Create it now; this account becomes its admin.</span></span>
+        </label>
+      </div>
+      <label id="existingTeamLabel">Search and choose team
+        <input id="teamSearch" type="search" placeholder="Search teams" />
+        <select id="teamSelect" required></select>
+      </label>
+      <label class="hidden" id="newTeamLabel">New team name
+        <input id="newTeamName" type="text" maxlength="100" />
+      </label>
+      <label>Region
+        <select id="regionSelect" required></select>
+      </label>
+
+      <div class="form-grid">
+        <label>Start date and time
+          <input id="eventStartDate" type="datetime-local" required />
+        </label>
+        <label>End date and time
+          <input id="eventEndDate" type="datetime-local" required />
+        </label>
+      </div>
+      <label>Venue / location
+        <input id="eventLocation" type="text" maxlength="100" required placeholder="Example: Saint-Tropez Ocean Club" />
+      </label>
+      <label class="publish-option">
+        <input id="eventRecurring" type="checkbox" />
+        <span><strong>Recurring / perennial event</strong><span>Leave unchecked for a single-day event.</span></span>
+      </label>
+      </div>
+
+      <div class="stack" style="gap:10px">
+        <h2>Ticket quantities</h2>
+        <div class="ticket-quantity-list" id="ticketQuantities"></div>
+      </div>
+      <div class="status" id="draftSetupStatus"></div>
+      <div class="row split">
+        <button class="btn ghost" id="cancelDraftSetupBtn" type="button">Cancel</button>
+        <button class="btn primary" id="confirmDraftSetupBtn" type="submit">Create draft</button>
+      </div>
+    </form>
+  </div>
+
+<script>
+  const tokenKey = "otra_admin_token";
+  let token = sessionStorage.getItem(tokenKey) || "";
+  let pages = [];
+  let selected = null;
+  let currentOverride = null;
+  let modalMode = "";
+  let activeField = null;
+  let inspectedProject = null;
+  let availableTeams = [];
+  let availableRegions = [];
+  let availableExistingEvents = [];
+  let selectedExistingEvent = null;
+  let existingEventSearchTimer = null;
+  let draftSetupWarning = "";
+  let checkoutEvent = null;
+
+  const $ = (id) => document.getElementById(id);
+  const loginView = $("loginView");
+  const appView = $("appView");
+  const hubView = $("hubView");
+  const addView = $("addView");
+  const homepageView = $("homepageView");
+  const statusEl = $("status");
+  let homepageEvents = [];
+  let homepageRows = [];
+
+  function setStatus(text, type) {
+    statusEl.textContent = text || "";
+    statusEl.className = "top-status" + (type ? " " + type : "");
+  }
+
+  function authHeaders(extra) {
+    return Object.assign({ authorization: "Bearer " + token }, extra || {});
+  }
+
+  function overrideIdForPage(page) {
+    if (!page) return "";
+    try {
+      const url = new URL(page.url || "", location.origin);
+      const id = (url.searchParams.get("id") || "").trim();
+      if (/^(?:\d+|draft-[a-zA-Z0-9-]+)$/.test(id)) return id;
+    } catch {}
+    return String(page.id || "").trim();
+  }
+
+  function eventIdForPage(page) {
+    if (!page) return "";
+    if (/^\d+$/.test(String(page.otraGuideId || ""))) return String(page.otraGuideId);
+    if (/^\d+$/.test(String(page.id || ""))) return String(page.id);
+    try {
+      const id = new URL(page.url || "", location.origin).searchParams.get("id") || "";
+      return /^\d+$/.test(id) ? id : "";
+    } catch {
+      return "";
+    }
+  }
+
+  async function api(path, options) {
+    const resp = await fetch(path, options);
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      const error = new Error(data.error || "Request failed");
+      error.data = data;
+      throw error;
+    }
+    return data;
+  }
+
+  $("loginForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const btn = $("loginBtn");
+    const loginStatus = $("loginStatus");
+    btn.disabled = true;
+    loginStatus.textContent = "Signing in...";
+    try {
+      const data = await api("/admin/api/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: $("email").value, password: $("password").value }),
+      });
+      token = data.token;
+      sessionStorage.setItem(tokenKey, token);
+      await boot();
+    } catch (err) {
+      loginStatus.textContent = err.message;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  $("logoutBtn").addEventListener("click", () => {
+    logout();
+  });
+  $("hubLogoutBtn").addEventListener("click", () => {
+    logout();
+  });
+
+  function logout() {
+    sessionStorage.removeItem(tokenKey);
+    token = "";
+    appView.classList.add("hidden");
+    hubView.classList.add("hidden");
+    addView.classList.add("hidden");
+    homepageView.classList.add("hidden");
+    loginView.classList.remove("hidden");
+  }
+
+  $("editExistingBtn").addEventListener("click", async () => {
+    hubView.classList.add("hidden");
+    appView.classList.remove("hidden");
+    setStatus("Loading pages...");
+    await loadPages();
+  });
+
+  $("addEventBtn").addEventListener("click", () => {
+    hubView.classList.add("hidden");
+    addView.classList.remove("hidden");
+    $("addStatus").textContent = "";
+    $("cloudProjectZip").focus();
+  });
+
+  $("manageHomepageBtn").addEventListener("click", async () => {
+    hubView.classList.add("hidden");
+    homepageView.classList.remove("hidden");
+    await loadHomepageLayout();
+  });
+
+  $("backToHubBtn").addEventListener("click", () => {
+    addView.classList.add("hidden");
+    appView.classList.add("hidden");
+    homepageView.classList.add("hidden");
+    hubView.classList.remove("hidden");
+  });
+  $("homepageBackBtn").addEventListener("click", () => {
+    homepageView.classList.add("hidden");
+    hubView.classList.remove("hidden");
+  });
+  $("addHomepageRowBtn").addEventListener("click", () => {
+    homepageRows.push({ id: "row-" + Date.now(), title: "New row", eventIds: [] });
+    renderHomepageRows();
+  });
+  $("saveHomepageBtn").addEventListener("click", saveHomepageLayout);
+
+  $("clearNewEventBtn").addEventListener("click", () => {
+    $("newEventForm").reset();
+    $("addStatus").textContent = "";
+  });
+
+  $("newEventForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const file = $("cloudProjectZip").files[0];
+    if (!file) return;
+    $("createNewEventBtn").disabled = true;
+    $("addStatus").textContent = "Reading project...";
+    try {
+      const form = new FormData();
+      form.set("file", file);
+      inspectedProject = await api("/admin/api/projects?action=inspect", {
+        method: "POST",
+        headers: authHeaders(),
+        body: form,
+      });
+      const [teamsResult, regionsResult] = await Promise.allSettled([
+        api("/admin/api/teams", { headers: authHeaders() }),
+        api("/admin/api/regions", { headers: authHeaders() }),
+      ]);
+      availableTeams = teamsResult.status === "fulfilled" ? teamsResult.value.teams || [] : [];
+      availableRegions = regionsResult.status === "fulfilled" ? regionsResult.value.regions || [] : [];
+      draftSetupWarning = [teamsResult, regionsResult]
+        .filter((result) => result.status === "rejected")
+        .map((result) => result.reason && result.reason.message ? result.reason.message : "setup data failed to load")
+        .join(" · ");
+      openDraftSetup();
+    } catch (err) {
+      $("addStatus").textContent = err.message;
+      $("addStatus").className = "top-status error";
+    } finally {
+      $("createNewEventBtn").disabled = false;
+    }
+  });
+
+  $("closeDraftSetupBtn").addEventListener("click", closeDraftSetup);
+  $("cancelDraftSetupBtn").addEventListener("click", closeDraftSetup);
+  $("draftSetupModal").addEventListener("click", (e) => {
+    if (e.target === $("draftSetupModal")) closeDraftSetup();
+  });
+  document.querySelectorAll('input[name="teamMode"]').forEach((input) => {
+    input.addEventListener("change", syncTeamMode);
+  });
+  document.querySelectorAll('input[name="eventMode"]').forEach((input) => {
+    input.addEventListener("change", syncEventMode);
+  });
+  $("teamSearch").addEventListener("input", renderTeamOptions);
+  $("teamSelect").addEventListener("change", syncRegionFromTeam);
+  $("existingEventSearch").addEventListener("input", () => {
+    clearTimeout(existingEventSearchTimer);
+    existingEventSearchTimer = setTimeout(loadExistingEvents, 300);
+  });
+  $("existingEventSelect").addEventListener("change", syncSelectedExistingEvent);
+  $("draftSetupForm").addEventListener("submit", createDraft);
+
+  function openDraftSetup() {
+    if (!inspectedProject) return;
+    $("draftSetupMeta").textContent = inspectedProject.title || "Claude Design event";
+    $("draftSetupStatus").textContent = draftSetupWarning
+      ? "Project loaded, but setup data could not be loaded: " + draftSetupWarning
+      : "";
+    $("draftSetupStatus").className = "status" + (draftSetupWarning ? " error" : "");
+    selectedExistingEvent = null;
+    availableExistingEvents = [];
+    $("existingEventSearch").value = "";
+    $("existingEventSelect").innerHTML = '<option value="">Search for an Otra Guide event</option>';
+    $("existingEventMeta").textContent = "";
+    document.querySelector('input[name="eventMode"][value="new"]').checked = true;
+    $("teamSearch").value = "";
+    document.querySelector('input[name="teamMode"][value="existing"]').checked = true;
+    renderTeamOptions();
+    renderRegionOptions();
+    renderExistingEventRegionOptions();
+    syncRegionFromTeam();
+    $("existingEventRegionSelect").value = $("regionSelect").value;
+    syncTeamMode();
+    const start = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    start.setMinutes(0, 0, 0);
+    const end = new Date(start.getTime() + 4 * 60 * 60 * 1000);
+    $("eventStartDate").value = localDateTime(start);
+    $("eventEndDate").value = localDateTime(end);
+    $("eventLocation").value = practicalValue("Venue");
+    $("eventRecurring").checked = false;
+    renderTicketQuantities(inspectedProject.rates || [], { readonly: false });
+    syncEventMode();
+    $("draftSetupModal").classList.remove("hidden");
+  }
+
+  function closeDraftSetup() {
+    $("draftSetupModal").classList.add("hidden");
+  }
+
+  function syncTeamMode() {
+    const mode = document.querySelector('input[name="teamMode"]:checked').value;
+    const existing = mode === "existing";
+    $("existingTeamLabel").classList.toggle("hidden", !existing);
+    $("newTeamLabel").classList.toggle("hidden", existing);
+    $("teamSelect").disabled = !existing;
+    $("teamSelect").required = existing;
+    $("newTeamName").disabled = existing;
+    $("newTeamName").required = !existing;
+    if (existing) syncRegionFromTeam();
+    else $("regionSelect").value = "";
+  }
+
+  function syncEventMode() {
+    const mode = document.querySelector('input[name="eventMode"]:checked').value;
+    const useExisting = mode === "existing";
+    $("existingEventFields").classList.toggle("hidden", !useExisting);
+    $("newEventFields").classList.toggle("hidden", useExisting);
+    for (const id of ["teamSelect", "teamSearch", "newTeamName", "regionSelect", "eventStartDate", "eventEndDate", "eventLocation", "eventRecurring"]) {
+      $(id).disabled = useExisting;
+    }
+    $("existingEventSearch").disabled = !useExisting;
+    $("existingEventSelect").disabled = !useExisting;
+    $("existingEventRegionSelect").disabled = !useExisting;
+    $("existingEventRegionSelect").required = useExisting;
+    $("teamSelect").required = !useExisting && document.querySelector('input[name="teamMode"]:checked').value === "existing";
+    $("newTeamName").required = !useExisting && document.querySelector('input[name="teamMode"]:checked').value === "new";
+    $("regionSelect").required = !useExisting;
+    $("eventStartDate").required = !useExisting;
+    $("eventEndDate").required = !useExisting;
+    $("eventLocation").required = !useExisting;
+
+    if (useExisting) {
+      renderTicketQuantities(selectedExistingEvent ? selectedExistingEvent.tickets : [], { readonly: true });
+      $("confirmDraftSetupBtn").disabled = !(selectedExistingEvent && selectedExistingEvent.tickets && selectedExistingEvent.tickets.length);
+      return;
+    }
+
+    syncTeamMode();
+    renderTicketQuantities(inspectedProject ? inspectedProject.rates || [] : [], { readonly: false });
+  }
+
+  async function loadExistingEvents() {
+    const query = $("existingEventSearch").value.trim();
+    selectedExistingEvent = null;
+    $("existingEventMeta").textContent = "";
+    if (query.length < 2) {
+      availableExistingEvents = [];
+      $("existingEventSelect").innerHTML = '<option value="">Type at least 2 characters</option>';
+      syncEventMode();
+      return;
+    }
+    $("existingEventSelect").innerHTML = '<option value="">Searching...</option>';
+    try {
+      const regionName = availableRegions.find((region) => String(region.id) === $("existingEventRegionSelect").value)?.name || "";
+      const params = new URLSearchParams({ q: query });
+      if (regionName) params.set("region", regionName);
+      const data = await api("/admin/api/events?" + params.toString(), { headers: authHeaders() });
+      availableExistingEvents = data.events || [];
+      $("existingEventSelect").innerHTML = availableExistingEvents.length
+        ? '<option value="">Choose an event</option>' + availableExistingEvents.map((event) => {
+            const when = event.startDate ? " · " + formatShortDate(event.startDate) : "";
+            const tickets = Array.isArray(event.tickets) ? ` · ${event.tickets.length} tickets` : "";
+            return `<option value="${esc(event.id)}">${esc(event.title)}${esc(when)}${esc(tickets)}</option>`;
+          }).join("")
+        : '<option value="">No matching events</option>';
+    } catch (err) {
+      availableExistingEvents = [];
+      $("existingEventSelect").innerHTML = '<option value="">Search failed</option>';
+      $("existingEventMeta").textContent = err.message;
+    }
+    syncEventMode();
+  }
+
+  function syncSelectedExistingEvent() {
+    selectedExistingEvent = availableExistingEvents.find((event) => String(event.id) === $("existingEventSelect").value) || null;
+    if (selectedExistingEvent) {
+      const ticketCount = Array.isArray(selectedExistingEvent.tickets) ? selectedExistingEvent.tickets.length : 0;
+      $("existingEventMeta").textContent = [
+        `Otra Guide ID ${selectedExistingEvent.id}`,
+        typeof selectedExistingEvent.published === "boolean" ? (selectedExistingEvent.published ? "published" : "unpublished") : "",
+        selectedExistingEvent.teamName || "",
+        ticketCount ? `${ticketCount} ticket types` : "no ticket types",
+      ].filter(Boolean).join(" · ");
+    } else {
+      $("existingEventMeta").textContent = "";
+    }
+    syncEventMode();
+  }
+
+  function renderTicketQuantities(rates, options = {}) {
+    const readonly = !!options.readonly;
+    $("ticketQuantities").innerHTML = rates.length
+      ? rates.map((rate, index) => {
+          const quantity = Number.parseInt(rate.quantity, 10);
+          const value = Number.isSafeInteger(quantity) && quantity > 0 ? quantity : 500;
+          const note = readonly ? "Quantity from Otra Guide" : "Quantity";
+          return `
+          <label class="ticket-quantity">
+            <span><strong>${esc(rate.name)}</strong><small>${esc(rate.currency)} ${esc(rate.price)}</small></span>
+            <span>${note}<input data-ticket-quantity="${index}" type="number" min="1" step="1" value="${esc(value)}" ${readonly ? "readonly" : "required"} /></span>
+          </label>`;
+        }).join("")
+      : '<p>No ticket types were found.</p>';
+    $("confirmDraftSetupBtn").disabled = rates.length === 0;
+  }
+
+  function renderTeamOptions() {
+    const query = $("teamSearch").value.trim().toLowerCase();
+    const matching = availableTeams.filter((team) => !query || String(team.name || "").toLowerCase().includes(query));
+    $("teamSelect").innerHTML = matching.length
+      ? matching.map((team) => `<option value="${esc(team.id)}">${esc(team.name)}</option>`).join("")
+      : '<option value="">No matching teams</option>';
+  }
+
+  function renderRegionOptions() {
+    $("regionSelect").innerHTML = availableRegions.length
+      ? '<option value="">Choose a region</option>' + availableRegions.map((region) => `<option value="${esc(region.id)}">${esc(region.name)}</option>`).join("")
+      : '<option value="">No regions available</option>';
+  }
+
+  function renderExistingEventRegionOptions() {
+    $("existingEventRegionSelect").innerHTML = availableRegions.length
+      ? '<option value="">Choose a region for this draft</option>' + availableRegions.map((region) => `<option value="${esc(region.id)}">${esc(region.name)}</option>`).join("")
+      : '<option value="">No regions available</option>';
+  }
+
+  function syncRegionFromTeam() {
+    const team = availableTeams.find((item) => String(item.id) === $("teamSelect").value);
+    $("regionSelect").value = team && team.region ? String(team.region) : "";
+  }
+
+  async function createDraft(e) {
+    e.preventDefault();
+    const file = $("cloudProjectZip").files[0];
+    if (!file || !inspectedProject) return;
+    const eventMode = document.querySelector('input[name="eventMode"]:checked').value;
+    const teamMode = document.querySelector('input[name="teamMode"]:checked').value;
+    const form = new FormData();
+    form.set("file", file);
+    if (eventMode === "existing") {
+      if (!selectedExistingEvent) {
+        $("draftSetupStatus").textContent = "Choose an existing Otra Guide event.";
+        $("draftSetupStatus").className = "status error";
+        return;
+      }
+      form.set("existingEventId", String(selectedExistingEvent.id));
+      form.set("regionId", $("existingEventRegionSelect").value);
+    } else {
+      const startDate = new Date($("eventStartDate").value);
+      const endDate = new Date($("eventEndDate").value);
+      if (!Number.isFinite(startDate.getTime()) || !Number.isFinite(endDate.getTime()) || endDate <= startDate) {
+        $("draftSetupStatus").textContent = "End date must be after start date.";
+        $("draftSetupStatus").className = "status error";
+        return;
+      }
+      if (teamMode === "existing") form.set("teamId", $("teamSelect").value);
+      else form.set("teamName", $("newTeamName").value.trim());
+      form.set("regionId", $("regionSelect").value);
+      form.set("startDate", startDate.toISOString());
+      form.set("endDate", endDate.toISOString());
+      form.set("location", $("eventLocation").value.trim());
+      form.set("isPerennial", String($("eventRecurring").checked));
+    }
+    form.set(
+      "ticketQuantities",
+      JSON.stringify([...document.querySelectorAll("[data-ticket-quantity]")].map((input) => Number(input.value)))
+    );
+    $("confirmDraftSetupBtn").disabled = true;
+    $("draftSetupStatus").textContent = eventMode === "existing"
+      ? "Creating draft from existing Otra Guide event..."
+      : "Creating hidden Otra Guide event and tickets...";
+    try {
+      const data = await api("/admin/api/projects", {
+        method: "POST",
+        headers: authHeaders(),
+        body: form,
+      });
+      const project = data.project;
+      closeDraftSetup();
+      $("newEventForm").reset();
+      addView.classList.add("hidden");
+      appView.classList.remove("hidden");
+      setStatus(data.warning ? `Draft saved; sync pending: ${data.warning}` : "Otra Guide draft created.", data.warning ? "error" : "ok");
+      await loadPages(project.id);
+    } catch (err) {
+      $("draftSetupStatus").textContent = err.message;
+      $("draftSetupStatus").className = "status error";
+      if (err.data && err.data.project) {
+        closeDraftSetup();
+        addView.classList.add("hidden");
+        appView.classList.remove("hidden");
+        await loadPages(err.data.project.id);
+      }
+    } finally {
+      $("confirmDraftSetupBtn").disabled = false;
+    }
+  }
+
+  function practicalValue(key) {
+    const item = (inspectedProject.practicalInfo || []).find((entry) => entry.key === key);
+    return item ? item.value : "";
+  }
+
+  function localDateTime(date) {
+    const shifted = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+    return shifted.toISOString().slice(0, 16);
+  }
+
+  function formatShortDate(value) {
+    const date = new Date(value);
+    if (!Number.isFinite(date.getTime())) return "";
+    return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  }
+
+  $("pageSelect").addEventListener("change", () => selectPage($("pageSelect").value));
+  $("editCheckoutBtn").addEventListener("click", openCheckoutModal);
+  $("archivePageBtn").addEventListener("click", archiveSelectedPage);
+  $("publishDraftBtn").addEventListener("click", openPublishModal);
+  $("previewFrame").addEventListener("load", () => injectEditControls());
+  $("closeModalBtn").addEventListener("click", closeModal);
+  $("cancelBtn").addEventListener("click", closeModal);
+  $("editModal").addEventListener("click", (e) => {
+    if (e.target === $("editModal")) closeModal();
+  });
+  $("closePublishModalBtn").addEventListener("click", closePublishModal);
+  $("cancelPublishBtn").addEventListener("click", closePublishModal);
+  $("publishModal").addEventListener("click", (e) => {
+    if (e.target === $("publishModal")) closePublishModal();
+  });
+  $("publishForm").addEventListener("submit", publishSelectedDraft);
+  $("closeCheckoutModalBtn").addEventListener("click", closeCheckoutModal);
+  $("cancelCheckoutBtn").addEventListener("click", closeCheckoutModal);
+  $("checkoutModal").addEventListener("click", (e) => {
+    if (e.target === $("checkoutModal")) closeCheckoutModal();
+  });
+  $("checkoutForm").addEventListener("submit", saveCheckout);
+
+  $("uploadBtn").addEventListener("click", uploadCurrentImage);
+
+  async function uploadCurrentImage() {
+    if (!selected) return;
+    const file = $("imageInput").files[0];
+    if (!file) return setStatus("Choose an image first.", "error");
+    const form = new FormData();
+    form.set("id", overrideIdForPage(selected));
+    form.set("file", file);
+    $("uploadBtn").disabled = true;
+    setStatus("Uploading image...");
+    try {
+      const data = await api("/admin/api/upload", {
+        method: "POST",
+        headers: authHeaders(),
+        body: form,
+      });
+      $("imageUrl").value = data.url;
+      showImage(data.url);
+      $("saveBtn").disabled = true;
+      setStatus("Image uploaded. Saving...");
+      await persistCurrentOverride();
+      $("imageInput").value = "";
+      closeModal();
+      refreshPreview();
+      setStatus("Image uploaded and saved.", "ok");
+    } catch (err) {
+      setStatus(err.message, "error");
+    } finally {
+      $("uploadBtn").disabled = false;
+      $("saveBtn").disabled = false;
+    }
+  }
+
+  $("clearImageBtn").addEventListener("click", () => {
+    $("imageUrl").value = "";
+    showImage("");
+    setStatus("Image override cleared. Save to publish it.");
+  });
+
+  $("imageUrl").addEventListener("input", () => showImage($("imageUrl").value));
+
+  $("editForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (!selected) return;
+    if (modalMode === "image" && $("imageInput").files[0]) {
+      await uploadCurrentImage();
+      return;
+    }
+    $("saveBtn").disabled = true;
+    setStatus("Saving...");
+    try {
+      await persistCurrentOverride();
+      closeModal();
+      refreshPreview();
+      setStatus("Saved.", "ok");
+    } catch (err) {
+      setStatus(err.message, "error");
+    } finally {
+      $("saveBtn").disabled = false;
+    }
+  });
+
+  async function persistCurrentOverride() {
+    const next = {
+      description: currentOverride && currentOverride.description ? currentOverride.description : "",
+      image: currentOverride && currentOverride.image ? currentOverride.image : "",
+      checkoutEventId: currentOverride && currentOverride.checkoutEventId ? currentOverride.checkoutEventId : "",
+      fields: Object.assign({}, currentOverride && currentOverride.fields ? currentOverride.fields : {}),
+    };
+    if (activeField) {
+      next.fields[activeField.key] = {
+        type: activeField.type,
+        value: activeField.type === "text" ? $("description").value : $("imageUrl").value,
+      };
+    } else if (modalMode === "description") {
+      next.description = $("description").value;
+    } else if (modalMode === "image") {
+      next.image = $("imageUrl").value;
+    } else if (modalMode === "checkout") {
+      next.checkoutEventId = $("checkoutEventId").value.trim();
+    }
+
+    const data = await api("/admin/api/overrides?id=" + encodeURIComponent(overrideIdForPage(selected)), {
+      method: "PUT",
+      headers: authHeaders({ "content-type": "application/json" }),
+      body: JSON.stringify(next),
+    });
+    fillForm(data.override);
+    return data;
+  }
+
+  async function boot() {
+    loginView.classList.add("hidden");
+    appView.classList.add("hidden");
+    addView.classList.add("hidden");
+    homepageView.classList.add("hidden");
+    hubView.classList.remove("hidden");
+    $("hubStatus").textContent = "";
+  }
+
+  async function loadPages(preferredId) {
+    try {
+      const data = await api("/admin/api/pages", { headers: authHeaders() });
+      pages = data.pages || [];
+      $("pageSelect").innerHTML = pages
+        .map((page) => `<option value="${esc(page.id)}">${esc(page.title)} - ${esc(page.type)}</option>`)
+        .join("");
+      const initial = preferredId && pages.some((page) => page.id === preferredId) ? preferredId : pages[0] && pages[0].id;
+      if (initial) await selectPage(initial);
+      else {
+        selected = null;
+        $("archivePageBtn").classList.add("hidden");
+        $("publishDraftBtn").classList.add("hidden");
+        $("previewFrame").removeAttribute("src");
+        setStatus("No editable pages found.", "error");
+      }
+    } catch (err) {
+      sessionStorage.removeItem(tokenKey);
+      token = "";
+      appView.classList.add("hidden");
+      hubView.classList.add("hidden");
+      addView.classList.add("hidden");
+      homepageView.classList.add("hidden");
+      loginView.classList.remove("hidden");
+      $("loginStatus").textContent = err.message;
+    }
+  }
+
+  async function loadHomepageLayout() {
+    $("homepageStatus").textContent = "Loading homepage rows...";
+    try {
+      const data = await api("/admin/api/homepage", { headers: authHeaders() });
+      homepageEvents = data.events || [];
+      homepageRows = data.rows || [];
+      renderHomepageRows();
+      $("homepageStatus").textContent = "Loaded.";
+      $("homepageStatus").className = "top-status ok";
+    } catch (err) {
+      $("homepageStatus").textContent = err.message;
+      $("homepageStatus").className = "top-status error";
+    }
+  }
+
+  async function saveHomepageLayout() {
+    syncHomepageRowsFromDom();
+    $("saveHomepageBtn").disabled = true;
+    $("homepageStatus").textContent = "Saving homepage rows...";
+    $("homepageStatus").className = "top-status";
+    try {
+      const data = await api("/admin/api/homepage", {
+        method: "PUT",
+        headers: authHeaders({ "content-type": "application/json" }),
+        body: JSON.stringify({ rows: homepageRows }),
+      });
+      homepageRows = data.rows || [];
+      renderHomepageRows();
+      $("homepageStatus").textContent = "Saved. Open /?fresh=1 to preview.";
+      $("homepageStatus").className = "top-status ok";
+    } catch (err) {
+      $("homepageStatus").textContent = err.message;
+      $("homepageStatus").className = "top-status error";
+    } finally {
+      $("saveHomepageBtn").disabled = false;
+    }
+  }
+
+  function syncHomepageRowsFromDom() {
+    homepageRows = [...document.querySelectorAll(".layout-row-card")].map((card) => ({
+      id: card.dataset.rowId,
+      title: card.querySelector("[data-row-title]").value,
+      eventIds: [...card.querySelectorAll("[data-event-id]:checked")].map((input) => input.dataset.eventId),
+    }));
+  }
+
+  function renderHomepageRows() {
+    const host = $("homepageRows");
+    host.innerHTML = "";
+    homepageRows.forEach((row, rowIndex) => {
+      const card = document.createElement("section");
+      card.className = "layout-row-card";
+      card.dataset.rowId = row.id;
+      card.innerHTML = `
+        <header>
+          <label>Row title
+            <input data-row-title type="text" value="${esc(row.title || "")}" placeholder="Example: Boat tours" />
+          </label>
+          <div class="row">
+            <button class="btn ghost" data-row-up type="button">Up</button>
+            <button class="btn ghost" data-row-down type="button">Down</button>
+            <button class="btn ghost" data-row-delete type="button">Delete</button>
+          </div>
+        </header>
+        <div class="event-picker">
+          ${homepageEvents.map((event) => {
+            const id = String(event.id);
+            const checked = (row.eventIds || []).map(String).includes(id) ? " checked" : "";
+            return `<label class="event-choice"><input data-event-id="${esc(id)}" type="checkbox"${checked} /><span>${esc(event.title)}<small>${esc(id)}</small></span></label>`;
+          }).join("")}
+        </div>
+      `;
+      card.querySelector("[data-row-up]").disabled = rowIndex === 0;
+      card.querySelector("[data-row-down]").disabled = rowIndex === homepageRows.length - 1;
+      card.querySelector("[data-row-up]").addEventListener("click", () => moveHomepageRow(rowIndex, -1));
+      card.querySelector("[data-row-down]").addEventListener("click", () => moveHomepageRow(rowIndex, 1));
+      card.querySelector("[data-row-delete]").addEventListener("click", () => deleteHomepageRow(rowIndex));
+      host.append(card);
+    });
+  }
+
+  function moveHomepageRow(index, delta) {
+    syncHomepageRowsFromDom();
+    const next = index + delta;
+    if (next < 0 || next >= homepageRows.length) return;
+    const [row] = homepageRows.splice(index, 1);
+    homepageRows.splice(next, 0, row);
+    renderHomepageRows();
+  }
+
+  function deleteHomepageRow(index) {
+    syncHomepageRowsFromDom();
+    homepageRows.splice(index, 1);
+    renderHomepageRows();
+  }
+
+  async function selectPage(id) {
+    selected = pages.find((page) => page.id === id);
+    if (!selected) return;
+    $("pageSelect").value = selected.id;
+    $("archivePageBtn").classList.toggle("hidden", !selected);
+    $("editCheckoutBtn").classList.toggle("hidden", !eventIdForPage(selected));
+    $("publishDraftBtn").classList.toggle("hidden", !isDraft(selected) || selected.status === "published");
+    $("previewFrame").src = selected.url;
+    $("description").value = "";
+    $("imageInput").value = "";
+    $("imageUrl").value = "";
+    showImage("");
+    setStatus("Loading override...");
+    try {
+      const data = await api("/admin/api/overrides?id=" + encodeURIComponent(overrideIdForPage(selected)), {
+        headers: authHeaders(),
+      });
+      fillForm(data.override);
+      setStatus(data.override ? "Override loaded." : "No override yet.");
+    } catch (err) {
+      setStatus(err.message, "error");
+    }
+  }
+
+  async function openCheckoutModal() {
+    const eventId = eventIdForPage(selected);
+    if (!eventId) return;
+    checkoutEvent = null;
+    $("checkoutMeta").textContent = `${selected.title} · Otra Guide ID ${eventId}`;
+    $("checkoutTickets").innerHTML = "";
+    $("checkoutStatus").textContent = "Loading checkout...";
+    $("checkoutStatus").className = "status";
+    $("saveCheckoutBtn").disabled = true;
+    $("checkoutModal").classList.remove("hidden");
+    try {
+      const data = await api(`/admin/api/events?id=${encodeURIComponent(eventId)}`, { headers: authHeaders() });
+      checkoutEvent = data.events && data.events[0] ? data.events[0] : null;
+      if (!checkoutEvent || !checkoutEvent.tickets || !checkoutEvent.tickets.length) throw new Error("No ticket types were found for this event.");
+      renderCheckoutTickets(checkoutEvent.tickets);
+      $("checkoutStatus").textContent = "";
+      $("saveCheckoutBtn").disabled = false;
+    } catch (err) {
+      $("checkoutStatus").textContent = err.message;
+      $("checkoutStatus").className = "status error";
+    }
+  }
+
+  function closeCheckoutModal() {
+    $("checkoutModal").classList.add("hidden");
+    checkoutEvent = null;
+  }
+
+  function renderCheckoutTickets(tickets) {
+    $("checkoutTickets").innerHTML = tickets.map((ticket) => {
+      const remaining = Number.isSafeInteger(ticket.remainingQuantity)
+        ? `<span class="checkout-ticket-note">${esc(ticket.remainingQuantity)} currently remaining</span>`
+        : "";
+      return `<section class="checkout-ticket" data-checkout-ticket="${esc(ticket.id)}">
+        <div class="checkout-ticket-head">
+          <label>Ticket name<input data-checkout-name type="text" maxlength="120" required value="${esc(ticket.name)}" /></label>
+          <label>Price<input data-checkout-price type="number" min="0" step="0.01" required value="${esc(ticket.price)}" /></label>
+          <label>Currency<select data-checkout-currency required>
+            ${["USD", "EUR", "ANG"].map((currency) => `<option value="${currency}"${currency === ticket.currency ? " selected" : ""}>${currency}</option>`).join("")}
+          </select></label>
+        </div>
+        <label>Description<textarea data-checkout-description>${esc(ticket.description || "")}</textarea></label>
+        <label>Total quantity<input data-checkout-quantity type="number" min="1" step="1" required value="${esc(ticket.quantity)}" /></label>
+        ${remaining}
+      </section>`;
+    }).join("");
+  }
+
+  async function saveCheckout(e) {
+    e.preventDefault();
+    const eventId = eventIdForPage(selected);
+    if (!eventId || !checkoutEvent) return;
+    const tickets = [...document.querySelectorAll("[data-checkout-ticket]")].map((card) => ({
+      id: Number(card.dataset.checkoutTicket),
+      name: card.querySelector("[data-checkout-name]").value.trim(),
+      description: card.querySelector("[data-checkout-description]").value.trim(),
+      price: card.querySelector("[data-checkout-price]").value,
+      currency: card.querySelector("[data-checkout-currency]").value,
+      quantity: Number(card.querySelector("[data-checkout-quantity]").value),
+    }));
+    $("saveCheckoutBtn").disabled = true;
+    $("checkoutStatus").textContent = "Saving checkout on Otra Guide...";
+    $("checkoutStatus").className = "status";
+    try {
+      const data = await api("/admin/api/events", {
+        method: "PUT",
+        headers: authHeaders({ "content-type": "application/json" }),
+        body: JSON.stringify({
+          eventId: Number(eventId),
+          draftId: isDraft(selected) ? selected.id : "",
+          tickets,
+        }),
+      });
+      checkoutEvent = data.event;
+      renderCheckoutTickets(checkoutEvent.tickets || []);
+      $("checkoutStatus").textContent = "Checkout saved.";
+      $("checkoutStatus").className = "status ok";
+      refreshPreview();
+      setStatus("Checkout saved on Otra Guide.", "ok");
+    } catch (err) {
+      $("checkoutStatus").textContent = err.message;
+      $("checkoutStatus").className = "status error";
+      setStatus(err.message, "error");
+    } finally {
+      $("saveCheckoutBtn").disabled = false;
+    }
+  }
+
+  function openPublishModal() {
+    if (!selected || !isDraft(selected)) return;
+    $("publishMeta").textContent = selected.title + " - " + selected.type;
+    $("publishStatus").textContent = "";
+    $("publishStatus").className = "status";
+    $("confirmPublishBtn").textContent = "Publish";
+    $("publishModal").classList.remove("hidden");
+  }
+
+  function closePublishModal() {
+    $("publishModal").classList.add("hidden");
+  }
+
+  async function archiveSelectedPage() {
+    if (!selected) return;
+    const label = `${selected.title} - ${selected.type}`;
+    if (!window.confirm(`Remove "${label}" from the Edit dropdown? This will not delete the Otra Guide event.`)) return;
+
+    const btn = $("archivePageBtn");
+    btn.disabled = true;
+    setStatus("Archiving from edit list...");
+    try {
+      if (isDraft(selected)) {
+        const params = new URLSearchParams({ id: selected.id, action: "archive" });
+        await api("/admin/api/projects?" + params.toString(), { method: "POST", headers: authHeaders() });
+      } else {
+        const params = new URLSearchParams({ action: "hide" });
+        await api("/admin/api/pages?" + params.toString(), {
+          method: "POST",
+          headers: authHeaders({ "content-type": "application/json" }),
+          body: JSON.stringify({ id: selected.id }),
+        });
+      }
+      setStatus("Removed from edit list.", "ok");
+      await loadPages();
+    } catch (err) {
+      setStatus(err.message, "error");
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function publishSelectedDraft(e) {
+    e.preventDefault();
+    if (!selected || !isDraft(selected)) return;
+
+    const btn = $("confirmPublishBtn");
+    btn.disabled = true;
+    const progressText = "Reconciling tickets and publishing on Otra Guide...";
+    setStatus(progressText);
+    $("publishStatus").textContent = progressText;
+    $("publishStatus").className = "status";
+    try {
+      const params = new URLSearchParams({
+        id: selected.id,
+        action: "publish",
+      });
+      const data = await api(
+        "/admin/api/projects?" + params.toString(),
+        { method: "POST", headers: authHeaders() }
+      );
+      setStatus("Published on Otra Guide.", "ok");
+      closePublishModal();
+      await loadPages(String(data.project && data.project.id || selected.id));
+    } catch (err) {
+      setStatus(err.message, "error");
+      $("publishStatus").textContent = err.message;
+      $("publishStatus").className = "status error";
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  function isDraft(page) {
+    return !!page && (page.isDraft || page.status === "draft" || /^draft-/.test(page.id));
+  }
+
+  function fillForm(override) {
+    currentOverride = override || null;
+    if (currentOverride && !currentOverride.fields) currentOverride.fields = {};
+    $("description").value = override && override.description ? override.description : "";
+    $("imageUrl").value = override && override.image ? override.image : "";
+    $("checkoutEventId").value = override && override.checkoutEventId ? override.checkoutEventId : "";
+    showImage($("imageUrl").value);
+  }
+
+  function showImage(src) {
+    const box = $("imagePreview");
+    const img = $("imagePreviewImg");
+    if (src) {
+      img.src = src;
+      box.classList.add("has-image");
+    } else {
+      img.removeAttribute("src");
+      box.classList.remove("has-image");
+    }
+  }
+
+  function refreshPreview() {
+    const frame = $("previewFrame");
+    const url = new URL(selected.url, location.origin);
+    url.searchParams.set("_preview", Date.now());
+    frame.src = url.pathname + url.search;
+  }
+
+  function openEditor(field) {
+    if (!selected) return;
+    activeField = field && field.key ? field : null;
+    modalMode = activeField ? activeField.type : field;
+    const isText = modalMode === "text" || modalMode === "description";
+    const isImage = modalMode === "image";
+    const isCheckout = modalMode === "checkout";
+    $("modalTitle").textContent = isText ? "Edit text" : isImage ? "Edit image" : "Edit checkout";
+    $("modalMeta").textContent = selected.title + " - " + selected.type;
+    $("textEditor").classList.toggle("hidden", !isText);
+    $("imageEditor").classList.toggle("hidden", !isImage);
+    $("checkoutEditor").classList.toggle("hidden", !isCheckout);
+
+    if (isText) {
+      const saved = activeField && fieldOverrideForKey(activeField.key);
+      const hasSavedText = saved && saved.type === "text" && typeof saved.value === "string";
+      $("description").value = hasSavedText ? saved.value : activeField && activeField.element ? activeField.element.textContent.trim() : getPreviewDescription();
+    }
+    if (isImage) {
+      const saved = activeField && fieldOverrideForKey(activeField.key);
+      $("imageInput").value = "";
+      $("imageUrl").value = saved && saved.value ? saved.value : activeField && activeField.element ? readImageValue(activeField.element) : getPreviewImage();
+      showImage($("imageUrl").value);
+    }
+    if (isCheckout) {
+      $("checkoutEventId").value = currentOverride && currentOverride.checkoutEventId ? currentOverride.checkoutEventId : overrideIdForPage(selected);
+    }
+
+    $("editModal").classList.remove("hidden");
+    setTimeout(() => {
+      const first = isText ? $("description") : isImage ? $("imageInput") : $("checkoutEventId");
+      first.focus();
+    }, 0);
+  }
+
+  function closeModal() {
+    $("editModal").classList.add("hidden");
+    modalMode = "";
+    activeField = null;
+  }
+
+  function getPreviewDescription() {
+    try {
+      const doc = $("previewFrame").contentDocument;
+      const body = doc && doc.querySelector("#story .ev-body");
+      if (!body) return "";
+      return [...body.querySelectorAll("p")].map((p) => p.textContent.trim()).filter(Boolean).join("\n\n");
+    } catch {
+      return "";
+    }
+  }
+
+  function getPreviewImage() {
+    try {
+      const doc = $("previewFrame").contentDocument;
+      const img = doc && doc.querySelector(".ev-hero-img, .ev-story-img");
+      if (!img) return "";
+      return img.getAttribute("src") || img.src || "";
+    } catch {
+      return "";
+    }
+  }
+
+  function injectEditControls(attempt = 0) {
+    if (!selected) return;
+    const frame = $("previewFrame");
+    let doc;
+    try {
+      doc = frame.contentDocument;
+    } catch {
+      return setStatus("Preview is not editable from this origin.", "error");
+    }
+    if (!doc || !doc.body) return;
+
+    if (attempt < 80 && candidateElements(doc).length < 3) {
+      setTimeout(() => injectEditControls(attempt + 1), 250);
+      return;
+    }
+
+    ensurePreviewStyles(doc);
+    const fields = candidateElements(doc);
+    fields.forEach((field) => {
+      const host = editHost(field.element);
+      if (!host || host.querySelector(`:scope > [data-otra-admin-edit="${cssAttr(field.key)}"]`)) return;
+      host.classList.add("otra-admin-edit-host");
+      const btn = makePreviewButton(doc, field);
+      positionPreviewButton(btn, field, host);
+      host.appendChild(btn);
+    });
+    candidateSections(doc).forEach((field) => {
+      const host = field.element;
+      if (!host || host.querySelector(`:scope > [data-otra-admin-remove="${cssAttr(field.key)}"]`)) return;
+      host.classList.add("otra-admin-edit-host");
+      host.appendChild(makeRemoveButton(doc, field));
+    });
+    injectCheckoutControl(doc);
+    avoidPreviewButtonOverlaps(doc);
+    const status = statusEl.textContent.trim();
+    if (
+      $("editModal").classList.contains("hidden") &&
+      (!status || /^(?:Loading override|No override|Override loaded|Click a pencil)/.test(status))
+    ) {
+      setStatus(`Click a pencil in the preview to edit (${fields.length} editable fields).`, "ok");
+    }
+    if (attempt < 80) setTimeout(() => injectEditControls(attempt + 1), 250);
+  }
+
+  function injectCheckoutControl(doc) {
+    const host = doc.getElementById("book");
+    if (!host || host.querySelector(':scope > [data-otra-admin-checkout]')) return;
+    host.classList.add("otra-admin-edit-host");
+    const btn = doc.createElement("button");
+    btn.type = "button";
+    btn.className = "otra-admin-edit-btn";
+    btn.dataset.otraAdminCheckout = "1";
+    btn.setAttribute("aria-label", "Edit checkout event id");
+    btn.title = "Edit checkout event id";
+    btn.style.right = "12px";
+    btn.style.top = "12px";
+    btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openEditor("checkout");
+    });
+    host.appendChild(btn);
+  }
+
+  function ensurePreviewStyles(doc) {
+    if (doc.getElementById("otra-admin-edit-style")) return;
+    const style = doc.createElement("style");
+    style.id = "otra-admin-edit-style";
+    style.textContent = `
+      .otra-admin-edit-host { position: relative !important; }
+      .otra-admin-edit-btn {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        z-index: 99999;
+        width: 34px;
+        height: 34px;
+        display: grid;
+        place-items: center;
+        color: #fff;
+        background: #1c9ebd;
+        border: 1px solid rgba(255,255,255,0.38);
+        border-radius: 999px;
+        box-shadow: 0 12px 34px rgba(0,0,0,0.45);
+        cursor: pointer;
+      }
+      .otra-admin-edit-btn:hover { filter: brightness(1.08); }
+      .otra-admin-edit-btn svg { width: 16px; height: 16px; stroke-width: 2; }
+      .otra-admin-remove-btn {
+        position: absolute;
+        top: 8px;
+        left: 8px;
+        z-index: 99999;
+        width: 34px;
+        height: 34px;
+        display: grid;
+        place-items: center;
+        color: #fff;
+        background: #c33f3f;
+        border: 1px solid rgba(255,255,255,0.38);
+        border-radius: 999px;
+        box-shadow: 0 12px 34px rgba(0,0,0,0.45);
+        cursor: pointer;
+      }
+      .otra-admin-remove-btn:hover { filter: brightness(1.08); }
+      .otra-admin-remove-btn svg { width: 16px; height: 16px; stroke-width: 2.2; }
+    `;
+    doc.head.appendChild(style);
+  }
+
+  function makePreviewButton(doc, field) {
+    const btn = doc.createElement("button");
+    btn.type = "button";
+    btn.className = "otra-admin-edit-btn";
+    btn.dataset.otraAdminEdit = field.key;
+    btn.setAttribute("aria-label", field.type === "text" ? "Edit text" : "Edit image");
+    btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openEditor(field);
+    });
+    return btn;
+  }
+
+  function makeRemoveButton(doc, field) {
+    const btn = doc.createElement("button");
+    btn.type = "button";
+    btn.className = "otra-admin-remove-btn";
+    btn.dataset.otraAdminRemove = field.key;
+    btn.setAttribute("aria-label", "Remove section");
+    btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
+    btn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      await removeSection(field);
+    });
+    return btn;
+  }
+
+  function candidateElements(doc) {
+    const main = doc.querySelector("main") || doc.body;
+    const textSelector = [
+      "h1", "h2", "h3",
+      ".ev-eyebrow", ".ev-sub", ".ev-tag", ".ev-pull", ".ev-body p",
+      ".ev-hero-meta span:not(.dot)", ".ev-video .vlabel .tag", ".ev-video .vlabel .ttl",
+      ".rnb-roster li", ".rnb-host span", ".rnb-host b", ".rnb-host-credit",
+      ".ev-info-cell .k", ".ev-info-cell .v",
+      ".ev-rate .rk", ".ev-rate .rp", ".ev-rate .rn",
+      ".ev-rates-foot", ".row-head .count", ".row-head .see-all", ".ev-note",
+      ".ev-likes span", ".rnb-edition", ".rnb-venue",
+      ".btn-metal", ".btn-ghost", "footer .pb", "footer .loc"
+    ].join(",");
+    const imageSelector = [
+      "img", "video[poster]",
+      ".ev-band-bg", ".card-img"
+    ].join(",");
+
+    const fields = [];
+    const seen = new Set();
+    main.querySelectorAll(textSelector).forEach((el) => {
+      const selector = selectorFor(el, doc);
+      const key = selector ? "text:" + selector : "";
+      if (!key || !isEditableText(el, key) || seen.has(key)) return;
+      seen.add(key);
+      fields.push({ type: "text", key, element: el });
+    });
+    main.querySelectorAll(imageSelector).forEach((el) => {
+      if (!isEditableImage(el)) return;
+      const selector = selectorFor(el, doc);
+      if (!selector || seen.has("image:" + selector)) return;
+      seen.add("image:" + selector);
+      fields.push({ type: "image", key: "image:" + selector, element: el });
+    });
+    return fields;
+  }
+
+  function candidateSections(doc) {
+    const main = doc.querySelector("main") || doc.body;
+    const fields = [];
+    const removed = currentOverride && currentOverride.fields ? currentOverride.fields : {};
+    main.querySelectorAll(":scope > section, :scope > footer").forEach((el) => {
+      if (!isRemovableSection(el)) return;
+      const selector = selectorFor(el, doc);
+      if (!selector) return;
+      const key = "remove:" + selector;
+      if (removed[key] && removed[key].type === "remove") return;
+      fields.push({ type: "remove", key, element: el });
+    });
+    return fields;
+  }
+
+  function isRemovableSection(el) {
+    if (el.closest("header, nav, .dd-panel, script, style")) return false;
+    if (el.id === "book") return false;
+    const style = el.ownerDocument.defaultView.getComputedStyle(el);
+    if (style.display === "none" || style.visibility === "hidden") return false;
+    const rect = el.getBoundingClientRect();
+    return rect.width > 1 && rect.height > 1;
+  }
+
+  async function removeSection(field) {
+    if (!selected || !field || !field.key) return;
+    const label = sectionLabel(field.element);
+    if (!window.confirm(`Remove this section${label ? `: ${label}` : ""}?`)) return;
+    setStatus("Removing section...");
+    try {
+      const next = {
+        description: currentOverride && currentOverride.description ? currentOverride.description : "",
+        image: currentOverride && currentOverride.image ? currentOverride.image : "",
+        fields: Object.assign({}, currentOverride && currentOverride.fields ? currentOverride.fields : {}),
+      };
+      next.fields[field.key] = { type: "remove", value: "1" };
+      const data = await api("/admin/api/overrides?id=" + encodeURIComponent(overrideIdForPage(selected)), {
+        method: "PUT",
+        headers: authHeaders({ "content-type": "application/json" }),
+        body: JSON.stringify(next),
+      });
+      fillForm(data.override);
+      refreshPreview();
+      setStatus("Section removed.", "ok");
+    } catch (err) {
+      setStatus(err.message, "error");
+    }
+  }
+
+  function sectionLabel(el) {
+    const text = el && el.querySelector("h1, h2, h3, .ev-eyebrow, .row-head h2");
+    return text ? text.textContent.trim().replace(/\s+/g, " ").slice(0, 80) : "";
+  }
+
+  function positionPreviewButton(btn, field, host) {
+    if (field.type !== "image" || field.element.parentElement !== host) return;
+    const left = Math.max(8, field.element.offsetLeft + field.element.offsetWidth - 42);
+    const top = Math.max(8, field.element.offsetTop + 8);
+    btn.style.left = left + "px";
+    btn.style.top = top + "px";
+    btn.style.right = "auto";
+  }
+
+  function avoidPreviewButtonOverlaps(doc) {
+    const buttons = [...doc.querySelectorAll("[data-otra-admin-edit], [data-otra-admin-remove]")];
+    const overlaps = (a, b) => {
+      const ar = a.getBoundingClientRect();
+      const br = b.getBoundingClientRect();
+      return Math.min(ar.right, br.right) - Math.max(ar.left, br.left) > 3 &&
+        Math.min(ar.bottom, br.bottom) - Math.max(ar.top, br.top) > 3;
+    };
+    const moveDown = (btn) => {
+      const top = Number.parseFloat(btn.style.top || getComputedStyle(btn).top || "8") || 8;
+      btn.style.top = (top + 40) + "px";
+    };
+
+    for (let pass = 0; pass < 10; pass += 1) {
+      let changed = false;
+      for (let i = 0; i < buttons.length; i += 1) {
+        for (let j = i + 1; j < buttons.length; j += 1) {
+          if (overlaps(buttons[i], buttons[j])) {
+            moveDown(buttons[j]);
+            changed = true;
+          }
+        }
+      }
+      if (!changed) break;
+    }
+  }
+
+  function isEditableText(el, key) {
+    if (el.closest("[data-otra-admin-edit]")) return false;
+    if (el.closest("header, nav, .dd-panel, script, style")) return false;
+    if (el.textContent.trim()) return true;
+    const saved = fieldOverrideForKey(key);
+    return !!(saved && saved.type === "text");
+  }
+
+  function fieldOverrideForKey(key) {
+    const fields = currentOverride && currentOverride.fields;
+    if (!fields || !key) return null;
+    if (fields[key]) return fields[key];
+    const legacyKey = key.replace(/^(text|image|remove):#/, "$1:main > #");
+    return legacyKey !== key ? fields[legacyKey] || null : null;
+  }
+
+  function isEditableImage(el) {
+    if (el.closest("header, nav, .dd-panel")) return false;
+    if (el.tagName === "IMG") return !!(el.currentSrc || el.getAttribute("src"));
+    if (el.tagName === "VIDEO") return !!el.getAttribute("poster");
+    return /url\(/.test(el.style.backgroundImage || getComputedStyle(el).backgroundImage || "");
+  }
+
+  function editHost(el) {
+    if (el.classList.contains("ev-band-bg")) return el.parentElement;
+    if (el.tagName === "IMG" || el.tagName === "VIDEO") return el.parentElement || el;
+    return el;
+  }
+
+  function readImageValue(el) {
+    if (el.tagName === "IMG") return el.getAttribute("src") || el.currentSrc || "";
+    if (el.tagName === "VIDEO") return el.getAttribute("poster") || "";
+    const value = el.style.backgroundImage || getComputedStyle(el).backgroundImage || "";
+    const match = value.match(/url\\(["']?(.+?)["']?\\)/);
+    return match ? match[1] : "";
+  }
+
+  function selectorFor(el, doc) {
+    if (el.id) return "#" + cssEscape(el.id);
+    const parts = [];
+    let node = el;
+    let anchoredToId = false;
+    const stop = doc.querySelector("main") || doc.body;
+    while (node && node.nodeType === 1 && node !== stop && node !== doc.body) {
+      let part = node.tagName.toLowerCase();
+      if (node.id) {
+        part = "#" + cssEscape(node.id);
+        parts.unshift(part);
+        anchoredToId = true;
+        break;
+      }
+      const parent = node.parentElement;
+      if (!parent) break;
+      const same = [...parent.children].filter((child) => child.tagName === node.tagName);
+      if (same.length > 1) part += `:nth-of-type(${same.indexOf(node) + 1})`;
+      parts.unshift(part);
+      node = parent;
+    }
+    if (anchoredToId) return parts.join(" > ");
+    const prefix = stop === doc.body ? "body" : "main";
+    return prefix + (parts.length ? " > " + parts.join(" > ") : "");
+  }
+
+  function cssEscape(value) {
+    if (window.CSS && CSS.escape) return CSS.escape(value);
+    return String(value).replace(/[^a-zA-Z0-9_-]/g, "\\$&");
+  }
+
+  function cssAttr(value) {
+    return String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  }
+
+  function esc(value) {
+    return String(value || "").replace(/[&<>"']/g, (ch) => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#39;",
+    }[ch]));
+  }
+
+  if (token) boot();
+</script>
+</body>
+</html>

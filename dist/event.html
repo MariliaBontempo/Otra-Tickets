@@ -1,0 +1,1394 @@
+<!DOCTYPE html>
+<html lang="en" data-event-id="">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Otra Tickets — Event</title>
+<style>
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap");
+
+:root {
+  --ink: #07080a;
+  --ink-2: #0c0e12;
+  --ink-3: #12151b;
+  --line: #1c212a;
+  --silver-text: #dfe3e8;
+  --fog: #9aa1ab;
+  --fog-2: #5d646e;
+  --steel: #3f7cc4;
+  --steel-text: #8fbce9;
+  --steel-soft: rgba(74,140,214,0.72);
+  --steel-glow: rgba(63,124,196,0.30);
+  /* Accent — sourced at runtime from the event's calendar primary colour in the
+     Otra Guide plugin theme (set by the fill script). Defaults to the Otra Guide
+     default calendar colour. The legacy --rnb* tokens derive from it, so every
+     accent rule on the page recolours from this single value. */
+  --accent: #1c9ebd;
+  --rnb: var(--accent);
+  --rnb-text: color-mix(in srgb, var(--accent) 62%, white);
+  --rnb-soft: color-mix(in srgb, var(--accent) 60%, transparent);
+  --rnb-glow: color-mix(in srgb, var(--accent) 32%, transparent);
+  --rnb-line: color-mix(in srgb, var(--accent) 26%, transparent);
+  --header-h: 128px;
+  --font-display: "Inter", sans-serif;
+  --font-body: "Inter", sans-serif;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: var(--font-body);
+  color: var(--fog);
+  background: #000;
+  min-height: 100vh;
+  /* Otra black texture, held still behind the scroll */
+  background-image: linear-gradient(rgba(7,8,10,0.55), rgba(7,8,10,0.78)), url("uploads/BG_Otra_Black_Texture.webp");
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ============ HEADER ============ */
+.header {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: var(--header-h);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 40px;
+  padding: 0 clamp(28px, 4vw, 64px);
+  background: linear-gradient(180deg, rgba(7,8,10,0.92), rgba(7,8,10,0.72));
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--line);
+}
+
+.brand { display: flex; align-items: center; gap: 20px; flex-shrink: 0; }
+.brand img { width: 84px; height: 84px; display: block; }
+.brand .wordmark {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 28px;
+  letter-spacing: 0.05em;
+  color: var(--silver-text);
+  text-transform: uppercase;
+  line-height: 1;
+}
+
+.nav { display: flex; align-items: center; gap: 38px; margin-left: 16px; }
+.nav a {
+  font-size: 17px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--fog);
+  text-decoration: none;
+  transition: color 0.25s ease;
+  white-space: nowrap;
+}
+.nav a:hover, .nav a.active { color: var(--silver-text); }
+
+.header-actions { margin-left: auto; display: flex; align-items: center; gap: 20px; flex-shrink: 0; }
+.icon-btn {
+  display: grid; place-items: center;
+  width: 46px; height: 46px;
+  color: var(--fog);
+  background: none; border: none; cursor: pointer;
+  transition: color 0.25s ease;
+}
+.icon-btn:hover { color: var(--silver-text); }
+.icon-btn svg { width: 23px; height: 23px; stroke-width: 1.5; }
+.signin {
+  font-family: var(--font-body);
+  font-size: 14.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--silver-text);
+  background: transparent;
+  border: 1px solid var(--line);
+  padding: 12px 24px;
+  cursor: pointer;
+  transition: border-color 0.25s ease, color 0.25s ease;
+  white-space: nowrap;
+}
+.signin:hover { border-color: var(--steel-soft); }
+
+/* ============ HEADER DROPDOWNS ============ */
+.hdr-item { position: relative; display: flex; align-items: center; }
+.hdr-trigger {
+  display: flex; align-items: center; gap: 9px;
+  font-family: var(--font-body);
+  font-size: 14.5px;
+  font-weight: 500;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--fog);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 12px 14px;
+  white-space: nowrap;
+  transition: color 0.25s ease;
+}
+.hdr-trigger:hover,
+.hdr-item.open .hdr-trigger { color: var(--silver-text); }
+.hdr-trigger > svg { width: 19px; height: 19px; stroke-width: 1.6; flex-shrink: 0; }
+.hdr-trigger .caret { width: 12px; height: 12px; stroke-width: 2; opacity: 0.7; transition: transform 0.28s var(--ease, cubic-bezier(.22,1,.36,1)); }
+.hdr-item.open .caret { transform: rotate(180deg); }
+.hdr-trigger .loc-flag { font-size: 14.5px; letter-spacing: 0.13em; text-transform: uppercase; color: var(--fog); }
+.hdr-trigger:hover .loc-flag, .hdr-item.open .loc-flag { color: var(--silver-text); }
+
+/* Panel */
+.dd-panel {
+  position: absolute;
+  top: calc(100% + 16px);
+  right: 0;
+  min-width: 278px;
+  background: rgba(11,13,17,0.97);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: 0 18px 50px rgba(0,0,0,0.6);
+  padding: 8px;
+  opacity: 0; visibility: hidden;
+  transform: translateY(-10px);
+  transition: opacity 0.24s ease, transform 0.24s var(--ease, cubic-bezier(.22,1,.36,1)), visibility 0.24s;
+  z-index: 200;
+}
+.hdr-item.open > .dd-panel { opacity: 1; visibility: visible; transform: translateY(0); }
+.dd-panel::before {
+  content: "";
+  position: absolute;
+  top: -6px; right: 22px;
+  width: 11px; height: 11px;
+  background: rgba(11,13,17,0.97);
+  border-left: 1px solid var(--line);
+  border-top: 1px solid var(--line);
+  transform: rotate(45deg);
+}
+
+.dd-link {
+  display: flex; align-items: center; justify-content: space-between; gap: 18px;
+  padding: 13px 16px;
+  border-radius: 9px;
+  font-family: var(--font-body);
+  font-size: 15.5px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--fog);
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.18s ease, color 0.18s ease;
+  position: relative;
+}
+.dd-link:hover { background: var(--ink-3); color: var(--silver-text); }
+.dd-link.active { color: var(--silver-text); }
+.dd-link.active::after { content: "✓"; color: var(--steel-text, #8fbce9); font-size: 14px; }
+.dd-link .sub { font-size: 13px; color: var(--fog-2); letter-spacing: 0; }
+.dd-sep { height: 1px; background: var(--line); margin: 7px 6px; }
+.dd-head {
+  padding: 10px 16px 7px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--fog-2);
+}
+
+/* Menu dropdown - slightly wider with a highlighted CTA */
+.dd-menu { min-width: 300px; }
+.dd-link.cta {
+  margin-top: 4px;
+  color: var(--silver-text);
+  border: 1px solid var(--line);
+  justify-content: center;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 13.5px;
+}
+.dd-link.cta:hover { border-color: var(--steel-soft); background: transparent; }
+
+/* Profile dropdown - accordion groups */
+.dd-profile { min-width: 320px; padding: 10px; }
+.profile-id {
+  display: flex; align-items: center; gap: 14px;
+  padding: 8px 8px 16px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 8px;
+}
+.profile-id .avatar {
+  width: 48px; height: 48px; border-radius: 50%;
+  background: linear-gradient(160deg, #2a3441, #11151b);
+  border: 1px solid var(--steel-soft);
+  display: grid; place-items: center;
+  color: var(--silver-text);
+  font-weight: 700; font-size: 18px; letter-spacing: 0.02em;
+  flex-shrink: 0;
+}
+.profile-id .who { display: flex; flex-direction: column; gap: 3px; }
+.profile-id .who b { color: var(--silver-text); font-size: 15.5px; font-weight: 600; }
+.profile-id .who span { color: var(--fog-2); font-size: 13px; }
+
+.acc-group { border-radius: 9px; }
+.acc-trigger {
+  width: 100%;
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 13px 16px;
+  border-radius: 9px;
+  background: transparent; border: none; cursor: pointer;
+  font-family: var(--font-body);
+  font-size: 15.5px; font-weight: 500; letter-spacing: 0.01em;
+  color: var(--fog);
+  transition: background 0.18s ease, color 0.18s ease;
+}
+.acc-trigger:hover { background: var(--ink-3); color: var(--silver-text); }
+.acc-trigger .caret { width: 11px; height: 11px; stroke-width: 2; opacity: 0.6; transition: transform 0.26s ease; }
+.acc-group.open .acc-trigger { color: var(--silver-text); }
+.acc-group.open .acc-trigger .caret { transform: rotate(180deg); }
+.acc-body {
+  overflow: hidden;
+  max-height: 0;
+  transition: max-height 0.3s var(--ease, cubic-bezier(.22,1,.36,1));
+}
+.acc-group.open .acc-body { max-height: 240px; }
+.acc-body .dd-link {
+  padding: 10px 14px 10px 32px;
+  font-size: 14.5px;
+  color: var(--fog-2);
+}
+.acc-body .dd-link::before {
+  content: "";
+  position: absolute; left: 17px; top: 50%;
+  width: 5px; height: 1px; background: var(--fog-2);
+}
+.acc-body .dd-link:hover { color: var(--silver-text); }
+.dd-link.signout { color: var(--fog); }
+.dd-link.signout:hover { color: #e8a0a0; }
+
+/* Search dropdown */
+.dd-search { min-width: 400px; padding: 12px; }
+.dd-search .search-field {
+  display: flex; align-items: center; gap: 11px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--ink);
+  transition: border-color 0.2s ease;
+}
+.dd-search .search-field:focus-within { border-color: var(--steel-soft); }
+.dd-search .search-field svg { width: 18px; height: 18px; stroke-width: 1.6; color: var(--fog); flex-shrink: 0; }
+.dd-search input {
+  flex: 1; background: transparent; border: none; outline: none;
+  font-family: var(--font-body); font-size: 15px; color: var(--silver-text);
+  letter-spacing: 0.01em;
+}
+.dd-search input::placeholder { color: var(--fog-2); }
+.dd-search .hint { padding: 11px 4px 3px; font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--fog-2); }
+.dd-search .chips { display: flex; flex-wrap: wrap; gap: 8px; padding: 4px; }
+.dd-search .chip {
+  padding: 7px 13px; border-radius: 999px;
+  border: 1px solid var(--line); background: transparent;
+  font-size: 13px; color: var(--fog); cursor: pointer;
+  transition: border-color 0.18s ease, color 0.18s ease;
+}
+.dd-search .chip:hover { border-color: var(--steel-soft); color: var(--silver-text); }
+
+/* ============ MAIN ============ */
+main { padding-top: calc(var(--header-h) + 22px); padding-bottom: 80px; }
+
+.page-intro {
+  padding: 10px clamp(20px, 4vw, 56px) 2px;
+  display: flex; align-items: flex-end; justify-content: space-between; gap: 24px;
+}
+.page-intro h1 {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: clamp(26px, 3.4vw, 44px);
+  letter-spacing: -0.02em;
+  line-height: 0.98;
+  color: var(--silver-text);
+  text-transform: uppercase;
+}
+.page-intro p { font-size: 15px; color: var(--fog); max-width: 360px; text-align: right; }
+
+/* ---- Category row ---- */
+.row { margin-top: 28px; position: relative; }
+.row-head {
+  display: flex; align-items: baseline; gap: 16px;
+  padding: 0 clamp(20px, 4vw, 56px);
+  margin-bottom: 16px;
+}
+.row-head h2 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 22px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--silver-text);
+}
+.row-head .count { font-size: 13px; color: var(--fog-2); letter-spacing: 0.08em; }
+.row-head .see-all {
+  margin-left: auto;
+  font-size: 13px; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--fog); text-decoration: none; transition: color 0.25s ease;
+}
+.row-head .see-all:hover { color: var(--steel); }
+
+.track-wrap { position: relative; }
+.track {
+  display: flex;
+  gap: 22px;
+  overflow-x: auto;
+  scroll-behavior: smooth;
+  scroll-snap-type: x proximity;
+  padding: 6px clamp(20px, 4vw, 56px) 14px;
+  scrollbar-width: none;
+}
+.track::-webkit-scrollbar { display: none; }
+
+/* ---- Card (cinematic, photo-first) ---- */
+.card {
+  flex: 0 0 auto;
+  width: clamp(300px, 22.5vw, 452px);
+  scroll-snap-align: start;
+  background: #050507;
+  border: 2px solid var(--steel-soft);
+  border-radius: 26px;
+  padding: 20px;
+  overflow: hidden;
+  cursor: pointer;
+  text-align: center;
+  box-shadow: 0 0 16px var(--steel-glow);
+  transition: transform 0.35s cubic-bezier(.22,1,.36,1), box-shadow 0.35s ease, border-color 0.35s ease;
+}
+.card:hover {
+  transform: translateY(-6px);
+  border-color: #6fa8e8;
+  box-shadow: 0 14px 40px rgba(0,0,0,0.55), 0 0 28px rgba(74,140,214,0.55);
+}
+.card-img {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  display: block;
+  border-radius: 22px;
+  background: #000;
+}
+.card-body { padding: 30px 12px 30px; }
+.card-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 26px;
+  letter-spacing: 0.005em;
+  text-transform: uppercase;
+  color: #B8B8B8;
+  line-height: 1.12;
+  text-wrap: balance;
+}
+.card-venue {
+  margin-top: 12px;
+  font-weight: 600;
+  font-size: 18px;
+  color: #9b9999;
+}
+.card-date { margin-top: 7px; font-size: 18px; font-weight: 700; color: #b8bec7; }
+
+/* ---- Row arrows ---- */
+.arrow {
+  position: absolute; top: 0; bottom: 14px;
+  width: clamp(20px, 4vw, 56px);
+  display: grid; place-items: center;
+  background: none; border: none; cursor: pointer;
+  color: var(--silver-text);
+  opacity: 0; transition: opacity 0.25s ease;
+  z-index: 5;
+}
+.arrow.left { left: 0; background: linear-gradient(90deg, rgba(7,8,10,0.85), transparent); }
+.arrow.right { right: 0; background: linear-gradient(270deg, rgba(7,8,10,0.85), transparent); }
+.track-wrap:hover .arrow { opacity: 1; }
+.arrow svg { width: 30px; height: 30px; stroke-width: 1.5; }
+.arrow:hover { color: var(--steel); }
+
+/* ============================================================
+   EVENT DETAIL PAGE
+   ============================================================ */
+:root { --metal: linear-gradient(176deg,#eef1f4 0%,#c2c8d0 40%,#8e949d 62%,#e4e8ec 100%); }
+main.detail { padding: 0; }
+
+/* reveal-on-scroll */
+.reveal { opacity: 0; transform: translateY(28px); transition: opacity .9s var(--ease, cubic-bezier(.22,1,.36,1)), transform .9s var(--ease, cubic-bezier(.22,1,.36,1)); }
+.reveal.in { opacity: 1; transform: none; }
+@media (prefers-reduced-motion: reduce) { .reveal { opacity: 1; transform: none; transition: none; } }
+
+.ev-eyebrow {
+  display: inline-flex; align-items: center; gap: 16px;
+  font-size: 13px; font-weight: 600; letter-spacing: 0.3em; text-transform: uppercase;
+  color: var(--fog-2);
+}
+.ev-eyebrow::before, .ev-eyebrow::after { content: ""; width: 44px; height: 2px; background: var(--steel); display: inline-block; }
+
+.section-pad { padding: clamp(72px, 10vh, 140px) clamp(22px, 5vw, 80px); max-width: 1240px; margin: 0 auto; }
+
+/* ---- HERO ---- */
+.ev-hero { position: relative; width: 100%; aspect-ratio: 16 / 9; overflow: hidden; display: flex; align-items: flex-end; }
+.ev-hero-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+@keyframes kenburns { to { transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) { .ev-hero-img { animation: none; transform: scale(1); } }
+.ev-hero-veil { position: absolute; inset: 0; background:
+   linear-gradient(180deg, rgba(7,8,10,0.3) 0%, rgba(7,8,10,0) 16%, rgba(7,8,10,0) 72%, rgba(7,8,10,0.5) 100%); }
+.ev-hero-inner { position: relative; z-index: 2; width: 100%; max-width: 1240px; margin: 0 auto; padding: 0 clamp(22px, 5vw, 80px) clamp(56px, 9vh, 112px); }
+.ev-hero h1 {
+  font-family: var(--font-display); font-weight: 900;
+  font-size: clamp(56px, 11vw, 168px); line-height: 0.86; letter-spacing: -0.03em;
+  text-transform: uppercase; color: var(--silver-text); margin: 18px 0 0;
+  text-shadow: 0 4px 50px rgba(0,0,0,0.6);
+}
+.ev-hero .ev-sub { font-family: var(--font-display); font-weight: 500; font-size: clamp(18px, 2.4vw, 30px); color: var(--silver-text); letter-spacing: 0.01em; margin-top: 10px; }
+.ev-hero .ev-tag { margin-top: 22px; max-width: 620px; font-size: clamp(16px, 1.5vw, 21px); line-height: 1.5; color: var(--fog); text-wrap: pretty; }
+.ev-hero-meta { margin-top: 26px; display: flex; flex-wrap: wrap; align-items: center; gap: 14px 20px; font-size: 15px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--fog); }
+.ev-hero-meta .dot { color: var(--steel); }
+
+.btn-metal {
+  font-family: var(--font-body); font-weight: 600; font-size: 15px; letter-spacing: 0.06em; text-transform: uppercase;
+  background: var(--metal); color: #0a0c0f; border: none; border-radius: 999px;
+  padding: 16px 32px; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 10px;
+  transition: transform .25s var(--ease, cubic-bezier(.22,1,.36,1)), box-shadow .25s ease;
+}
+.btn-metal:hover { transform: translateY(-2px); box-shadow: 0 10px 34px rgba(196,202,209,0.22); }
+.btn-ghost {
+  font-family: var(--font-body); font-weight: 500; font-size: 14px; letter-spacing: 0.12em; text-transform: uppercase;
+  background: transparent; color: var(--silver-text); border: 1px solid var(--line); border-radius: 999px;
+  padding: 15px 28px; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 10px;
+  transition: border-color .25s ease, color .25s ease;
+}
+.btn-ghost:hover { border-color: var(--steel-soft); }
+
+.scroll-cue { position: absolute; left: 50%; bottom: 26px; transform: translateX(-50%); z-index: 3; display: flex; flex-direction: column; align-items: center; gap: 8px; color: var(--fog-2); font-size: 11px; letter-spacing: 0.26em; text-transform: uppercase; }
+.scroll-cue svg { width: 22px; height: 22px; stroke: var(--fog); animation: nudge 2.2s ease-in-out infinite; }
+@keyframes nudge { 0%,100% { transform: translateY(0); } 50% { transform: translateY(6px); } }
+
+/* ---- STORY ---- */
+.ev-story { display: grid; grid-template-columns: 1.08fr 0.92fr; gap: clamp(36px, 5vw, 84px); align-items: center; }
+.ev-pull { font-family: var(--font-display); font-style: italic; font-weight: 500; font-size: clamp(28px, 4vw, 54px); line-height: 1.05; letter-spacing: -0.02em; color: var(--silver-text); text-wrap: balance; }
+.ev-body { margin-top: 28px; display: flex; flex-direction: column; gap: 18px; font-size: clamp(16px, 1.3vw, 19px); line-height: 1.62; color: var(--fog); max-width: 560px; text-wrap: pretty; }
+.ev-story image-slot { width: 100%; aspect-ratio: 16 / 9; border: 1px solid var(--line); }
+
+/* ---- APPRECIATE full-bleed band ---- */
+.ev-band { position: relative; width: 100vw; margin-left: calc(50% - 50vw); aspect-ratio: 16 / 9; display: flex; align-items: center; overflow: hidden; }
+.ev-band-bg { position: absolute; inset: 0; background-size: cover; background-position: center; }
+.ev-band-veil { position: absolute; inset: 0; background: linear-gradient(90deg, rgba(7,8,10,0.92) 0%, rgba(7,8,10,0.66) 40%, rgba(7,8,10,0.12) 78%, rgba(7,8,10,0) 100%); }
+.ev-band-inner { position: relative; z-index: 2; max-width: 1240px; margin: 0 auto; padding: clamp(64px,9vh,120px) clamp(22px,5vw,80px); width: 100%; }
+.ev-band h2, .ev-h2 { font-family: var(--font-display); font-weight: 800; font-size: clamp(30px, 4vw, 56px); line-height: 1.0; letter-spacing: -0.02em; text-transform: uppercase; color: var(--silver-text); }
+.ev-likes { margin-top: 40px; display: flex; flex-direction: column; gap: 0; max-width: 720px; }
+.ev-like { display: flex; align-items: baseline; gap: 20px; padding: 22px 0; border-top: 1px solid var(--line); font-size: clamp(17px, 1.6vw, 23px); color: var(--silver-text); font-weight: 500; }
+.ev-like:last-child { border-bottom: 1px solid var(--line); }
+.ev-like .n { font-family: var(--font-display); font-size: 14px; letter-spacing: 0.1em; color: var(--steel-text, #8fbce9); flex-shrink: 0; width: 34px; }
+
+/* ---- GALLERY drop slots ---- */
+.ev-gallery-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
+.ev-gallery { margin-top: 34px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+.ev-gallery image-slot { width: 100%; aspect-ratio: 4 / 3; border: 1px solid var(--line); }
+.ev-gallery img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border: 1px solid var(--line); display: block; }
+
+/* ---- PRACTICAL INFO ---- */
+.ev-info-grid { margin-top: 48px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; background: var(--rnb-soft); border: 2px solid var(--rnb-soft); }
+.ev-info-cell { background: var(--ink); padding: 30px 30px 34px; }
+.ev-info-cell .k { font-size: 12px; font-weight: 600; letter-spacing: 0.22em; text-transform: uppercase; color: var(--fog-2); }
+.ev-info-cell .v { margin-top: 12px; font-size: 18px; line-height: 1.45; color: var(--silver-text); }
+
+/* ---- RATES ---- */
+.ev-rates { margin-top: 48px; display: grid; grid-template-columns: repeat(auto-fit, minmax(208px, 1fr)); gap: 18px; }
+.ev-rate { border: 2px solid var(--rnb-soft); background: var(--ink-2); padding: 34px 30px 36px; transition: border-color .3s ease, background .3s ease, transform .3s var(--ease, cubic-bezier(.22,1,.36,1)), box-shadow .3s ease; }
+.ev-rate:hover { border-color: var(--steel-soft); background: var(--ink-3); }
+.ev-rate .rk { font-size: 13px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--fog); }
+.ev-rate .rp { margin-top: 18px; font-family: var(--font-display); font-weight: 800; font-size: clamp(40px, 4.4vw, 60px); line-height: 1; background: var(--metal); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+.ev-rate .rn { margin-top: 14px; font-size: 14.5px; color: var(--fog); line-height: 1.5; }
+.ev-rate .rcur { font-size: 0.5em; vertical-align: super; -webkit-text-fill-color: var(--fog); margin-right: 2px; }
+.ev-rates-foot { margin-top: 22px; font-family: var(--font-display); font-style: italic; font-size: clamp(16px,1.6vw,21px); color: var(--fog); }
+
+/* ---- BOOKING ---- */
+.ev-book-grid { margin-top: 48px; }
+
+/* big, lit month calendar (slots inside each day, sample-style) */
+.ev-cal { border: 1px solid var(--line); background: var(--ink-2); }
+.ev-cal-head { display: flex; align-items: center; justify-content: space-between; padding: 24px 28px; background: var(--ink-3); border-bottom: 1px solid var(--line); }
+.ev-cal-head .mo { font-family: var(--font-display); font-weight: 800; font-size: 30px; letter-spacing: 0.03em; text-transform: uppercase; color: var(--silver-text); }
+.ev-cal-nav { display: flex; gap: 12px; }
+.ev-cal-nav button { width: 52px; height: 52px; border: 1px solid var(--line); background: var(--ink-2); color: var(--steel-text); cursor: pointer; display: grid; place-items: center; transition: border-color .2s, color .2s, background .2s; }
+.ev-cal-nav button:hover { border-color: var(--steel); background: var(--steel); color: #fff; }
+.ev-cal-nav button[disabled] { opacity: 0.3; cursor: not-allowed; }
+.ev-cal-nav button[disabled]:hover { border-color: var(--line); background: var(--ink-2); color: var(--steel-text); }
+.ev-cal-nav svg { width: 24px; height: 24px; stroke-width: 2; }
+
+.ev-cal-dows { display: grid; grid-template-columns: repeat(7, 1fr); background: var(--ink-3); border-bottom: 1px solid var(--line); }
+.ev-dow { text-align: center; font-family: var(--font-body); font-size: 15px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fog); padding: 18px 0; }
+
+.ev-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); }
+.ev-day {
+  min-height: 128px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  padding: 12px 11px 14px;
+  display: flex; flex-direction: column; gap: 7px;
+  background: var(--ink-2);
+}
+.ev-day:nth-child(7n) { border-right: none; }
+.ev-day .dnum { font-family: var(--font-body); font-size: 19px; font-weight: 500; color: var(--silver-text); line-height: 1; }
+.ev-day.empty { background: #060709; }
+.ev-day.off { background: #060709; }
+.ev-day.off .dnum { color: var(--fog-2); opacity: 0.6; }
+.ev-day.today { box-shadow: inset 0 0 0 2px var(--steel); }
+.ev-day.today .dnum { color: #fff; font-weight: 700; }
+
+/* time-slot pills inside a day — steel blue (our colour) */
+.ev-slot {
+  display: flex; align-items: center; gap: 9px;
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--steel-soft);
+  background: rgba(63,124,196,0.16);
+  color: var(--steel-text);
+  font-family: var(--font-body); font-size: 15px; font-weight: 500;
+  letter-spacing: 0.01em; line-height: 1;
+  cursor: pointer; text-align: left;
+  transition: background .16s, color .16s, border-color .16s;
+}
+.ev-slot::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--steel); flex-shrink: 0; transition: background .16s; }
+.ev-slot:hover { background: rgba(63,124,196,0.34); color: #fff; border-color: var(--steel); }
+.ev-slot.sel { background: var(--steel); border-color: var(--steel); color: #fff; font-weight: 600; }
+.ev-slot.sel::before { background: #fff; }
+
+/* lower row: guests + summary */
+.ev-book-lower { margin-top: 30px; display: grid; grid-template-columns: 1.1fr 0.9fr; gap: clamp(28px, 4vw, 56px); align-items: start; }
+
+.ev-sub-h { font-size: 13px; font-weight: 600; letter-spacing: 0.2em; text-transform: uppercase; color: var(--fog); margin: 0 0 16px; }
+
+.ev-tiers { display: flex; flex-direction: column; gap: 12px; }
+.ev-tier { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 20px; border: 1px solid var(--line); background: var(--ink-2); }
+.ev-tier .tinfo b { display: block; color: var(--silver-text); font-size: 16px; font-weight: 600; }
+.ev-tier .tinfo span { font-size: 13.5px; color: var(--fog-2); }
+.ev-tier .tprice { margin-left: auto; color: var(--fog); font-size: 15px; }
+.stepper { display: flex; align-items: center; gap: 0; border: 1px solid var(--line); }
+.stepper button { width: 38px; height: 38px; background: transparent; border: none; color: var(--silver-text); font-size: 20px; cursor: pointer; transition: background .15s; }
+.stepper button:hover { background: var(--ink-3); }
+.stepper .qty { width: 40px; text-align: center; color: var(--silver-text); font-size: 16px; font-variant-numeric: tabular-nums; }
+
+/* summary */
+.ev-summary { border: 1px solid var(--line); background: var(--ink-2); padding: 28px 26px 30px; position: sticky; top: calc(var(--header-h) + 18px); }
+.ev-summary h3 { font-family: var(--font-display); font-weight: 700; font-size: 15px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--silver-text); margin-bottom: 6px; }
+.ev-summary .when { font-size: 14px; color: var(--steel-text, #8fbce9); letter-spacing: 0.02em; min-height: 20px; margin-bottom: 18px; }
+.ev-lines { display: flex; flex-direction: column; gap: 12px; border-top: 1px solid var(--line); padding-top: 18px; }
+.ev-line { display: flex; justify-content: space-between; gap: 16px; font-size: 15px; color: var(--fog); }
+.ev-line.empty { color: var(--fog-2); font-style: italic; }
+.ev-line .v { color: var(--silver-text); font-variant-numeric: tabular-nums; }
+.ev-total { display: flex; justify-content: space-between; align-items: baseline; margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--line); }
+.ev-total .lab { font-size: 13px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--fog-2); }
+.ev-total .amt { font-family: var(--font-display); font-weight: 800; font-size: 34px; background: var(--metal); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+.ev-summary .btn-metal { width: 100%; justify-content: center; margin-top: 22px; }
+.ev-summary .btn-metal[disabled] { opacity: 0.4; cursor: not-allowed; transform: none; box-shadow: none; }
+.ev-fineprint { margin-top: 14px; font-size: 12.5px; color: var(--fog-2); line-height: 1.5; text-align: center; }
+
+/* checkout */
+.ev-checkout { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 22px; display: none; }
+.ev-checkout.show { display: block; animation: fadeUp .5s var(--ease, cubic-bezier(.22,1,.36,1)); }
+@keyframes fadeUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+.ev-field { margin-bottom: 12px; }
+.ev-field label { display: block; font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--fog-2); margin-bottom: 7px; }
+.ev-field input { width: 100%; background: var(--ink); border: 1px solid var(--line); color: var(--silver-text); font-family: var(--font-body); font-size: 15px; padding: 13px 14px; outline: none; transition: border-color .2s; }
+.ev-field input:focus { border-color: var(--steel-soft); }
+.ev-field.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.ev-paid { text-align: center; padding: 10px 0; }
+.ev-paid .chk { width: 56px; height: 56px; border-radius: 50%; border: 2px solid var(--steel); color: var(--steel-text,#8fbce9); display: grid; place-items: center; margin: 0 auto 16px; font-size: 28px; }
+.ev-paid h4 { font-family: var(--font-display); font-weight: 700; font-size: 19px; color: var(--silver-text); letter-spacing: 0.04em; }
+.ev-paid p { margin-top: 8px; font-size: 14px; color: var(--fog); }
+
+.card-tag { display: inline-block; font-size: 11px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--steel-text, #8fbce9); margin-bottom: 10px; }
+
+/* real-photo helpers */
+.ev-story-img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border: 1px solid var(--line); display: block; }
+.ev-photoband { position: relative; width: 100vw; margin-left: calc(50% - 50vw); aspect-ratio: 16 / 9; overflow: hidden; }
+.ev-photoband img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ev-photoband::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(7,8,10,0.45), transparent 14%, transparent 86%, rgba(7,8,10,0.6)); }
+/* title block (below hero image) */
+.ev-titleblock { padding-top: clamp(54px, 8vh, 92px); padding-bottom: clamp(36px, 5vh, 64px); }
+.ev-titleblock .ev-eyebrow { color: var(--rnb-text); }
+.ev-titleblock .ev-eyebrow::before { background: var(--rnb); }
+.ev-titleblock h1 { font-family: var(--font-display); font-weight: 900; font-size: clamp(54px, 10vw, 168px); line-height: 0.84; letter-spacing: -0.04em; text-transform: uppercase; color: var(--silver-text); margin: 16px 0 0; }
+.rnb-edition {
+  display: inline-flex; align-items: baseline; gap: 0.32em;
+  margin-top: 20px;
+  font-family: var(--font-display); font-weight: 800;
+  font-size: clamp(24px, 4.4vw, 66px); line-height: 0.95; letter-spacing: -0.015em;
+  text-transform: uppercase; color: var(--rnb);
+  text-shadow: 0 2px 30px var(--rnb-glow);
+}
+.rnb-edition .sup { font-size: 0.52em; font-weight: 700; }
+.rnb-venue { margin-top: 12px; font-family: var(--font-display); font-weight: 900; font-size: clamp(36px, 6.6vw, 104px); line-height: 0.9; letter-spacing: -0.03em; text-transform: uppercase; color: var(--silver-text); }
+.ev-titleblock .ev-tag { margin-top: 24px; max-width: 680px; font-size: clamp(16px, 1.5vw, 21px); line-height: 1.55; color: var(--fog); text-wrap: pretty; }
+.ev-hero-actions { margin-top: 34px; display: flex; flex-wrap: wrap; gap: 16px; align-items: center; }
+.ev-titleblock .ev-hero-meta { margin-top: 26px; }
+.ev-titleblock .ev-hero-meta .dot { color: var(--rnb); }
+
+/* ===== We Love R&B — magenta accent theme (page content only) ===== */
+.ev-eyebrow::before, .ev-eyebrow::after { background: var(--rnb); }
+.ev-like .n { color: var(--rnb-text); }
+.ev-rate:hover { border-color: var(--rnb); background: var(--ink-3); transform: translateY(-6px); box-shadow: 0 14px 36px rgba(0,0,0,0.5); }
+.card-tag { color: var(--rnb-text); }
+.row-head .see-all:hover, .arrow:hover { color: var(--rnb); }
+.ev-summary .when { color: var(--rnb-text); }
+/* booking calendar in magenta */
+.ev-cal-nav button { color: var(--rnb-text); }
+.ev-cal-nav button:hover { border-color: var(--rnb); background: var(--rnb); color: #fff; }
+.ev-cal-nav button[disabled]:hover { border-color: var(--line); background: var(--ink-2); color: var(--rnb-text); }
+.ev-day.today { box-shadow: inset 0 0 0 2px var(--rnb); }
+.ev-slot { border-color: var(--rnb-soft); background: rgba(166,77,224,0.16); color: var(--rnb-text); }
+.ev-slot::before { background: var(--rnb); }
+.ev-slot:hover { background: rgba(166,77,224,0.34); color: #fff; border-color: var(--rnb); }
+.ev-slot.sel { background: var(--rnb); border-color: var(--rnb); color: #fff; }
+/* calendar — purple banner, brighter lines, white day numbers */
+.ev-cal-banner { background: linear-gradient(180deg, #a64de0 0%, #8a37c6 100%); padding: 24px 28px; text-align: center; }
+.ev-cal-banner .cb-title { font-family: var(--font-display); font-weight: 800; font-size: 30px; letter-spacing: -0.01em; color: #fff; line-height: 1.05; text-transform: uppercase; }
+.ev-cal-banner .cb-sub { margin-top: 8px; font-family: var(--font-body); font-weight: 600; font-size: 15px; letter-spacing: 0.06em; color: rgba(255,255,255,0.82); text-transform: uppercase; }
+.ev-cal { border-color: var(--rnb-line); }
+.ev-cal-head { border-bottom-color: var(--rnb-line); }
+.ev-cal-dows { border-bottom-color: var(--rnb-line); }
+.ev-day { border-right-color: var(--rnb-line); border-bottom-color: var(--rnb-line); }
+.ev-day .dnum { color: #fff; }
+.ev-day.sel-day .dnum { color: var(--rnb-text); font-weight: 700; }
+/* tickets / tier picker in magenta */
+.ev-sub-h { color: var(--rnb-text); }
+.ev-tier { border-color: var(--rnb-line); transition: border-color .2s ease, background .2s ease; }
+.ev-tier .tprice { color: var(--rnb-text); }
+.stepper { border-color: var(--rnb-line); transition: border-color .2s ease; }
+.stepper button { color: var(--rnb-text); }
+.stepper button:hover { background: rgba(166,77,224,0.18); color: #fff; }
+.ev-tier.active { border-color: var(--rnb); background: rgba(166,77,224,0.10); }
+.ev-tier.active .stepper { border-color: var(--rnb-soft); }
+.ev-tier.active .qty { color: var(--rnb-text); font-weight: 700; }
+.ev-paid .chk { border-color: var(--rnb); color: var(--rnb-text); }
+
+/* artist roster (line-up band) */
+.rnb-roster { margin-top: 36px; display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0 56px; max-width: 880px; list-style: none; }
+.rnb-roster li { display: flex; align-items: center; gap: 18px; padding: 18px 0; border-top: 1px solid var(--line); font-family: var(--font-display); font-weight: 800; font-size: clamp(24px, 3vw, 46px); line-height: 1.04; letter-spacing: -0.02em; text-transform: uppercase; color: var(--silver-text); }
+.rnb-roster li::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--rnb); box-shadow: 0 0 14px var(--rnb-glow); flex-shrink: 0; }
+.rnb-host { margin-top: 34px; display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 18px; }
+.rnb-host span { font-size: 14px; font-weight: 600; letter-spacing: 0.24em; text-transform: uppercase; color: var(--rnb-text); }
+.rnb-host b { font-family: var(--font-display); font-weight: 900; font-size: clamp(24px, 3.2vw, 46px); letter-spacing: -0.02em; text-transform: uppercase; color: var(--silver-text); }
+.rnb-host-credit { margin-top: 14px; max-width: 620px; font-size: clamp(15px, 1.3vw, 19px); line-height: 1.55; color: var(--fog); text-wrap: pretty; }
+
+.ev-video { position: relative; width: 100vw; margin-left: calc(50% - 50vw); aspect-ratio: 16 / 9; overflow: hidden; cursor: pointer; }
+.ev-video img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ev-video::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(7,8,10,0.35), rgba(7,8,10,0.05) 30%, rgba(7,8,10,0.05) 60%, rgba(7,8,10,0.7)); }
+.ev-video .play { position: absolute; inset: 0; display: grid; place-items: center; z-index: 2; }
+.ev-video .play span { width: clamp(72px, 7vw, 112px); height: clamp(72px, 7vw, 112px); border-radius: 50%; background: rgba(7,8,10,0.40); border: 2px solid rgba(255,255,255,0.9); display: grid; place-items: center; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); transition: transform .3s var(--ease, cubic-bezier(.22,1,.36,1)), background .3s ease; }
+.ev-video:hover .play span { transform: scale(1.08); background: rgba(7,8,10,0.62); }
+.ev-video .play svg { width: 36%; height: 36%; fill: #fff; margin-left: 8%; }
+.ev-video .vlabel { position: absolute; left: 0; bottom: 0; z-index: 2; padding: clamp(22px, 3vw, 48px) clamp(22px, 5vw, 80px); }
+.ev-video .vlabel .tag { font-size: 11px; font-weight: 600; letter-spacing: 0.26em; text-transform: uppercase; color: rgba(255,255,255,0.8); }
+.ev-video .vlabel .ttl { margin-top: 8px; font-family: var(--font-display); font-weight: 700; font-size: clamp(20px, 2.4vw, 34px); color: #fff; letter-spacing: -0.01em; }
+.ev-video-el { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; background: #000; }
+.ev-video.is-live { cursor: default; }
+.ev-video.is-live::after { display: none; }
+.ev-video.is-live .play, .ev-video.is-live .vlabel { display: none; }
+.ev-video.is-image { cursor: default; }
+.ev-video.is-image::after { display: none; }
+.ev-video.is-image .play, .ev-video.is-image .vlabel { display: none; }
+
+@media (max-width: 980px) {
+  .ev-story, .ev-book-lower { grid-template-columns: 1fr; }
+  .ev-info-grid, .ev-rates, .ev-gallery { grid-template-columns: 1fr 1fr; }
+  .ev-summary { position: static; }
+  .ev-day { min-height: 96px; padding: 9px 7px 11px; }
+  .ev-slot { padding: 7px 8px; font-size: 13px; gap: 7px; }
+  .ev-day .dnum { font-size: 16px; }
+}
+@media (max-width: 620px) {
+  .ev-info-grid, .ev-rates, .ev-gallery { grid-template-columns: 1fr; }
+  .ev-cal-head .mo { font-size: 22px; }
+  .ev-dow { font-size: 11px; padding: 12px 0; }
+  .ev-day { min-height: 76px; }
+  .ev-slot { font-size: 11px; padding: 5px 5px; }
+  .ev-slot::before { display: none; }
+}
+
+footer {
+  text-align: center;
+  padding: 48px 20px 24px;
+  color: var(--fog-2);
+}
+footer .pb { font-family: var(--font-display); font-style: italic; font-size: 14px; color: var(--fog); }
+footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-transform: uppercase; }
+
+@media (max-width: 720px) {
+  .nav, .page-intro p { display: none; }
+  .brand .wordmark { display: none; }
+}
+</style>
+</head>
+<body>
+  <header class="header">
+    <div class="brand">
+      <img src="uploads/Otra Tickets Logo.webp" alt="Otra Tickets" />
+      <span class="wordmark">Otra Tickets</span>
+    </div>
+
+    <div class="header-actions">
+
+      <!-- SEARCH -->
+      <div class="hdr-item" data-dd>
+        <button class="icon-btn" aria-label="Search" data-dd-trigger>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.5" y2="16.5"/></svg>
+        </button>
+        <div class="dd-panel dd-search">
+          <div class="search-field">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.5" y2="16.5"/></svg>
+            <input type="text" placeholder="Search events, venues, artists, tours…" />
+          </div>
+          <div class="hint">Popular searches</div>
+          <div class="chips">
+            <button class="chip">Live Music</button>
+            <button class="chip">Boat Tours</button>
+            <button class="chip">Carnival</button>
+            <button class="chip">Nightlife</button>
+            <button class="chip">This Weekend</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- MENU -->
+      <div class="hdr-item" data-dd>
+        <button class="hdr-trigger" data-dd-trigger>
+          Menu
+          <svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <div class="dd-panel dd-menu">
+          <a class="dd-link active" href="#">Home</a>
+          <a class="dd-link" href="#">Events</a>
+          <a class="dd-link" href="#">Tours &amp; Experiences</a>
+          <a class="dd-link" href="#">Live Music</a>
+          <a class="dd-link" href="#">Festivals</a>
+          <a class="dd-link" href="#">Nightlife</a>
+          <a class="dd-link" href="#">Food &amp; Drink Events</a>
+          <a class="dd-link" href="#">Family Events</a>
+          <a class="dd-link" href="#">Free Events</a>
+          <a class="dd-link" href="#">Event Calendar</a>
+          <div class="dd-sep"></div>
+          <a class="dd-link cta" href="#">Create an Event →</a>
+        </div>
+      </div>
+
+      <!-- LOCATION -->
+      <div class="hdr-item" data-dd>
+        <button class="hdr-trigger" data-dd-trigger>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 21s7-5.5 7-11a7 7 0 0 0-14 0c0 5.5 7 11 7 11Z"/><circle cx="12" cy="10" r="2.5"/></svg>
+          <span data-loc-label>Curaçao</span>
+          <svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <div class="dd-panel" style="min-width:200px;">
+          <div class="dd-head">Buy tickets in</div>
+          <a class="dd-link active" href="#" data-loc>Curaçao</a>
+          <a class="dd-link" href="#" data-loc>Bonaire</a>
+          <a class="dd-link" href="#" data-loc>Aruba</a>
+        </div>
+      </div>
+
+      <!-- LANGUAGE -->
+      <div class="hdr-item" data-dd>
+        <button class="hdr-trigger" data-dd-trigger>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.7 2.5 15.3 0 18M12 3c-2.5 2.7-2.5 15.3 0 18"/></svg>
+          <span class="loc-flag" data-lang-label>EN</span>
+          <svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <div class="dd-panel" style="min-width:220px;">
+          <div class="dd-head">Language</div>
+          <a class="dd-link active" href="#" data-lang="EN">English</a>
+          <a class="dd-link" href="#" data-lang="PAP">Papiamento</a>
+          <a class="dd-link" href="#" data-lang="NL">Dutch</a>
+          <a class="dd-link" href="#" data-lang="ES">Spanish</a>
+          <a class="dd-link" href="#" data-lang="PT">Portuguese <span class="sub">(Brazilian)</span></a>
+        </div>
+      </div>
+
+      <!-- PROFILE -->
+      <div class="hdr-item" data-dd>
+        <button class="icon-btn" aria-label="Profile" data-dd-trigger>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
+        </button>
+        <div class="dd-panel dd-profile">
+          <div class="profile-id">
+            <div class="avatar">A</div>
+            <div class="who"><b>Your Account</b><span>Sign in to manage tickets</span></div>
+          </div>
+
+          <div class="acc-group">
+            <button class="acc-trigger" data-acc>My Tickets
+              <svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            <div class="acc-body">
+              <a class="dd-link" href="#">Upcoming Tickets</a>
+              <a class="dd-link" href="#">Past Tickets</a>
+            </div>
+          </div>
+
+          <div class="acc-group">
+            <button class="acc-trigger" data-acc>My Favorites
+              <svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            <div class="acc-body">
+              <a class="dd-link" href="#">Saved Events</a>
+              <a class="dd-link" href="#">Saved Venues</a>
+              <a class="dd-link" href="#">Saved Tours</a>
+            </div>
+          </div>
+
+          <div class="acc-group">
+            <button class="acc-trigger" data-acc>My Account
+              <svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            <div class="acc-body">
+              <a class="dd-link" href="#">Name</a>
+              <a class="dd-link" href="#">Email</a>
+              <a class="dd-link" href="#">Password</a>
+            </div>
+          </div>
+
+          <div class="acc-group">
+            <button class="acc-trigger" data-acc>Notifications
+              <svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            <div class="acc-body">
+              <a class="dd-link" href="#">Ticket Alerts</a>
+              <a class="dd-link" href="#">Favorite Venue Alerts</a>
+            </div>
+          </div>
+
+          <a class="dd-link" href="#">Payment Methods</a>
+          <div class="dd-sep"></div>
+          <a class="dd-link signout" href="#">Sign Out</a>
+        </div>
+      </div>
+
+    </div>
+  </header>
+
+  <main class="detail">
+
+    <!-- Generic event template — every section below is populated from
+         /api/event?id=<id>. Sections with no data are hidden at runtime. -->
+
+    <!-- ============ HERO (image only) ============ -->
+    <section class="ev-hero" data-screen-label="Hero">
+      <img class="ev-hero-img" id="evHeroImg" alt="" />
+      <div class="ev-hero-veil"></div>
+      <div class="scroll-cue">
+        <span>Scroll</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+    </section>
+
+    <!-- ============ TITLE BLOCK ============ -->
+    <section class="ev-titleblock section-pad reveal" data-screen-label="Title">
+      <span class="ev-eyebrow" id="evEyebrow"></span>
+      <h1 id="evTitle"></h1>
+      <p class="ev-tag" id="evTag" hidden></p>
+      <div class="ev-hero-meta" id="evMeta"></div>
+      <div class="ev-hero-actions" id="evActions"></div>
+    </section>
+
+    <!-- ============ STORY ============ -->
+    <section class="section-pad ev-story reveal" id="story" hidden>
+      <div>
+        <span class="ev-eyebrow" id="evStoryEyebrow">About</span>
+        <p class="ev-pull" id="evPullQuote" style="margin-top:22px;" hidden></p>
+        <div class="ev-body" id="evBody"></div>
+      </div>
+      <img class="ev-story-img" id="evStoryImg" alt="" hidden />
+    </section>
+
+    <!-- ============ VIDEO / FEATURE IMAGE ============ -->
+    <section class="ev-video reveal" id="evVideoSection" data-screen-label="Feature image" hidden>
+      <img id="evVideoImg" alt="" loading="lazy" />
+      <div class="play"><span><svg viewBox="0 0 24 24"><polygon points="8 5 19 12 8 19"/></svg></span></div>
+    </section>
+
+    <!-- ============ APPRECIATION BAND ============ -->
+    <section class="ev-band reveal" id="evBandSection" hidden>
+      <div class="ev-band-bg" id="evBandBg"></div>
+      <div class="ev-band-veil"></div>
+      <div class="ev-band-inner">
+        <span class="ev-eyebrow" id="evBandEyebrow">What We Appreciate</span>
+        <h2 id="evBandTitle" style="margin-top:20px;"></h2>
+        <div class="ev-likes" id="evLikes"></div>
+      </div>
+    </section>
+
+    <!-- ============ PHOTO BAND ============ -->
+    <section class="ev-photoband reveal" id="evPhotoBandSection" hidden>
+      <img id="evPhotoBandImg" alt="" loading="lazy" />
+    </section>
+
+    <!-- ============ GALLERY ============ -->
+    <section class="section-pad reveal" id="evGallerySection" hidden>
+      <div class="ev-gallery-head">
+        <div>
+          <span class="ev-eyebrow">Images</span>
+          <h2 class="ev-h2" style="margin-top:18px;">All images</h2>
+        </div>
+      </div>
+      <div class="ev-gallery" id="evGallery"></div>
+    </section>
+
+    <!-- ============ PRACTICAL INFO ============ -->
+    <section class="section-pad reveal" id="evInfoSection" hidden>
+      <span class="ev-eyebrow">Practical Info</span>
+      <h2 class="ev-h2" style="margin-top:18px;">Before you go</h2>
+      <div class="ev-info-grid" id="evInfoGrid"></div>
+    </section>
+
+    <!-- ============ RATES ============ -->
+    <section class="section-pad reveal" id="evRatesSection" hidden>
+      <span class="ev-eyebrow">Tickets</span>
+      <h2 class="ev-h2" style="margin-top:18px;">What it costs</h2>
+      <div class="ev-rates" id="evRates"></div>
+      <p class="ev-rates-foot">A 9% processing fee is applied at checkout.</p>
+    </section>
+
+    <!-- ============ BOOKING ============ -->
+    <section class="section-pad reveal" id="book" hidden>
+      <span class="ev-eyebrow">Tickets</span>
+      <h2 class="ev-h2" style="margin-top:18px;">Pick a date and a time</h2>
+      <div class="ev-book-grid">
+        <!-- Otra Guide Stripe Checkout Embed — created dynamically per event -->
+        <div id="otra-checkout-container"></div>
+      </div>
+    </section>
+
+    <footer>
+      <div class="pb">Powered by Otra Guide.</div>
+      <div class="loc">Aruba · Bonaire · Curaçao · Caribbean · Global</div>
+    </footer>
+  </main>
+
+  <script>
+    /* ---------- REVEAL ON SCROLL ---------- */
+    (function reveal() {
+      const io = new IntersectionObserver((entries) => {
+        entries.forEach((e) => { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } });
+      }, { threshold: 0.12, rootMargin: "0px 0px -8% 0px" });
+      document.querySelectorAll(".reveal").forEach((el) => io.observe(el));
+    })();
+
+    /* ============ HEADER DROPDOWNS ============ */
+    (function () {
+      const items = [...document.querySelectorAll(".hdr-item[data-dd]")];
+
+      function closeAll(except) {
+        items.forEach((it) => { if (it !== except) it.classList.remove("open"); });
+      }
+
+      items.forEach((item) => {
+        const trigger = item.querySelector("[data-dd-trigger]");
+        trigger.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const isOpen = item.classList.contains("open");
+          closeAll(item);
+          item.classList.toggle("open", !isOpen);
+          if (!isOpen) {
+            const input = item.querySelector("input");
+            if (input) setTimeout(() => input.focus(), 60);
+          }
+        });
+        // keep panel open when interacting inside it
+        const panel = item.querySelector(".dd-panel");
+        if (panel) panel.addEventListener("click", (e) => e.stopPropagation());
+      });
+
+      // Accordion groups inside profile
+      document.querySelectorAll("[data-acc]").forEach((btn) => {
+        btn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const group = btn.closest(".acc-group");
+          const open = group.classList.contains("open");
+          group.parentElement.querySelectorAll(".acc-group").forEach((g) => g.classList.remove("open"));
+          group.classList.toggle("open", !open);
+        });
+      });
+
+      // Location selector
+      document.querySelectorAll("[data-loc]").forEach((a) => {
+        a.addEventListener("click", (e) => {
+          e.preventDefault();
+          document.querySelectorAll("[data-loc]").forEach((x) => x.classList.remove("active"));
+          a.classList.add("active");
+          document.querySelector("[data-loc-label]").textContent = a.textContent.trim();
+          closeAll();
+        });
+      });
+
+      // Language selector
+      document.querySelectorAll("[data-lang]").forEach((a) => {
+        a.addEventListener("click", (e) => {
+          e.preventDefault();
+          document.querySelectorAll("[data-lang]").forEach((x) => x.classList.remove("active"));
+          a.classList.add("active");
+          document.querySelector("[data-lang-label]").textContent = a.getAttribute("data-lang");
+          closeAll();
+        });
+      });
+
+      // Search chips fill the field
+      document.querySelectorAll(".dd-search .chip").forEach((chip) => {
+        chip.addEventListener("click", () => {
+          const input = document.querySelector(".dd-search input");
+          input.value = chip.textContent.trim();
+          input.focus();
+        });
+      });
+
+      // Menu links — mark active
+      document.querySelectorAll(".dd-menu .dd-link:not(.cta)").forEach((a) => {
+        a.addEventListener("click", (e) => {
+          e.preventDefault();
+          document.querySelectorAll(".dd-menu .dd-link").forEach((x) => x.classList.remove("active"));
+          a.classList.add("active");
+          closeAll();
+        });
+      });
+
+      // Close on outside click / Esc
+      document.addEventListener("click", () => closeAll());
+      document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeAll(); });
+    })();
+  </script>
+  <script>
+    /* ============ POPULATE THE TEMPLATE FROM THE API ============
+       The canonical title route injects data-event-id. Legacy links using
+       event.html?id=<otra event id> remain supported.
+       We fetch that event's detail + ticket types via the same-origin Pages
+       Function and fill the template sections, hiding the ones with no data. */
+    (async function () {
+      const $ = (id) => document.getElementById(id);
+      const id = document.documentElement.dataset.eventId || new URLSearchParams(location.search).get("id");
+      if (!id) { showError("No event was specified."); return; }
+
+      let ev;
+      try {
+        const resp = await fetch("/api/event?id=" + encodeURIComponent(id));
+        if (!resp.ok) throw new Error("HTTP " + resp.status);
+        ev = await resp.json();
+        if (!ev || ev.error) throw new Error(ev && ev.error ? ev.error : "no data");
+        if (/^\d+$/.test(String(id)) && ev.slug) {
+          const canonicalPath = "/" + ev.slug;
+          let canonical = document.querySelector('link[rel="canonical"]');
+          if (!canonical) {
+            canonical = document.createElement("link");
+            canonical.rel = "canonical";
+            document.head.appendChild(canonical);
+          }
+          canonical.href = location.origin + canonicalPath;
+          if (/^\/event(?:\.html)?\/?$/i.test(location.pathname)) {
+            history.replaceState(null, "", canonicalPath + location.hash);
+          }
+        }
+      } catch (err) {
+        console.error("Could not load event:", err);
+        showError("We couldn't load this event.");
+        return;
+      }
+
+      const CURRENCY = { USD: "$", EUR: "€", ANG: "ƒ", AWG: "ƒ" };
+      const cur = (code) => CURRENCY[code] || (code ? code + " " : "$");
+      // 1,000 style grouping, no decimals when whole.
+      const money = (n) => {
+        const num = Number(n) || 0;
+        return Number.isInteger(num) ? num.toLocaleString("en-US") : num.toFixed(2);
+      };
+
+      // Format the date/time in Curaçao time.
+      const TZ = { timeZone: "America/Curacao" };
+      function dateParts(iso) {
+        if (!iso) return null;
+        const d = new Date(iso);
+        return {
+          weekday: d.toLocaleDateString("en-US", { ...TZ, weekday: "long" }),
+          long: d.toLocaleDateString("en-US", { ...TZ, weekday: "short", month: "short", day: "numeric" }),
+          full: d.toLocaleDateString("en-US", { ...TZ, weekday: "long", month: "long", day: "numeric" }),
+          time: d.toLocaleTimeString("en-US", { ...TZ, hour: "2-digit", minute: "2-digit", hour12: false }),
+        };
+      }
+      const start = dateParts(ev.startDate);
+      const end = dateParts(ev.endDate);
+
+      // ----- document + header -----
+      document.title = "Otra Tickets — " + ev.title;
+
+      // ----- ACCENT -----
+      // Recolour the whole page from the event's calendar primary colour
+      // (Otra Guide plugin theme). Falls back to the CSS default when absent.
+      if (ev.accent && /^#[0-9A-Fa-f]{6}$/.test(ev.accent)) {
+        document.documentElement.style.setProperty("--accent", ev.accent);
+      }
+      const design = ev.design || {};
+
+      // ----- HERO -----
+      if (ev.image) {
+        const hero = $("evHeroImg");
+        hero.src = ev.image;
+        hero.alt = ev.title;
+      }
+
+      // ----- TITLE BLOCK -----
+      $("evEyebrow").textContent = design.eyebrow || (ev.isPerennial ? "Experience · Curaçao" : "Event · Curaçao");
+      $("evTitle").textContent = design.displayTitle || ev.title;
+      if (design.subtitle) {
+        const sub = document.createElement("div");
+        sub.className = "ev-sub";
+        sub.textContent = design.subtitle;
+        $("evTitle").insertAdjacentElement("afterend", sub);
+      }
+      if (design.tag) {
+        $("evTag").textContent = design.tag;
+        $("evTag").hidden = false;
+      }
+
+      const meta = [];
+      if (Array.isArray(design.meta) && design.meta.length) meta.push(...design.meta);
+      else if (start && !ev.isPerennial) meta.push(start.long);
+      if (!meta.length && start && !ev.isPerennial) {
+        meta.push(end && end.time ? start.time + " — " + end.time : start.time);
+      }
+      if (!meta.length && ev.isPerennial) meta.push("Flexible dates");
+      renderMeta($("evMeta"), meta);
+
+      const actions = $("evActions");
+      // The checkout embed is always mounted (it handles its own ticket state),
+      // so the "Get tickets" CTA always shows. hasTickets only drives the rate
+      // cards / "From $X", which need ticket data we may not have here.
+      const hasTickets = Array.isArray(ev.tickets) && ev.tickets.length > 0;
+      actions.innerHTML =
+        '<a class="btn-metal" href="#book">Get tickets →</a>' +
+        '<a class="btn-ghost" href="#story">Read more</a>';
+
+      // ----- STORY (description) -----
+      const paras = paragraphs(ev.description);
+      if (paras.length) {
+        const body = $("evBody");
+        body.innerHTML = "";
+        if (design.storyEyebrow) $("evStoryEyebrow").textContent = design.storyEyebrow;
+        if (design.pullQuote) {
+          $("evPullQuote").textContent = design.pullQuote;
+          $("evPullQuote").hidden = false;
+        }
+        paras.forEach((p) => {
+          const el = document.createElement("p");
+          el.textContent = p;
+          body.appendChild(el);
+        });
+        if (design.storyImage || ev.image) {
+          const img = $("evStoryImg");
+          img.src = design.storyImage || ev.image;
+          img.alt = ev.title;
+          img.hidden = false;
+        } else {
+          // No image: let the text span the full width.
+          document.getElementById("story").style.gridTemplateColumns = "1fr";
+        }
+        $("story").hidden = false;
+      }
+
+      if (design.videoImage) {
+        $("evVideoImg").src = design.videoImage;
+        $("evVideoImg").alt = ev.title;
+        $("evVideoSection").classList.add("is-image");
+        $("evVideoSection").hidden = false;
+      }
+
+      if (design.bandImage || design.bandTitle || (design.appreciates && design.appreciates.length)) {
+        if (design.bandImage) $("evBandBg").style.backgroundImage = 'url("' + cssUrl(design.bandImage) + '")';
+        if (design.bandEyebrow) $("evBandEyebrow").textContent = design.bandEyebrow;
+        $("evBandTitle").textContent = design.bandTitle || "";
+        $("evLikes").innerHTML = (design.appreciates || [])
+          .map((text, i) => '<div class="ev-like"><span class="n">' + String(i + 1).padStart(2, "0") + '</span><span>' + esc(text) + "</span></div>")
+          .join("");
+        $("evBandSection").hidden = false;
+      }
+
+      if (design.photoBandImage) {
+        $("evPhotoBandImg").src = design.photoBandImage;
+        $("evPhotoBandImg").alt = ev.title;
+        $("evPhotoBandSection").hidden = false;
+      }
+
+      const gallerySources = [];
+      const seenGallery = new Set();
+      const addGallerySource = (src) => {
+        if (typeof src !== "string") return;
+        const value = src.trim();
+        if (!value || seenGallery.has(value)) return;
+        seenGallery.add(value);
+        gallerySources.push(value);
+      };
+      const rawGallery = Array.isArray(design.galleryImages) && design.galleryImages.length
+        ? design.galleryImages
+        : Array.isArray(design.assets)
+          ? design.assets
+          : [];
+      rawGallery.forEach((src) => {
+        if (typeof src !== "string") return;
+        if (!src.startsWith("/") && !/^https?:/i.test(src)) return;
+        addGallerySource(src);
+      });
+      [ev.image, design.storyImage, design.videoImage, design.bandImage, design.photoBandImage].forEach(addGallerySource);
+      const usedSources = new Set([ev.image, design.storyImage, design.videoImage, design.bandImage, design.photoBandImage].filter(Boolean));
+      const galleryImages = gallerySources.filter((src) => !usedSources.has(src));
+      if (galleryImages.length) {
+        const grid = $("evGallery");
+        grid.innerHTML = galleryImages
+          .map((src, index) => '<img src="' + esc(src) + '" alt="' + esc(ev.title + " image " + (index + 1)) + '" loading="lazy" />')
+          .join("");
+        $("evGallerySection").hidden = false;
+      }
+
+      // ----- PRACTICAL INFO -----
+      const cells = [];
+      if (Array.isArray(design.practicalInfo) && design.practicalInfo.length) {
+        cells.push(...design.practicalInfo.map((item) => [item.key, item.value]));
+      } else if (start && !ev.isPerennial) {
+        cells.push(["Date", start.full]);
+      }
+      if (start && !ev.isPerennial) {
+        cells.push(["Time", end && end.time ? start.time + " — " + end.time : start.time]);
+      }
+      if (!cells.length && ev.isPerennial) cells.push(["Availability", "Flexible dates"]);
+      if (!design.practicalInfo && ev.isPerennial) cells.push(["Location", "Curaçao"]);
+      if (hasTickets) {
+        const min = Math.min(...ev.tickets.map((t) => Number(t.price) || 0));
+        const code = ev.tickets[0].currency;
+        cells.push(["Tickets", "From " + cur(code) + money(min)]);
+      }
+      if (cells.length) {
+        if (design.practicalTitle) $("evInfoSection").querySelector(".ev-h2").textContent = design.practicalTitle;
+        const grid = $("evInfoGrid");
+        grid.innerHTML = cells
+          .map(([k, v]) => '<div class="ev-info-cell"><div class="k">' + esc(k) + '</div><div class="v">' + esc(v) + "</div></div>")
+          .join("");
+        $("evInfoSection").hidden = false;
+      }
+
+      // ----- RATES -----
+      if (hasTickets) {
+        if (design.ratesTitle) $("evRatesSection").querySelector(".ev-h2").textContent = design.ratesTitle;
+        $("evRates").innerHTML = ev.tickets
+          .map((t) => {
+            const sym = cur(t.currency);
+            return (
+              '<div class="ev-rate"><div class="rk">' + esc(t.name) + "</div>" +
+              '<div class="rp"><span class="rcur">' + esc(sym) + "</span>" + esc(money(t.price)) + "</div>" +
+              (t.description ? '<div class="rn">' + esc(t.description) + "</div>" : "") +
+              "</div>"
+            );
+          })
+          .join("");
+        $("evRatesSection").hidden = false;
+      }
+
+      // ----- BOOKING (embedded checkout) -----
+      // Always mount the Otra Guide checkout embed for this event id — the
+      // embed renders its own date/time + ticket picker, so it must be present
+      // regardless of what the event-detail endpoint reported about tickets.
+      $("book").hidden = false;
+      loadCheckout(ev.checkoutEventId || ev.id, ev.checkoutBaseUrl || "https://otraguide.com");
+
+      // re-run the reveal observer for the now-visible sections
+      revealAll();
+
+      // ---------- helpers ----------
+      function renderMeta(host, parts) {
+        host.innerHTML = "";
+        parts.forEach((p, i) => {
+          if (i) {
+            const dot = document.createElement("span");
+            dot.className = "dot";
+            dot.textContent = "·";
+            host.appendChild(dot);
+          }
+          const s = document.createElement("span");
+          s.textContent = p;
+          host.appendChild(s);
+        });
+      }
+
+      function paragraphs(text) {
+        if (!text) return [];
+        return String(text)
+          .replace(/\r\n/g, "\n")
+          .split(/\n{2,}|\n(?=[•\-])/)
+          .map((s) => s.replace(/\s+/g, " ").trim())
+          .filter(Boolean);
+      }
+
+      function esc(s) {
+        return String(s == null ? "" : s)
+          .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+      }
+
+      function cssUrl(s) {
+        return String(s || "").replace(/["\\]/g, "\\$&");
+      }
+
+      function showError(msg) {
+        $("evEyebrow").textContent = "Otra Tickets";
+        $("evTitle").textContent = msg;
+        const a = $("evActions");
+        a.innerHTML = '<a class="btn-ghost" href="index.html">Back to events</a>';
+      }
+
+      function revealAll() {
+        const io = new IntersectionObserver((entries) => {
+          entries.forEach((e) => { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } });
+        }, { threshold: 0.08, rootMargin: "0px 0px -6% 0px" });
+        document.querySelectorAll(".reveal:not(.in)").forEach((el) => io.observe(el));
+      }
+
+      // Load the Otra Guide checkout embed script (once) and mount it. The embed
+      // library pins the iframe at a fixed height and ignores the checkout's own
+      // resize messages, forcing an inner scrollbar — so we honor those messages
+      // and grow the iframe to its full content height.
+      function loadCheckout(eventId, checkoutBaseUrl) {
+        function mount() {
+          window.OtraStripeCheckoutEmbed.create({
+            eventId: eventId,
+            containerId: "otra-checkout-container",
+            baseUrl: checkoutBaseUrl,
+            isRecurring: false,
+          });
+          const container = document.getElementById("otra-checkout-container");
+          window.addEventListener("message", function (e) {
+            if (e.origin !== new URL(checkoutBaseUrl).origin) return;
+            const d = e.data;
+            if (d && d.type === "OTRA_IFRAME_RESIZE" && d.height) {
+              const iframe = container && container.querySelector("iframe");
+              if (!iframe) return;
+              iframe.setAttribute("scrolling", "no");
+              iframe.style.height = Math.ceil(d.height) + "px";
+              iframe.style.overflow = "hidden";
+            }
+          });
+        }
+        if (window.OtraStripeCheckoutEmbed) { mount(); return; }
+        const s = document.createElement("script");
+        s.src = checkoutBaseUrl + "/embed/stripe-script.js";
+        s.onload = mount;
+        s.onerror = function () { console.error("Could not load checkout embed."); };
+        document.head.appendChild(s);
+      }
+    })();
+  </script>
+  <script src="site-overrides.js?v=3"></script>
+</body>
+</html>
