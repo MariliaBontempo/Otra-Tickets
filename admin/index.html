@@ -1175,7 +1175,11 @@
   $("editCheckoutBtn").addEventListener("click", openCheckoutModal);
   $("archivePageBtn").addEventListener("click", archiveSelectedPage);
   $("publishDraftBtn").addEventListener("click", openPublishModal);
-  $("previewFrame").addEventListener("load", () => injectEditControls());
+  $("previewFrame").addEventListener("load", () => {
+    injectEditControls();
+    const color = currentOverride && currentOverride.accentColor;
+    if (color) setTimeout(() => applyAccentToPreview(color), 400);
+  });
   $("closeModalBtn").addEventListener("click", closeModal);
   $("cancelBtn").addEventListener("click", closeModal);
   $("editModal").addEventListener("click", (e) => {
@@ -1265,7 +1269,8 @@
     setStatus("Saving color...");
     try {
       await persistCurrentOverride();
-      refreshPreview();
+      // Color is already live in the iframe via applyAccentToPreview — no reload needed.
+      // Reloading would race against ev.accent from the event API overwriting our color.
       setStatus("Color saved.", "ok");
     } catch (err) {
       setStatus(err.message, "error");
