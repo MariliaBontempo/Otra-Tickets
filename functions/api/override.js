@@ -41,11 +41,10 @@ async function readDraftOverrideForOtraGuideId(kv, id) {
       const project = await kv.get(key.name, "json");
       if (!project || String(project.otraGuideId || "") !== id) continue;
       const draftId = String(project.id || key.name.replace(/^site-event:/, ""));
-      return (
+      const override =
         (await kv.get(`event:${draftId}`, "json")) ||
-        (await kv.get(`override:${draftId}`, "json")) ||
-        null
-      );
+        (await kv.get(`override:${draftId}`, "json"));
+      if (override) return override;
     }
     cursor = page.list_complete ? undefined : page.cursor;
   } while (cursor);
