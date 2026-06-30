@@ -948,5 +948,447 @@
       "format": "webp",
       "bytes": 69494
     }
+  ],
+  "Kome Halloween.webp": [
+    {
+      "path": "uploads/variants/kome-halloween-400.avif",
+      "width": 400,
+      "format": "avif",
+      "bytes": 17769
+    },
+    {
+      "path": "uploads/variants/kome-halloween-400.webp",
+      "width": 400,
+      "format": "webp",
+      "bytes": 13276
+    },
+    {
+      "path": "uploads/variants/kome-halloween-800.avif",
+      "width": 800,
+      "format": "avif",
+      "bytes": 36754
+    },
+    {
+      "path": "uploads/variants/kome-halloween-800.webp",
+      "width": 800,
+      "format": "webp",
+      "bytes": 30854
+    }
+  ],
+  "We Love R&B .webp": [
+    {
+      "path": "uploads/variants/we-love-rnb-400.avif",
+      "width": 400,
+      "format": "avif",
+      "bytes": 17308
+    },
+    {
+      "path": "uploads/variants/we-love-rnb-400.webp",
+      "width": 400,
+      "format": "webp",
+      "bytes": 14032
+    },
+    {
+      "path": "uploads/variants/we-love-rnb-800.avif",
+      "width": 800,
+      "format": "avif",
+      "bytes": 36520
+    },
+    {
+      "path": "uploads/variants/we-love-rnb-800.webp",
+      "width": 800,
+      "format": "webp",
+      "bytes": 31930
+    }
+  ],
+  "Landing Strip 70's Jam .webp": [
+    {
+      "path": "uploads/variants/landing-strip-70s-jam-400.avif",
+      "width": 400,
+      "format": "avif",
+      "bytes": 24281
+    },
+    {
+      "path": "uploads/variants/landing-strip-70s-jam-400.webp",
+      "width": 400,
+      "format": "webp",
+      "bytes": 17608
+    },
+    {
+      "path": "uploads/variants/landing-strip-70s-jam-800.avif",
+      "width": 800,
+      "format": "avif",
+      "bytes": 51473
+    },
+    {
+      "path": "uploads/variants/landing-strip-70s-jam-800.webp",
+      "width": 800,
+      "format": "webp",
+      "bytes": 41704
+    }
+  ],
+  "Iguana Scooter Tours.webp": [
+    {
+      "path": "uploads/variants/iguana-scooter-tours-400.avif",
+      "width": 400,
+      "format": "avif",
+      "bytes": 36565
+    },
+    {
+      "path": "uploads/variants/iguana-scooter-tours-400.webp",
+      "width": 400,
+      "format": "webp",
+      "bytes": 26340
+    },
+    {
+      "path": "uploads/variants/iguana-scooter-tours-800.avif",
+      "width": 800,
+      "format": "avif",
+      "bytes": 125950
+    },
+    {
+      "path": "uploads/variants/iguana-scooter-tours-800.webp",
+      "width": 800,
+      "format": "webp",
+      "bytes": 89588
+    }
+  ],
+  "Clearboat Tours.webp": [
+    {
+      "path": "uploads/variants/clearboat-tours-400.avif",
+      "width": 400,
+      "format": "avif",
+      "bytes": 31085
+    },
+    {
+      "path": "uploads/variants/clearboat-tours-400.webp",
+      "width": 400,
+      "format": "webp",
+      "bytes": 21538
+    },
+    {
+      "path": "uploads/variants/clearboat-tours-800.avif",
+      "width": 800,
+      "format": "avif",
+      "bytes": 84786
+    },
+    {
+      "path": "uploads/variants/clearboat-tours-800.webp",
+      "width": 800,
+      "format": "webp",
+      "bytes": 60504
+    }
+  ],
+  "Karaoke Night.webp": [
+    {
+      "path": "uploads/variants/karaoke-night-400.avif",
+      "width": 400,
+      "format": "avif",
+      "bytes": 13491
+    },
+    {
+      "path": "uploads/variants/karaoke-night-400.webp",
+      "width": 400,
+      "format": "webp",
+      "bytes": 9924
+    },
+    {
+      "path": "uploads/variants/karaoke-night-800.avif",
+      "width": 800,
+      "format": "avif",
+      "bytes": 37637
+    },
+    {
+      "path": "uploads/variants/karaoke-night-800.webp",
+      "width": 800,
+      "format": "webp",
+      "bytes": 27594
+    }
+  ],
+  "concert-crowd.webp": [
+    {
+      "path": "uploads/variants/concert-crowd-400.avif",
+      "width": 400,
+      "format": "avif",
+      "bytes": 13575
+    },
+    {
+      "path": "uploads/variants/concert-crowd-400.webp",
+      "width": 400,
+      "format": "webp",
+      "bytes": 9806
+    },
+    {
+      "path": "uploads/variants/concert-crowd-800.avif",
+      "width": 800,
+      "format": "avif",
+      "bytes": 37457
+    },
+    {
+      "path": "uploads/variants/concert-crowd-800.webp",
+      "width": 800,
+      "format": "webp",
+      "bytes": 27130
+    }
+  ],
+  "festival-lights.webp": [
+    {
+      "path": "uploads/variants/festival-lights-400.avif",
+      "width": 400,
+      "format": "avif",
+      "bytes": 17339
+    },
+    {
+      "path": "uploads/variants/festival-lights-400.webp",
+      "width": 400,
+      "format": "webp",
+      "bytes": 13482
+    },
+    {
+      "path": "uploads/variants/festival-lights-800.avif",
+      "width": 800,
+      "format": "avif",
+      "bytes": 36781
+    },
+    {
+      "path": "uploads/variants/festival-lights-800.webp",
+      "width": 800,
+      "format": "webp",
+      "bytes": 29844
+    }
+  ],
+  "club-dj.webp": [
+    {
+      "path": "uploads/variants/club-dj-400.avif",
+      "width": 400,
+      "format": "avif",
+      "bytes": 25967
+    },
+    {
+      "path": "uploads/variants/club-dj-400.webp",
+      "width": 400,
+      "format": "webp",
+      "bytes": 19054
+    },
+    {
+      "path": "uploads/variants/club-dj-800.avif",
+      "width": 800,
+      "format": "avif",
+      "bytes": 62840
+    },
+    {
+      "path": "uploads/variants/club-dj-800.webp",
+      "width": 800,
+      "format": "webp",
+      "bytes": 48120
+    }
+  ],
+  "scooter-tour.webp": [
+    {
+      "path": "uploads/variants/scooter-tour-400.avif",
+      "width": 400,
+      "format": "avif",
+      "bytes": 44317
+    },
+    {
+      "path": "uploads/variants/scooter-tour-400.webp",
+      "width": 400,
+      "format": "webp",
+      "bytes": 30924
+    },
+    {
+      "path": "uploads/variants/scooter-tour-800.avif",
+      "width": 800,
+      "format": "avif",
+      "bytes": 141114
+    },
+    {
+      "path": "uploads/variants/scooter-tour-800.webp",
+      "width": 800,
+      "format": "webp",
+      "bytes": 94820
+    }
+  ],
+  "zipline.webp": [
+    {
+      "path": "uploads/variants/zipline-400.avif",
+      "width": 400,
+      "format": "avif",
+      "bytes": 23287
+    },
+    {
+      "path": "uploads/variants/zipline-400.webp",
+      "width": 400,
+      "format": "webp",
+      "bytes": 16778
+    },
+    {
+      "path": "uploads/variants/zipline-800.avif",
+      "width": 800,
+      "format": "avif",
+      "bytes": 64051
+    },
+    {
+      "path": "uploads/variants/zipline-800.webp",
+      "width": 800,
+      "format": "webp",
+      "bytes": 43316
+    }
+  ],
+  "flamingos.webp": [
+    {
+      "path": "uploads/variants/flamingos-400.avif",
+      "width": 400,
+      "format": "avif",
+      "bytes": 38170
+    },
+    {
+      "path": "uploads/variants/flamingos-400.webp",
+      "width": 400,
+      "format": "webp",
+      "bytes": 26938
+    },
+    {
+      "path": "uploads/variants/flamingos-800.avif",
+      "width": 800,
+      "format": "avif",
+      "bytes": 135102
+    },
+    {
+      "path": "uploads/variants/flamingos-800.webp",
+      "width": 800,
+      "format": "webp",
+      "bytes": 100506
+    }
+  ],
+  "beach.webp": [
+    {
+      "path": "uploads/variants/beach-400.avif",
+      "width": 400,
+      "format": "avif",
+      "bytes": 23445
+    },
+    {
+      "path": "uploads/variants/beach-400.webp",
+      "width": 400,
+      "format": "webp",
+      "bytes": 17712
+    },
+    {
+      "path": "uploads/variants/beach-800.avif",
+      "width": 800,
+      "format": "avif",
+      "bytes": 68328
+    },
+    {
+      "path": "uploads/variants/beach-800.webp",
+      "width": 800,
+      "format": "webp",
+      "bytes": 51230
+    }
+  ],
+  "carnival.webp": [
+    {
+      "path": "uploads/variants/carnival-400.avif",
+      "width": 400,
+      "format": "avif",
+      "bytes": 34232
+    },
+    {
+      "path": "uploads/variants/carnival-400.webp",
+      "width": 400,
+      "format": "webp",
+      "bytes": 25104
+    },
+    {
+      "path": "uploads/variants/carnival-800.avif",
+      "width": 800,
+      "format": "avif",
+      "bytes": 88729
+    },
+    {
+      "path": "uploads/variants/carnival-800.webp",
+      "width": 800,
+      "format": "webp",
+      "bytes": 67222
+    }
+  ],
+  "curacao-street.webp": [
+    {
+      "path": "uploads/variants/curacao-street-400.avif",
+      "width": 400,
+      "format": "avif",
+      "bytes": 37151
+    },
+    {
+      "path": "uploads/variants/curacao-street-400.webp",
+      "width": 400,
+      "format": "webp",
+      "bytes": 26204
+    },
+    {
+      "path": "uploads/variants/curacao-street-800.avif",
+      "width": 800,
+      "format": "avif",
+      "bytes": 100297
+    },
+    {
+      "path": "uploads/variants/curacao-street-800.webp",
+      "width": 800,
+      "format": "webp",
+      "bytes": 69870
+    }
+  ],
+  "curacao-sign.webp": [
+    {
+      "path": "uploads/variants/curacao-sign-400.avif",
+      "width": 400,
+      "format": "avif",
+      "bytes": 29316
+    },
+    {
+      "path": "uploads/variants/curacao-sign-400.webp",
+      "width": 400,
+      "format": "webp",
+      "bytes": 22086
+    },
+    {
+      "path": "uploads/variants/curacao-sign-800.avif",
+      "width": 800,
+      "format": "avif",
+      "bytes": 96132
+    },
+    {
+      "path": "uploads/variants/curacao-sign-800.webp",
+      "width": 800,
+      "format": "webp",
+      "bytes": 72770
+    }
+  ],
+  "portrait-redhat.webp": [
+    {
+      "path": "uploads/variants/portrait-redhat-400.avif",
+      "width": 400,
+      "format": "avif",
+      "bytes": 14400
+    },
+    {
+      "path": "uploads/variants/portrait-redhat-400.webp",
+      "width": 400,
+      "format": "webp",
+      "bytes": 10832
+    },
+    {
+      "path": "uploads/variants/portrait-redhat-800.avif",
+      "width": 800,
+      "format": "avif",
+      "bytes": 30772
+    },
+    {
+      "path": "uploads/variants/portrait-redhat-800.webp",
+      "width": 800,
+      "format": "webp",
+      "bytes": 25080
+    }
   ]
 }
