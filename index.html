@@ -623,7 +623,11 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
 <body>
   <header class="header">
     <a class="brand" href="index.html" style="text-decoration:none;color:inherit">
-      <img src="uploads/Otra Tickets Logo.webp" alt="Otra Tickets" />
+      <picture style="display:contents">
+        <source type="image/avif" srcset="uploads/variants/otra-tickets-logo-84.avif 1x, uploads/variants/otra-tickets-logo-168.avif 2x, uploads/variants/otra-tickets-logo-252.avif 3x">
+        <source type="image/webp" srcset="uploads/variants/otra-tickets-logo-84.webp 1x, uploads/variants/otra-tickets-logo-168.webp 2x, uploads/variants/otra-tickets-logo-252.webp 3x">
+        <img src="uploads/variants/otra-tickets-logo-84.webp" alt="Otra Tickets" width="84" height="84" decoding="async">
+      </picture>
       <span class="wordmark">Otra Tickets</span>
     </a>
 
