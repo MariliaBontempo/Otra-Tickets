@@ -37,7 +37,9 @@ export async function onRequestGet(context) {
   if (!assetResponse.ok || assetPath !== "/event") return assetResponse;
 
   const html = await assetResponse.text();
-  const body = html.replace('data-event-id=""', `data-event-id="${escapeAttribute(id)}"`);
+  const body = html
+    .replace('data-event-id=""', `data-event-id="${escapeAttribute(id)}"`)
+    .replace('src="site-overrides.js?v=4"', `src="site-overrides.js?v=4" data-override-id="${escapeAttribute(id)}"`);
   const headers = new Headers(assetResponse.headers);
   headers.set("content-type", "text/html; charset=utf-8");
   headers.set("cache-control", "public, max-age=60");
