@@ -21,9 +21,13 @@ export async function onRequestGet(context) {
   for (const event of events) {
     const canonicalPath = canonicalPathForEvent(event);
     if (!canonicalPath) continue;
+    const parsedDate = event.date ? new Date(event.date) : null;
+    const lastmod = parsedDate && !Number.isNaN(parsedDate.getTime())
+      ? parsedDate.toISOString().slice(0, 10)
+      : "";
     addUrl(urls, {
       path: canonicalPath,
-      lastmod: event.date ? new Date(event.date).toISOString().slice(0, 10) : "",
+      lastmod,
       changefreq: event.isPerennial ? "weekly" : "daily",
       priority: event.isPerennial ? "0.7" : "0.8",
     });
