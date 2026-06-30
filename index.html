@@ -12,6 +12,12 @@
   window.__eventsApi = "/api/homepage-events" + (location.search.includes("fresh=1") ? "?fresh=1" : "");
   window.__eventsPromise = fetch(window.__eventsApi).then(function (r) { return r.json(); });
 </script>
+<link rel="preload" as="image" type="image/avif" fetchpriority="high"
+      imagesrcset="uploads/variants/R1C1-400.avif 400w, uploads/variants/R1C1-800.avif 800w, uploads/variants/R1C1-1200.avif 1200w"
+      imagesizes="368px">
+<link rel="preload" as="image" type="image/webp" fetchpriority="high"
+      imagesrcset="uploads/variants/R1C1-400.webp 400w, uploads/variants/R1C1-800.webp 800w, uploads/variants/R1C1-1200.webp 1200w"
+      imagesizes="368px">
 <style>
 @font-face { font-family: "Inter"; font-style: normal; font-weight: 400; font-display: swap; src: url("fonts/inter-400.woff2") format("woff2"); }
 @font-face { font-family: "Inter"; font-style: normal; font-weight: 500; font-display: swap; src: url("fonts/inter-500.woff2") format("woff2"); }
@@ -794,14 +800,28 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
       "R4C1.webp", "R4C2.webp", "R4C3.webp", "R4C4.webp", "R4C5.webp",
       "R5C1.webp", "R5C2.webp", "R5C3.webp", "R5C4-12a0ab94.webp", "R5C5-bd08b3a9.webp"
     ];
+    const SIZES = "368px";
     const frag = document.createDocumentFragment();
-    photos.forEach((file) => {
+    photos.forEach((file, i) => {
+      const base = file.replace(/\.webp$/, "");
+      const v = (w, fmt) => `uploads/variants/${base}-${w}.${fmt}`;
+      const srcset = (fmt) => `${v(400,fmt)} 400w, ${v(800,fmt)} 800w, ${v(1200,fmt)} 1200w`;
       const cell = document.createElement("div");
       cell.className = "cell";
+      const pic = document.createElement("picture");
+      const avif = document.createElement("source");
+      avif.type = "image/avif"; avif.srcset = srcset("avif"); avif.sizes = SIZES;
+      const webp = document.createElement("source");
+      webp.type = "image/webp"; webp.srcset = srcset("webp"); webp.sizes = SIZES;
       const img = document.createElement("img");
       img.src = "uploads/" + file;
       img.alt = "";
-      cell.append(img);
+      img.width = 368; img.height = 200;
+      img.decoding = "async";
+      if (i === 0) { img.setAttribute("fetchpriority", "high"); }
+      else { img.loading = "lazy"; }
+      pic.append(avif, webp, img);
+      cell.append(pic);
       frag.append(cell);
     });
     document.getElementById("mosaic").append(frag);
