@@ -2,6 +2,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "node scripts/build-pages.mjs"
+    "build": "node scripts/build-pages.mjs",
+    "check:fonts": "node scripts/check-fonts.mjs"
   }
 }

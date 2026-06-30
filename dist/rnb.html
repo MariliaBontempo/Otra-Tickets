@@ -2,16 +2,10 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-
-<link rel="icon" type="image/png" href="favicon.png" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Otra Tickets — Clearboat</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Otra Tickets — We Love R&B</title>
 <style>
-@font-face { font-family: "Inter"; font-style: normal; font-weight: 400; font-display: swap; src: url("fonts/inter-400.woff2") format("woff2"); }
-@font-face { font-family: "Inter"; font-style: normal; font-weight: 500; font-display: swap; src: url("fonts/inter-500.woff2") format("woff2"); }
-@font-face { font-family: "Inter"; font-style: normal; font-weight: 600; font-display: swap; src: url("fonts/inter-600.woff2") format("woff2"); }
-@font-face { font-family: "Inter"; font-style: normal; font-weight: 700; font-display: swap; src: url("fonts/inter-700.woff2") format("woff2"); }
-@font-face { font-family: "Inter"; font-style: normal; font-weight: 800; font-display: swap; src: url("fonts/inter-800.woff2") format("woff2"); }
-@font-face { font-family: "Inter"; font-style: normal; font-weight: 900; font-display: swap; src: url("fonts/inter-900.woff2") format("woff2"); }
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap");
 
 :root {
   --ink: #07080a;
@@ -21,15 +15,16 @@
   --silver-text: #dfe3e8;
   --fog: #9aa1ab;
   --fog-2: #5d646e;
-  /* Accent — sourced at runtime from the Clearboat event's calendar primary
-     colour in the Otra Guide plugin theme (set by the script at the bottom).
-     Defaults to that event's configured colour. The --steel* accent tokens
-     derive from it, so every accent rule recolours from this single value. */
-  --accent: #1fa9a0;
-  --steel: var(--accent);
-  --steel-text: color-mix(in srgb, var(--accent) 62%, white);
-  --steel-soft: color-mix(in srgb, var(--accent) 60%, transparent);
-  --steel-glow: color-mix(in srgb, var(--accent) 32%, transparent);
+  --steel: #3f7cc4;
+  --steel-text: #8fbce9;
+  --steel-soft: rgba(74,140,214,0.72);
+  --steel-glow: rgba(63,124,196,0.30);
+  /* We Love R&B page accent — Cascada purple */
+  --rnb: #a64de0;
+  --rnb-text: #d6a8f5;
+  --rnb-soft: rgba(166,77,224,0.6);
+  --rnb-glow: rgba(166,77,224,0.32);
+  --rnb-line: rgba(166,77,224,0.26);
   --header-h: 128px;
   --font-display: "Inter", sans-serif;
   --font-body: "Inter", sans-serif;
@@ -38,14 +33,6 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 html { scroll-behavior: smooth; }
-
-/* dark, thin scrollbar so the page chrome blends with the near-black design
-   (prevents the default gray scrollbar band on the right edge) */
-html { scrollbar-width: thin; scrollbar-color: #2a3340 #07080a; }
-::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-track { background: #07080a; }
-::-webkit-scrollbar-thumb { background: #2a3340; border-radius: 8px; border: 2px solid #07080a; }
-::-webkit-scrollbar-thumb:hover { background: #3f7cc4; }
 
 body {
   font-family: var(--font-body);
@@ -69,7 +56,7 @@ body {
   display: flex;
   align-items: center;
   gap: 40px;
-  padding: 0 clamp(16px, 2vw, 28px);
+  padding: 0 clamp(28px, 4vw, 64px);
   background: linear-gradient(180deg, rgba(7,8,10,0.92), rgba(7,8,10,0.72));
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
@@ -439,7 +426,7 @@ main.detail { padding: 0; }
   font-size: 13px; font-weight: 600; letter-spacing: 0.3em; text-transform: uppercase;
   color: var(--fog-2);
 }
-.ev-eyebrow::before { content: ""; width: 44px; height: 2px; background: var(--steel); display: inline-block; }
+.ev-eyebrow::before, .ev-eyebrow::after { content: ""; width: 44px; height: 2px; background: var(--steel); display: inline-block; }
 
 .section-pad { padding: clamp(72px, 10vh, 140px) clamp(22px, 5vw, 80px); max-width: 1240px; margin: 0 auto; }
 
@@ -505,14 +492,14 @@ main.detail { padding: 0; }
 .ev-note { font-size: 14px; color: var(--fog-2); max-width: 320px; line-height: 1.5; }
 
 /* ---- PRACTICAL INFO ---- */
-.ev-info-grid { margin-top: 48px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); }
+.ev-info-grid { margin-top: 48px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; background: var(--rnb-soft); border: 2px solid var(--rnb-soft); }
 .ev-info-cell { background: var(--ink); padding: 30px 30px 34px; }
 .ev-info-cell .k { font-size: 12px; font-weight: 600; letter-spacing: 0.22em; text-transform: uppercase; color: var(--fog-2); }
 .ev-info-cell .v { margin-top: 12px; font-size: 18px; line-height: 1.45; color: var(--silver-text); }
 
 /* ---- RATES ---- */
 .ev-rates { margin-top: 48px; display: grid; grid-template-columns: repeat(auto-fit, minmax(208px, 1fr)); gap: 18px; }
-.ev-rate { border: 1px solid var(--line); background: var(--ink-2); padding: 34px 30px 36px; transition: border-color .3s ease, background .3s ease; }
+.ev-rate { border: 2px solid var(--rnb-soft); background: var(--ink-2); padding: 34px 30px 36px; transition: border-color .3s ease, background .3s ease, transform .3s var(--ease, cubic-bezier(.22,1,.36,1)), box-shadow .3s ease; }
 .ev-rate:hover { border-color: var(--steel-soft); background: var(--ink-3); }
 .ev-rate .rk { font-size: 13px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--fog); }
 .ev-rate .rp { margin-top: 18px; font-family: var(--font-display); font-weight: 800; font-size: clamp(40px, 4.4vw, 60px); line-height: 1; background: var(--metal); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
@@ -560,7 +547,7 @@ main.detail { padding: 0; }
   width: 100%;
   padding: 9px 11px;
   border: 1px solid var(--steel-soft);
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  background: rgba(63,124,196,0.16);
   color: var(--steel-text);
   font-family: var(--font-body); font-size: 15px; font-weight: 500;
   letter-spacing: 0.01em; line-height: 1;
@@ -568,7 +555,7 @@ main.detail { padding: 0; }
   transition: background .16s, color .16s, border-color .16s;
 }
 .ev-slot::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--steel); flex-shrink: 0; transition: background .16s; }
-.ev-slot:hover { background: color-mix(in srgb, var(--accent) 34%, transparent); color: #fff; border-color: var(--steel); }
+.ev-slot:hover { background: rgba(63,124,196,0.34); color: #fff; border-color: var(--steel); }
 .ev-slot.sel { background: var(--steel); border-color: var(--steel); color: #fff; font-weight: 600; }
 .ev-slot.sel::before { background: #fff; }
 
@@ -616,9 +603,6 @@ main.detail { padding: 0; }
 .ev-paid h4 { font-family: var(--font-display); font-weight: 700; font-size: 19px; color: var(--silver-text); letter-spacing: 0.04em; }
 .ev-paid p { margin-top: 8px; font-size: 14px; color: var(--fog); }
 
-/* ---- RELATED ---- */
-.ev-related { padding-top: clamp(48px, 7vh, 96px); }
-.ev-related .row-head { max-width: 1240px; margin-left: auto; margin-right: auto; }
 .card-tag { display: inline-block; font-size: 11px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--steel-text, #8fbce9); margin-bottom: 10px; }
 
 /* real-photo helpers */
@@ -628,11 +612,71 @@ main.detail { padding: 0; }
 .ev-photoband::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(7,8,10,0.45), transparent 14%, transparent 86%, rgba(7,8,10,0.6)); }
 /* title block (below hero image) */
 .ev-titleblock { padding-top: clamp(54px, 8vh, 92px); padding-bottom: clamp(36px, 5vh, 64px); }
-.ev-titleblock h1 { font-family: var(--font-display); font-weight: 900; font-size: clamp(52px, 9vw, 150px); line-height: 0.86; letter-spacing: -0.03em; text-transform: uppercase; color: var(--silver-text); margin: 16px 0 0; }
-.ev-titleblock .ev-sub { font-family: var(--font-display); font-weight: 500; font-size: clamp(18px, 2.4vw, 30px); color: var(--silver-text); letter-spacing: 0.01em; margin-top: 10px; }
-.ev-titleblock .ev-tag { margin-top: 22px; max-width: 680px; font-size: clamp(16px, 1.5vw, 21px); line-height: 1.55; color: var(--fog); text-wrap: pretty; }
+.ev-titleblock .ev-eyebrow { color: var(--rnb-text); }
+.ev-titleblock .ev-eyebrow::before { background: var(--rnb); }
+.ev-titleblock h1 { font-family: var(--font-display); font-weight: 900; font-size: clamp(54px, 10vw, 168px); line-height: 0.84; letter-spacing: -0.04em; text-transform: uppercase; color: var(--silver-text); margin: 16px 0 0; }
+.rnb-edition {
+  display: inline-flex; align-items: baseline; gap: 0.32em;
+  margin-top: 20px;
+  font-family: var(--font-display); font-weight: 800;
+  font-size: clamp(24px, 4.4vw, 66px); line-height: 0.95; letter-spacing: -0.015em;
+  text-transform: uppercase; color: var(--rnb);
+  text-shadow: 0 2px 30px var(--rnb-glow);
+}
+.rnb-edition .sup { font-size: 0.52em; font-weight: 700; }
+.rnb-venue { margin-top: 12px; font-family: var(--font-display); font-weight: 900; font-size: clamp(36px, 6.6vw, 104px); line-height: 0.9; letter-spacing: -0.03em; text-transform: uppercase; color: var(--silver-text); }
+.ev-titleblock .ev-tag { margin-top: 24px; max-width: 680px; font-size: clamp(16px, 1.5vw, 21px); line-height: 1.55; color: var(--fog); text-wrap: pretty; }
 .ev-hero-actions { margin-top: 34px; display: flex; flex-wrap: wrap; gap: 16px; align-items: center; }
-.ev-titleblock .ev-hero-meta { margin-top: 24px; }
+.ev-titleblock .ev-hero-meta { margin-top: 26px; }
+.ev-titleblock .ev-hero-meta .dot { color: var(--rnb); }
+
+/* ===== We Love R&B — magenta accent theme (page content only) ===== */
+.ev-eyebrow::before, .ev-eyebrow::after { background: var(--rnb); }
+.ev-like .n { color: var(--rnb-text); }
+.ev-rate:hover { border-color: var(--rnb); background: var(--ink-3); transform: translateY(-6px); box-shadow: 0 14px 36px rgba(0,0,0,0.5); }
+.card-tag { color: var(--rnb-text); }
+.row-head .see-all:hover, .arrow:hover { color: var(--rnb); }
+.ev-summary .when { color: var(--rnb-text); }
+/* booking calendar in magenta */
+.ev-cal-nav button { color: var(--rnb-text); }
+.ev-cal-nav button:hover { border-color: var(--rnb); background: var(--rnb); color: #fff; }
+.ev-cal-nav button[disabled]:hover { border-color: var(--line); background: var(--ink-2); color: var(--rnb-text); }
+.ev-day.today { box-shadow: inset 0 0 0 2px var(--rnb); }
+.ev-slot { border-color: var(--rnb-soft); background: rgba(166,77,224,0.16); color: var(--rnb-text); }
+.ev-slot::before { background: var(--rnb); }
+.ev-slot:hover { background: rgba(166,77,224,0.34); color: #fff; border-color: var(--rnb); }
+.ev-slot.sel { background: var(--rnb); border-color: var(--rnb); color: #fff; }
+/* calendar — purple banner, brighter lines, white day numbers */
+.ev-cal-banner { background: linear-gradient(180deg, #a64de0 0%, #8a37c6 100%); padding: 24px 28px; text-align: center; }
+.ev-cal-banner .cb-title { font-family: var(--font-display); font-weight: 800; font-size: 30px; letter-spacing: -0.01em; color: #fff; line-height: 1.05; text-transform: uppercase; }
+.ev-cal-banner .cb-sub { margin-top: 8px; font-family: var(--font-body); font-weight: 600; font-size: 15px; letter-spacing: 0.06em; color: rgba(255,255,255,0.82); text-transform: uppercase; }
+.ev-cal { border-color: var(--rnb-line); }
+.ev-cal-head { border-bottom-color: var(--rnb-line); }
+.ev-cal-dows { border-bottom-color: var(--rnb-line); }
+.ev-day { border-right-color: var(--rnb-line); border-bottom-color: var(--rnb-line); }
+.ev-day .dnum { color: #fff; }
+.ev-day.sel-day .dnum { color: var(--rnb-text); font-weight: 700; }
+/* tickets / tier picker in magenta */
+.ev-sub-h { color: var(--rnb-text); }
+.ev-tier { border-color: var(--rnb-line); transition: border-color .2s ease, background .2s ease; }
+.ev-tier .tprice { color: var(--rnb-text); }
+.stepper { border-color: var(--rnb-line); transition: border-color .2s ease; }
+.stepper button { color: var(--rnb-text); }
+.stepper button:hover { background: rgba(166,77,224,0.18); color: #fff; }
+.ev-tier.active { border-color: var(--rnb); background: rgba(166,77,224,0.10); }
+.ev-tier.active .stepper { border-color: var(--rnb-soft); }
+.ev-tier.active .qty { color: var(--rnb-text); font-weight: 700; }
+.ev-paid .chk { border-color: var(--rnb); color: var(--rnb-text); }
+
+/* artist roster (line-up band) */
+.rnb-roster { margin-top: 36px; display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0 56px; max-width: 880px; list-style: none; }
+.rnb-roster li { display: flex; align-items: center; gap: 18px; padding: 18px 0; border-top: 1px solid var(--line); font-family: var(--font-display); font-weight: 800; font-size: clamp(24px, 3vw, 46px); line-height: 1.04; letter-spacing: -0.02em; text-transform: uppercase; color: var(--silver-text); }
+.rnb-roster li::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--rnb); box-shadow: 0 0 14px var(--rnb-glow); flex-shrink: 0; }
+.rnb-host { margin-top: 34px; display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 18px; }
+.rnb-host span { font-size: 14px; font-weight: 600; letter-spacing: 0.24em; text-transform: uppercase; color: var(--rnb-text); }
+.rnb-host b { font-family: var(--font-display); font-weight: 900; font-size: clamp(24px, 3.2vw, 46px); letter-spacing: -0.02em; text-transform: uppercase; color: var(--silver-text); }
+.rnb-host-credit { margin-top: 14px; max-width: 620px; font-size: clamp(15px, 1.3vw, 19px); line-height: 1.55; color: var(--fog); text-wrap: pretty; }
+
 .ev-video { position: relative; width: 100vw; margin-left: calc(50% - 50vw); aspect-ratio: 16 / 9; overflow: hidden; cursor: pointer; }
 .ev-video img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .ev-video::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(7,8,10,0.35), rgba(7,8,10,0.05) 30%, rgba(7,8,10,0.05) 60%, rgba(7,8,10,0.7)); }
@@ -643,8 +687,10 @@ main.detail { padding: 0; }
 .ev-video .vlabel { position: absolute; left: 0; bottom: 0; z-index: 2; padding: clamp(22px, 3vw, 48px) clamp(22px, 5vw, 80px); }
 .ev-video .vlabel .tag { font-size: 11px; font-weight: 600; letter-spacing: 0.26em; text-transform: uppercase; color: rgba(255,255,255,0.8); }
 .ev-video .vlabel .ttl { margin-top: 8px; font-family: var(--font-display); font-weight: 700; font-size: clamp(20px, 2.4vw, 34px); color: #fff; letter-spacing: -0.01em; }
-.rel-tile { flex: 0 0 auto; height: clamp(238px, 32vh, 330px); width: auto; border-radius: 14px; display: block; scroll-snap-align: start; cursor: pointer; transition: transform .35s var(--ease, cubic-bezier(.22,1,.36,1)); }
-.rel-tile:hover { transform: translateY(-6px); }
+.ev-video-el { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; background: #000; }
+.ev-video.is-live { cursor: default; }
+.ev-video.is-live::after { display: none; }
+.ev-video.is-live .play, .ev-video.is-live .vlabel { display: none; }
 
 @media (max-width: 980px) {
   .ev-story, .ev-book-lower { grid-template-columns: 1fr; }
@@ -679,10 +725,10 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
 </head>
 <body>
   <header class="header">
-    <a class="brand" href="events.html" style="text-decoration:none;color:inherit">
+    <div class="brand">
       <img src="uploads/Otra Tickets Logo.webp" alt="Otra Tickets" />
       <span class="wordmark">Otra Tickets</span>
-    </a>
+    </div>
 
     <div class="header-actions">
 
@@ -827,7 +873,7 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
 
     <!-- ============ HERO (image only) ============ -->
     <section class="ev-hero" data-screen-label="Hero">
-      <img class="ev-hero-img" src="uploads/Clearboat Hero.webp" alt="Clearboat glass-bottom boat on the turquoise west coast of Curaçao" />
+      <img class="ev-hero-img" src="uploads/We Love R&B July 4th TJ-5.webp" alt="Fireworks over the Cascada rooftop in Punda on the 4th of July" />
       <div class="ev-hero-veil"></div>
       <div class="scroll-cue">
         <span>Scroll</span>
@@ -837,15 +883,16 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
 
     <!-- ============ TITLE BLOCK ============ -->
     <section class="ev-titleblock section-pad reveal" data-screen-label="Title">
-      <span class="ev-eyebrow">Tour · Daaibooi Beach, Curaçao</span>
-      <h1>Clearboat</h1>
-      <div class="ev-sub">West Coast Tour</div>
-      <p class="ev-tag">Curaçao's only glass-bottom boat. A 90-minute cruise down the west coast, the reef and its fish drifting by directly beneath a fully transparent floor — like floating over a living aquarium.</p>
+      <span class="ev-eyebrow">Rooftop Party · Punda, Curaçao</span>
+      <h1>We Love R&amp;B</h1>
+      <div class="rnb-edition">4<span class="sup">th</span> of July Party Edition</div>
+      <div class="rnb-venue">Cascada</div>
+      <p class="ev-tag">4th of July — We Love R&amp;B takes over the Cascada Rooftop Bar &amp; Lounge in the heart of Punda.</p>
       <div class="ev-hero-meta">
-        <span>Tue–Sun</span><span class="dot">·</span><span>90 min</span><span class="dot">·</span><span>From $50</span>
+        <span>Sat · Jul 4</span><span class="dot">·</span><span>Cascada Rooftop</span><span class="dot">·</span><span>18:00 till late</span>
       </div>
       <div class="ev-hero-actions">
-        <a class="btn-metal" href="#book">Book your seat →</a>
+        <a class="btn-metal" href="#book">Get tickets →</a>
         <a class="btn-ghost" href="#story">Read more</a>
       </div>
     </section>
@@ -853,89 +900,89 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
     <!-- ============ STORY ============ -->
     <section class="section-pad ev-story reveal" id="story">
       <div>
-        <span class="ev-eyebrow">The Experience</span>
-        <p class="ev-pull" style="margin-top:22px;">Discover Curaçao's underwater world — without getting wet.</p>
+        <span class="ev-eyebrow">The Night</span>
+        <p class="ev-pull" style="margin-top:22px;">Arrive early for dinner and drinks. Stay for the party.</p>
         <div class="ev-body">
-          <p>This is the main Clearboat experience and the one most guests book. Departing from Daaibooi Beach, the 90-minute cruise follows Curaçao's west coast past a string of well-known beaches — Porto Mari (often spotted with sea pigs), Playa Hunku and Cas Abou. The transparent floor gives you a view straight down as coral formations and tropical fish drift beneath you, like floating over a well-stocked saltwater aquarium.</p>
-          <p>There's a stop at the ever-popular Cas Abou, where you can snorkel or swim — or stay aboard with a drink and a light snack while the crew talk through local coral-reclamation work. The captain and first mate are fun and engaging, speak four languages, and share the marine life, coastline and bits of island history along the way.</p>
-          <p>It's a favourite of the Otra Guide team: an immersive way into Curaçao's marine world for anyone who'd rather not dive or snorkel, and for those who prefer to stay dry and still see what's beneath the turquoise.</p>
+          <p>Celebrate the 4th of July with an evening that starts with live entertainment during dinner and drinks, then builds into a full rooftop DJ party through midnight.</p>
+          <p>Hosted by the Godfather of Dutch R&amp;B, Lloyd De Meza — R&amp;B, Afro, new school and hip hop over the lights of Punda.</p>
+          <p>General Admission and VIP Tables with bottle service. Limited VIP tables available.</p>
         </div>
       </div>
-      <img class="ev-story-img" src="uploads/Clearboat Story 1.webp" alt="Guests aboard the Clearboat looking down through the transparent floor" />
+      <image-slot id="rnb-story" shape="rect" placeholder="Drop an R&B / rooftop shot (16:9)" style="width:100%; aspect-ratio:16/9; display:none;"></image-slot>
+      <img class="ev-story-img" src="uploads/We Love R&B July 4th TJ-1.webp" alt="DJ spinning at the We Love R&B night" />
     </section>
 
     <!-- ============ VIDEO ============ -->
-    <section class="ev-video reveal" data-screen-label="Video">
-      <img src="uploads/ClearBoat Video Place holder .webp" alt="Clearboat tour video — coming soon" loading="lazy" />
-      <div class="play"><span><svg viewBox="0 0 24 24"><polygon points="8 5 19 12 8 19"/></svg></span></div>
-      <div class="vlabel"><div class="tag">Watch</div><div class="ttl">A look beneath the surface</div></div>
+    <section class="ev-video is-live reveal" data-screen-label="Video">
+      <video class="ev-video-el" id="rnbVideo" controls playsinline preload="metadata" poster="uploads/We Love R&B July 4th TJ-3.webp"></video>
     </section>
 
     <!-- ============ WHAT WE APPRECIATE ============ -->
     <section class="ev-band reveal">
-      <div class="ev-band-bg" style="background-image:url('uploads/Clearboat Appreciate 1 web.webp');"></div>
+      <div class="ev-band-bg" style="background: radial-gradient(120% 90% at 80% 10%, #15171d, #07080a 70%);"></div>
       <div class="ev-band-veil"></div>
       <div class="ev-band-inner">
-        <span class="ev-eyebrow">What We Appreciate</span>
-        <h2 style="margin-top:20px;">The only one<br/>of its kind.</h2>
-        <div class="ev-likes">
-          <div class="ev-like"><span class="n">01</span><span>Currently the only clear boat operating in Curaçao — a view into the water you won't get on any other tour.</span></div>
-          <div class="ev-like"><span class="n">02</span><span>A fully transparent floor: coral formations and tropical fish pass directly beneath you as you cruise.</span></div>
-          <div class="ev-like"><span class="n">03</span><span>A route that combines the well-known west-coast beaches with quieter stretches of reef and open water.</span></div>
-          <div class="ev-like"><span class="n">04</span><span>A relaxed, accessible pace — immersive without any need to swim or snorkel.</span></div>
-        </div>
+        <span class="ev-eyebrow">The Line-up</span>
+        <h2 style="margin-top:20px;">Guest Artists</h2>
+        <ul class="rnb-roster">
+          <li>Mitch Deftiq</li>
+          <li>DJ Cash</li>
+          <li>Ai&eacute;m</li>
+          <li>Nicky Del Rosario</li>
+        </ul>
+        <div class="rnb-host"><span>Hosted by</span><b>Lloyd De Meza</b></div>
+        <p class="rnb-host-credit">The Godfather of Dutch R&amp;B.</p>
       </div>
     </section>
 
     <!-- ============ FULL-BLEED PHOTO BREAK ============ -->
     <section class="ev-photoband reveal">
-      <img src="uploads/Clearboat Story 2 web.webp" alt="The Clearboat crew and guests over the reef on Curaçao's west coast" loading="lazy" />
+      <img src="uploads/We Love R&B July 4th TJ-4.webp" alt="Aerial view of the packed Cascada rooftop at night" loading="lazy" />
     </section>
 
     <!-- ============ PRACTICAL INFO ============ -->
     <section class="section-pad reveal">
       <span class="ev-eyebrow">Practical Info</span>
-      <h2 class="ev-h2" style="margin-top:18px;">Before you board</h2>
+      <h2 class="ev-h2" style="margin-top:18px;">Before you go</h2>
       <div class="ev-info-grid">
-        <div class="ev-info-cell"><div class="k">Location</div><div class="v">Daaibooi Beach — far right of the beach, facing the water</div></div>
-        <div class="ev-info-cell"><div class="k">Duration</div><div class="v">90 minutes on the water</div></div>
-        <div class="ev-info-cell"><div class="k">Operating days</div><div class="v">Tuesday to Sunday</div></div>
-        <div class="ev-info-cell"><div class="k">Departures</div><div class="v">09:00 Morning Escape<br/>11:00 Midday Reef<br/>13:00 Afternoon Explorer</div></div>
-        <div class="ev-info-cell"><div class="k">Languages</div><div class="v">English · Papiamentu · Dutch · Spanish</div></div>
-        <div class="ev-info-cell"><div class="k">Phone</div><div class="v">+599 9-560-2628</div></div>
-        <div class="ev-info-cell"><div class="k">Email</div><div class="v">clearboatcuracao@gmail.com</div></div>
-        <div class="ev-info-cell"><div class="k">Web</div><div class="v">clearboatcuracao.com</div></div>
-        <div class="ev-info-cell"><div class="k">Cancellation</div><div class="v">Free up to 24 hours before departure</div></div>
+        <div class="ev-info-cell"><div class="k">Venue</div><div class="v">Cascada Rooftop Bar &amp; Kitchen</div></div>
+        <div class="ev-info-cell"><div class="k">Address</div><div class="v">Hendrikplein, Punda<br/>Willemstad, Curaçao</div></div>
+        <div class="ev-info-cell"><div class="k">Date</div><div class="v">Saturday, July 4</div></div>
+        <div class="ev-info-cell"><div class="k">Time</div><div class="v">18:00 — 00:00</div></div>
+        <div class="ev-info-cell"><div class="k">Music</div><div class="v">Afro · R&amp;B Classics · New School · Hip Hop</div></div>
+        <div class="ev-info-cell"><div class="k">Guest artists</div><div class="v">Mitch Deftiq · DJ Cash<br/>Ai&eacute;m · Nicky Del Rosario</div></div>
+        <div class="ev-info-cell"><div class="k">Hosted by</div><div class="v">Lloyd De Meza</div></div>
+        <div class="ev-info-cell"><div class="k">Format</div><div class="v">Interactive R&amp;B event</div></div>
+        <div class="ev-info-cell"><div class="k">Dining</div><div class="v">Dinner &amp; drinks also before the party</div></div>
       </div>
     </section>
 
     <!-- ============ RATES ============ -->
     <section class="section-pad reveal">
-      <span class="ev-eyebrow">Rates</span>
+      <span class="ev-eyebrow">Tickets</span>
       <h2 class="ev-h2" style="margin-top:18px;">What it costs</h2>
       <div class="ev-rates">
-        <div class="ev-rate"><div class="rk">Adult</div><div class="rp"><span class="rcur">$</span>99</div><div class="rn">Ages 13 and up.</div></div>
-        <div class="ev-rate"><div class="rk">Child · under 12</div><div class="rp"><span class="rcur">$</span>50</div><div class="rn">Life vest provided.</div></div>
-        <div class="ev-rate"><div class="rk">Resident adult</div><div class="rp"><span class="rcur">$</span>60</div><div class="rn">Curaçao residents · ID required.</div></div>
-        <div class="ev-rate"><div class="rk">Resident child</div><div class="rp"><span class="rcur">$</span>30</div><div class="rn">Under 12 · Curaçao residents.</div></div>
+        <div class="ev-rate"><div class="rk">General Admission</div><div class="rp"><span class="rcur">$</span>15</div><div class="rn">Rooftop entry · 18:00 till late.</div></div>
+        <div class="ev-rate"><div class="rk">VIP Table for 4</div><div class="rp"><span class="rcur">$</span>550</div><div class="rn">Reserved table for 4 · Includes 1 premium bottle.</div></div>
+        <div class="ev-rate"><div class="rk">VIP Table for 8</div><div class="rp"><span class="rcur">$</span>1,000</div><div class="rn">Reserved table for 8 · Includes 2 premium bottles.</div></div>
       </div>
       <p class="ev-rates-foot">A 9% processing fee is applied at checkout.</p>
     </section>
 
     <!-- ============ BOOKING ============ -->
     <section class="section-pad reveal" id="book">
-      <span class="ev-eyebrow">Book</span>
-      <h2 class="ev-h2" style="margin-top:18px;">Pick a date &amp; time</h2>
+      <span class="ev-eyebrow">Tickets</span>
+      <h2 class="ev-h2" style="margin-top:18px;">Pick your session</h2>
       <div class="ev-book-grid">
         <!-- Otra Guide Stripe Checkout Embed -->
         <div id="otra-checkout-container"></div>
         <script src="https://otraguide.com/embed/stripe-script.js"></script>
         <script>
           OtraStripeCheckoutEmbed.create({
-            eventId: 6113,
+            eventId: 7275,
             containerId: 'otra-checkout-container',
             baseUrl: 'https://otraguide.com',
-            isRecurring: true
+            isRecurring: false
           });
 
           // The embed library pins the iframe at a fixed 800px and ignores the
@@ -963,18 +1010,6 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
       </div>
     </section>
 
-    <!-- ============ RELATED ============ -->
-    <section class="ev-related reveal">
-      <div class="row-head">
-        <h2>Pairs Well With</h2>
-        <span class="count">Otra Guide picks near Daaiboi</span>
-        <a class="see-all" href="#">See all →</a>
-      </div>
-      <div class="track-wrap">
-        <div class="track" id="relTrack"></div>
-      </div>
-    </section>
-
     <footer>
       <div class="pb">Powered by Otra Guide.</div>
       <div class="loc">Aruba · Bonaire · Curaçao · Caribbean · Global</div>
@@ -982,38 +1017,6 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
   </main>
 
   <script>
-    const U = (f) => "uploads/" + encodeURIComponent(f);
-    const P = (f) => "photos/" + f;
-    const ICON_L = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="15 5 8 12 15 19"/></svg>';
-    const ICON_R = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="9 5 16 12 9 19"/></svg>';
-
-    /* ---------- RELATED ROW ---------- */
-    const related = [
-      "Related Beach 1.webp", "Related Restaurant 1.webp", "Related Restaurant 2.webp",
-      "Related Tour 1.webp", "Related Seadoo Rental 1.webp", "Related Nature1.webp",
-      "Related Tour s.webp", "Related Car Rental 1.webp", "Related Beach 2.webp",
-    ];
-    (function buildRelated() {
-      const track = document.getElementById("relTrack");
-      related.forEach((f) => {
-        const img = document.createElement("img");
-        img.className = "rel-tile";
-        img.src = U(f);
-        img.alt = "Otra Guide listing near Daaibooi";
-        img.loading = "lazy";
-        track.append(img);
-      });
-      const wrap = track.closest(".track-wrap");
-      const aL = document.createElement("button");
-      aL.className = "arrow left"; aL.innerHTML = ICON_L; aL.setAttribute("aria-label", "Scroll left");
-      const aR = document.createElement("button");
-      aR.className = "arrow right"; aR.innerHTML = ICON_R; aR.setAttribute("aria-label", "Scroll right");
-      const step = () => Math.round(track.clientWidth * 0.8);
-      aL.onclick = () => track.scrollBy({ left: -step(), behavior: "smooth" });
-      aR.onclick = () => track.scrollBy({ left: step(), behavior: "smooth" });
-      wrap.prepend(aL); wrap.append(aR);
-    })();
-
     /* ---------- REVEAL ON SCROLL ---------- */
     (function reveal() {
       const io = new IntersectionObserver((entries) => {
@@ -1104,23 +1107,19 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
       document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeAll(); });
     })();
   </script>
-  <script src="site-overrides.js?v=3" data-override-id="6113"></script>
+  <script src="image-slot.js"></script>
+  <script src="site-overrides.js?v=3" data-override-id="7275"></script>
   <script>
-    /* Keep the page accent in sync with the Clearboat event's calendar primary
-       colour in the Otra Guide plugin theme (single source of truth). The CSS
-       already defaults to that colour, so this only matters if it's changed in
-       otraguide later. Served via the same-origin /api/event function. */
-    (async function () {
-      try {
-        const resp = await fetch("/api/event?id=6113");
-        if (!resp.ok) return;
-        const data = await resp.json();
-        if (data && /^#[0-9A-Fa-f]{6}$/.test(data.accent || "")) {
-          document.documentElement.style.setProperty("--accent", data.accent);
-        }
-      } catch (e) {
-        /* keep the CSS default */
-      }
+    // The preview file server doesn't support HTTP range requests, which the
+    // native <video> loader needs. Fetch the file once and hand the player a
+    // blob URL instead so it plays reliably.
+    (function loadReel() {
+      var v = document.getElementById('rnbVideo');
+      if (!v) return;
+      fetch('uploads/VIDEO-2026-06-03-22-54-45.mp4')
+        .then(function (r) { return r.blob(); })
+        .then(function (b) { v.src = URL.createObjectURL(b); })
+        .catch(function (e) { console.warn('Reel load failed', e); });
     })();
   </script>
 </body>
