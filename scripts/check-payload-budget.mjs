@@ -45,26 +45,28 @@ if (process.argv.includes('--selftest')) {
 
 function parseHomeSources() {
   const html = readFileSync(join(REPO_ROOT, 'index.html'), 'utf8');
+  const refs = [];
 
-  // Extract the 25-tile photos array: const photos = [ "R1C1.webp", ... ];
-  const photosMatch = html.match(/const photos\s*=\s*\[([\s\S]*?)\];/);
-  if (!photosMatch) throw new Error('Could not find const photos array in index.html');
-
-  const tiles = (photosMatch[1].match(/"([^"]+)"/g) || [])
-    .map(s => 'uploads/' + s.slice(1, -1));
-
-  if (tiles.length !== 25) {
-    throw new Error('Expected 25 mosaic tiles in const photos, found ' + tiles.length);
+  // Hero mosaic is now a SINGLE composite image: uploads/variants/mosaic-hero-<w>.<fmt>
+  if (!/uploads\/variants\/mosaic-hero-\d+\.(avif|webp)/.test(html)) {
+    throw new Error('Could not find the mosaic-hero composite referenced in index.html');
   }
+  refs.push({ imgRef: 'uploads/variants/mosaic-hero-1920.webp', slugBase: 'mosaic-hero' });
 
-  // Extract logo src from the .brand <picture><img src="..."> block
+  // Hero wordmark overlay (the other large above-the-fold image)
+  if (!/uploads\/variants\/otra-ticketing-words-\d+\.(avif|webp)/.test(html)) {
+    throw new Error('Could not find the wordmark variants referenced in index.html');
+  }
+  refs.push({ imgRef: 'uploads/OTRA TICKETING Words.webp', slugBase: 'otra-ticketing-words' });
+
+  // Logo src from the .brand <picture><img src="..."> block (src points straight at a variant)
   const logoMatch = html.match(
     /<a[^>]+class="brand"[^>]*>[\s\S]*?<img[^>]+\bsrc="([^"]+)"[^>]*>/
   );
   if (!logoMatch) throw new Error('Could not find .brand img src in index.html');
-  const logoRef = logoMatch[1];
+  refs.push({ imgRef: logoMatch[1], slugBase: null });
 
-  return [...tiles, logoRef];
+  return refs;
 }
 
 function parseEventsSources() {
@@ -186,9 +188,9 @@ function run() {
 
   console.log('\nHome ATF set (' + homeRefs.length + ' refs):');
   let homeTotal = 0;
-  for (const ref of homeRefs) {
-    const result = findSmallestVariant(ref, null);
-    console.log('  ' + basename(ref) + ' -> ' + basename(result.chosen) + ' ' + result.bytes);
+  for (const { imgRef, slugBase } of homeRefs) {
+    const result = findSmallestVariant(imgRef, slugBase);
+    console.log('  ' + basename(imgRef) + ' -> ' + basename(result.chosen) + ' ' + result.bytes);
     homeTotal += result.bytes;
   }
 

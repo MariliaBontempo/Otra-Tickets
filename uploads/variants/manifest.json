@@ -1416,5 +1416,57 @@
       "format": "webp",
       "bytes": 44780
     }
+  ],
+  "mosaic-hero.webp": [
+    {
+      "path": "uploads/variants/mosaic-hero-1280.avif",
+      "width": 1280,
+      "format": "avif",
+      "bytes": 262398
+    },
+    {
+      "path": "uploads/variants/mosaic-hero-1280.webp",
+      "width": 1280,
+      "format": "webp",
+      "bytes": 190234
+    },
+    {
+      "path": "uploads/variants/mosaic-hero-1920.avif",
+      "width": 1920,
+      "format": "avif",
+      "bytes": 466696
+    },
+    {
+      "path": "uploads/variants/mosaic-hero-1920.webp",
+      "width": 1920,
+      "format": "webp",
+      "bytes": 345994
+    },
+    {
+      "path": "uploads/variants/mosaic-hero-2560.avif",
+      "width": 2560,
+      "format": "avif",
+      "bytes": 696690
+    },
+    {
+      "path": "uploads/variants/mosaic-hero-2560.webp",
+      "width": 2560,
+      "format": "webp",
+      "bytes": 506680
+    }
+  ],
+  "mosaic-hero-master.webp": [
+    {
+      "path": "uploads/variants/mosaic-hero-800.avif",
+      "width": 800,
+      "format": "avif",
+      "bytes": 130939
+    },
+    {
+      "path": "uploads/variants/mosaic-hero-800.webp",
+      "width": 800,
+      "format": "webp",
+      "bytes": 92808
+    }
   ]
 }

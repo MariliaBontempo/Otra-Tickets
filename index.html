@@ -12,8 +12,9 @@
   window.__eventsApi = "/api/homepage-events" + (location.search.includes("fresh=1") ? "?fresh=1" : "");
   window.__eventsPromise = fetch(window.__eventsApi).then(function (r) { return r.json(); });
 </script>
-<!-- LCP element is the hero wordmark that overlays the mosaic; preload it so it
-     is fetched before the render script runs (the mosaic tiles paint behind it). -->
+<!-- LCP element is the hero wordmark overlay; preload ONLY it at high priority so it
+     wins the race on slow links. The full-bleed composite mosaic behind it carries
+     fetchpriority="high" on its <img> and loads right after, without competing here. -->
 <link rel="preload" as="image" type="image/avif" fetchpriority="high"
       imagesrcset="uploads/variants/otra-ticketing-words-1200.avif 1200w, uploads/variants/otra-ticketing-words-2000.avif 2000w"
       imagesizes="100vw">
@@ -500,6 +501,8 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
 }
 .cell { position: relative; overflow: hidden; background: #0c0e12; }
 .cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* single pre-composited mosaic image (replaces the 25-tile grid); fills + covers the canvas */
+.mosaic-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 /* wrapper carries the size (~10% smaller than the photos) + the cinematic entrance.
    NB: scoped class name — the header brand text also uses .wordmark, must not be touched. */
 .hero-wordmark {
@@ -774,7 +777,13 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
 
   <section class="mosaic-main">
     <div class="canvas" id="canvas" data-screen-label="Events Mosaic">
-      <div class="mosaic" id="mosaic"></div>
+      <div class="mosaic" id="mosaic">
+        <picture>
+          <source type="image/avif" srcset="uploads/variants/mosaic-hero-800.avif 800w, uploads/variants/mosaic-hero-1280.avif 1280w, uploads/variants/mosaic-hero-1920.avif 1920w, uploads/variants/mosaic-hero-2560.avif 2560w" sizes="100vw">
+          <source type="image/webp" srcset="uploads/variants/mosaic-hero-800.webp 800w, uploads/variants/mosaic-hero-1280.webp 1280w, uploads/variants/mosaic-hero-1920.webp 1920w, uploads/variants/mosaic-hero-2560.webp 2560w" sizes="100vw">
+          <img class="mosaic-img" src="uploads/variants/mosaic-hero-1920.webp" alt="" width="1920" height="1080" decoding="async" fetchpriority="low">
+        </picture>
+      </div>
       <div class="hero-wordmark">
         <picture>
           <source type="image/avif" srcset="uploads/variants/otra-ticketing-words-1200.avif 1200w, uploads/variants/otra-ticketing-words-2000.avif 2000w" sizes="100vw">
@@ -802,39 +811,9 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
     </footer>
 
   <script>
-    // 25 cells (5×5) — the real uploaded photos, in labeled grid order (R1C1 → R5C5).
-    const photos = [
-      "R1C1.webp", "R1C2.webp", "R1C3.webp", "R1C4.webp", "R1C5.webp",
-      "R2C1.webp", "R2C2.webp", "R2C3.webp", "R2C4.webp", "R2C5.webp",
-      "R3C1.webp", "R3C2.webp", "R3C3.webp", "R3C4.webp", "R3C5.webp",
-      "R4C1.webp", "R4C2.webp", "R4C3.webp", "R4C4.webp", "R4C5.webp",
-      "R5C1.webp", "R5C2.webp", "R5C3.webp", "R5C4-12a0ab94.webp", "R5C5-bd08b3a9.webp"
-    ];
-    const SIZES = "368px";
-    const frag = document.createDocumentFragment();
-    photos.forEach((file, i) => {
-      const base = file.replace(/\.webp$/, "");
-      const v = (w, fmt) => `uploads/variants/${base}-${w}.${fmt}`;
-      const srcset = (fmt) => `${v(400,fmt)} 400w, ${v(800,fmt)} 800w, ${v(1200,fmt)} 1200w`;
-      const cell = document.createElement("div");
-      cell.className = "cell";
-      const pic = document.createElement("picture");
-      const avif = document.createElement("source");
-      avif.type = "image/avif"; avif.srcset = srcset("avif"); avif.sizes = SIZES;
-      const webp = document.createElement("source");
-      webp.type = "image/webp"; webp.srcset = srcset("webp"); webp.sizes = SIZES;
-      const img = document.createElement("img");
-      img.src = "uploads/" + file;
-      img.alt = "";
-      img.width = 368; img.height = 200;
-      img.decoding = "async";
-      if (i === 0) { img.setAttribute("fetchpriority", "high"); }
-      else { img.loading = "lazy"; }
-      pic.append(avif, webp, img);
-      cell.append(pic);
-      frag.append(cell);
-    });
-    document.getElementById("mosaic").append(frag);
+    // The 5x5 hero mosaic is now a SINGLE pre-composited image declared in the
+    // markup above (uploads/variants/mosaic-hero-*), so there is no per-tile JS
+    // build. The fit() cover-scale below still drives the wordmark sizing (--s).
 
     // Scale the fixed canvas to COVER the whole first fold (uniform, overflow cropped),
     // so the locked composition always fills the viewport in both width and height.
