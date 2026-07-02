@@ -23,7 +23,7 @@
       return fetch(publicApi).then(function (r) { return r.json(); });
     };
     if (adminToken) {
-      window.__eventsApi = "/admin/api/homepage-events";
+      window.__eventsApi = "/admin/api/homepage-events" + (location.search.includes("fresh=1") ? "?fresh=1" : "");
       window.__adminView = true;
       window.__eventsPromise = fetch(window.__eventsApi, { headers: { authorization: "Bearer " + adminToken } })
         .then(function (r) {
