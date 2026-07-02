@@ -10,6 +10,11 @@
 import { eventSlug } from "./event-slug.js";
 
 const API = "https://otraguide.com/api";
+
+function apiBase(env) {
+  return String((env && env.OTRA_API_URL) || API).replace(/\/$/, "");
+}
+
 const CATEGORY_ID = 339;
 // We Love R&B is the headliner: it always leads the homepage row.
 const FEATURED_ID = 7275;
@@ -48,13 +53,21 @@ const HOMEPAGE_TIME_ZONE = "America/Curacao";
 // Build the full { events, rows } homepage payload.
 //   includeAdminOnly — include KV site events flagged adminOnly (staff preview)
 //   authToken        — forward a staff Bearer token upstream so Django also
-//                      returns staff_only events; disables shared caching
+//                      returns staff_only events; cached under a separate key
 export async function buildHomepageFeed(context, { includeAdminOnly = false, authToken = "", forceFresh = false } = {}) {
   const now = Date.now();
-  const [siteEvents, upstreamEvents] = await Promise.all([
+  let [siteEvents, upstreamEvents] = await Promise.all([
     buildPublishedSiteEvents(context.env, { includeAdminOnly }),
-    authToken ? buildEvents(authToken) : getUpstreamEvents(context, now, forceFresh),
+    authToken
+      ? getUpstreamEvents(context, now, forceFresh, authToken, ADMIN_UPSTREAM_CACHE_PATH)
+      : getUpstreamEvents(context, now, forceFresh),
   ]);
+  // An expired/invalid staff token makes every authed upstream call 401 and
+  // the build comes back empty; the public upstream cache is a better answer
+  // than an empty Admin View.
+  if (authToken && !upstreamEvents.length) {
+    upstreamEvents = await getUpstreamEvents(context, now, false);
+  }
   // Site events come first so their curated title/image win when the same
   // published Otra Guide event also appears in the upstream public feed.
   const visibleEvents = dedupeEvents([...siteEvents, ...upstreamEvents])
@@ -65,15 +78,20 @@ export async function buildHomepageFeed(context, { includeAdminOnly = false, aut
   return { events, rows, hasSiteEvents: siteEvents.length > 0 };
 }
 
-async function getUpstreamEvents(context, now, forceFresh) {
+// The admin (staff) upstream build is cached under its own key so the public
+// cache never mixes with staff-visible content. The cache API is only ever
+// read/written server-side, after requireStaff has gated the request.
+const ADMIN_UPSTREAM_CACHE_PATH = "/admin/api/homepage-upstream-events";
+
+async function getUpstreamEvents(context, now, forceFresh, authToken = "", cachePath = "/api/homepage-upstream-events") {
   const cache = caches.default;
-  const cacheKey = new Request(new URL("/api/homepage-upstream-events", context.request.url));
+  const cacheKey = new Request(new URL(cachePath, context.request.url));
   const cached = await cache.match(cacheKey);
   if (cached && !forceFresh) {
     const generatedAt = Number(cached.headers.get("x-generated-at")) || 0;
     const ageSeconds = (now - generatedAt) / 1000;
     if (ageSeconds >= FRESH_SECONDS) {
-      context.waitUntil(storeUpstreamEvents(cache, cacheKey, now));
+      context.waitUntil(storeUpstreamEvents(cache, cacheKey, now, authToken, context.env));
     }
     try {
       const payload = await cached.json();
@@ -83,7 +101,7 @@ async function getUpstreamEvents(context, now, forceFresh) {
     }
   }
 
-  const stored = await storeUpstreamEvents(cache, cacheKey, now);
+  const stored = await storeUpstreamEvents(cache, cacheKey, now, authToken, context.env);
   try {
     const payload = await stored.json();
     return Array.isArray(payload.events) ? payload.events : [];
@@ -92,8 +110,8 @@ async function getUpstreamEvents(context, now, forceFresh) {
   }
 }
 
-async function storeUpstreamEvents(cache, cacheKey, now) {
-  const events = await buildEvents();
+async function storeUpstreamEvents(cache, cacheKey, now, authToken = "", env = null) {
+  const events = await buildEvents(authToken, env);
   const body = JSON.stringify({ events });
   const stored = new Response(body, {
     headers: {
@@ -102,7 +120,9 @@ async function storeUpstreamEvents(cache, cacheKey, now) {
       "x-generated-at": String(now),
     },
   });
-  await cache.put(cacheKey, stored.clone());
+  // An empty build usually means the upstream rejected the request (expired
+  // staff token, outage) — don't poison the cache with it.
+  if (events.length) await cache.put(cacheKey, stored.clone());
   return stored;
 }
 
@@ -212,17 +232,18 @@ async function fetchJson(url, authToken = "") {
   }
 }
 
-function feedUrl(page) {
-  return `${API}/events/nonperennial/?category_id=${CATEGORY_ID}&page=${page}&page_size=${PAGE_SIZE}`;
+function feedUrl(page, api = API) {
+  return `${api}/events/nonperennial/?category_id=${CATEGORY_ID}&page=${page}&page_size=${PAGE_SIZE}`;
 }
 
-async function buildEvents(authToken = "") {
+async function buildEvents(authToken = "", env = null) {
+  const api = apiBase(env);
   // Fetch the first few pages in one parallel round (the dataset is small, so
   // this usually covers it) instead of waiting on page 1 to learn the count.
   // Only if the feed turns out to be larger do we fetch the remaining pages.
   const probe = Math.min(MAX_PAGES, PROBE_PAGES);
   const firstBatch = await Promise.all(
-    Array.from({ length: probe }, (_, i) => fetchJson(feedUrl(i + 1), authToken))
+    Array.from({ length: probe }, (_, i) => fetchJson(feedUrl(i + 1, api), authToken))
   );
   if (!firstBatch[0]) return [];
 
@@ -234,7 +255,7 @@ async function buildEvents(authToken = "") {
   const totalPages = Math.min(MAX_PAGES, Math.ceil(count / PAGE_SIZE));
   if (totalPages > probe) {
     const rest = await Promise.all(
-      Array.from({ length: totalPages - probe }, (_, i) => fetchJson(feedUrl(probe + i + 1), authToken))
+      Array.from({ length: totalPages - probe }, (_, i) => fetchJson(feedUrl(probe + i + 1, api), authToken))
     );
     for (const data of rest) {
       if (data && data.results) results.push(...data.results);
@@ -258,7 +279,7 @@ async function buildEvents(authToken = "") {
   // Confirm each candidate actually has ticket types configured.
   const ticketCounts = await Promise.all(
     candidates.map(async (ev) => {
-      const data = await fetchJson(`${API}/ticket/purchase/tickets/${ev.id}/`, authToken);
+      const data = await fetchJson(`${api}/ticket/purchase/tickets/${ev.id}/`, authToken);
       return data ? data.count || 0 : 0;
     })
   );

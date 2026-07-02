@@ -14,9 +14,11 @@ export async function onRequestGet(context) {
   const accessToken = await requireStaff(context.request, context.env);
   if (!accessToken) return json({ error: "unauthorized" }, 401);
 
+  const url = new URL(context.request.url);
   const { events, rows } = await buildHomepageFeed(context, {
     includeAdminOnly: true,
     authToken: accessToken,
+    forceFresh: url.searchParams.get("fresh") === "1",
   });
   return json({ events, rows });
 }
