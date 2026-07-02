@@ -940,7 +940,10 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
           title: ev.title,
           venue: ev.venue || "Curaçao",
           date: ev.dateLabel || fmtDate(ev.date) || "Flexible dates",
-          href: ev.slug ? ("/" + ev.slug) : ("event?id=" + ev.id),
+          // In Admin View, slug routes resolve from the PUBLIC feed and 404
+          // for admin-only events, so link straight to the event template;
+          // same-tab navigation keeps the staff token in sessionStorage.
+          href: window.__adminView || !ev.slug ? ("event?id=" + ev.id) : ("/" + ev.slug),
         }));
       if (!items.length) return;
 
