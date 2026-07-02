@@ -1084,7 +1084,15 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
 
       let ev;
       try {
-        const resp = await fetch("/api/event?id=" + encodeURIComponent(id));
+        // Staff sessions (admin editor iframe / Admin View tabs) carry the
+        // admin token in sessionStorage; sending it lets staff open
+        // admin-only events that 404 for the public.
+        let adminToken = "";
+        try { adminToken = sessionStorage.getItem("otra_admin_token") || ""; } catch (e) { adminToken = ""; }
+        const resp = await fetch(
+          "/api/event?id=" + encodeURIComponent(id),
+          adminToken ? { headers: { authorization: "Bearer " + adminToken } } : undefined
+        );
         if (!resp.ok) throw new Error("HTTP " + resp.status);
         ev = await resp.json();
         if (!ev || ev.error) throw new Error(ev && ev.error ? ev.error : "no data");

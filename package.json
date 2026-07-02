@@ -6,6 +6,7 @@
     "check:headers": "node scripts/check-headers.mjs",
     "check:fonts": "node scripts/check-fonts.mjs",
     "gen:variants": "node scripts/gen-image-variants.mjs",
-    "check:payload": "node scripts/check-payload-budget.mjs"
+    "check:payload": "node scripts/check-payload-budget.mjs",
+    "check:admin-only": "node scripts/check-admin-only.mjs"
   }
 }
