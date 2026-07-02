@@ -1,0 +1,464 @@
+// Shared homepage feed builder used by the public endpoint
+// (GET /api/homepage-events) and the staff-only admin preview
+// (GET /admin/api/homepage-events).
+//
+// The public endpoint keeps its caching strategy (stale-while-revalidate via
+// caches.default); the admin variant fetches fresh with the staff Bearer token
+// and never touches the shared caches, so admin-only content can never leak
+// into a publicly cached response.
+
+import { eventSlug } from "./event-slug.js";
+
+const API = "https://otraguide.com/api";
+const CATEGORY_ID = 339;
+// We Love R&B is the headliner: it always leads the homepage row.
+const FEATURED_ID = 7275;
+// Event ids to keep off the homepage even if they pass the ticket filter.
+const EXCLUDED_IDS = new Set([7012]); // Sinusta Tours & Transfers
+const LOCAL_MAIN_IMAGES = {
+  "7275": "uploads/We Love R&B July 4th TJ-5.webp",
+  "6113": "uploads/Clearboat Hero.webp",
+};
+const LOCAL_CARD_INFO = {
+  "6194": { venue: "Daaibooi Beach", dateLabel: "Fri & Sat · 5PM" },
+  "7275": { venue: "Cascada Rooftop", dateLabel: "Saturday July 4 · 6PM" },
+  "6113": { venue: "Daaibooi Beach", dateLabel: "Daily · 10AM" },
+  "7176": { venue: "Barber Westpunt", dateLabel: "Daily" },
+  "6827": { venue: "Pietermaai", dateLabel: "Daily" },
+  "7359": { venue: "Curaçao", dateLabel: "Sunday July 5 · 5PM" },
+};
+const PAGE_SIZE = 20;
+const MAX_PAGES = 8;
+// Pages fetched together in the first parallel round (covers the usual feed
+// size in one hop; more are fetched only if the feed is larger).
+const PROBE_PAGES = 4;
+// Workers allow 50 subrequests per request; feed pages + ticket checks must
+// stay under that, so cap the ticket-type lookups.
+const MAX_TICKET_CHECKS = 40;
+// How long a cached build is considered fresh. Past this it is still served
+// instantly (stale) while a background refresh runs.
+const FRESH_SECONDS = 600;
+// How long the edge keeps the cached build available for stale-while-
+// revalidate. Must be long so caches.default never drops it from under us.
+export const EDGE_TTL = 86400;
+// Edge-cache the upstream otraguide responses to speed up rebuilds.
+const UPSTREAM_TTL = 300;
+const HOMEPAGE_TIME_ZONE = "America/Curacao";
+
+// Build the full { events, rows } homepage payload.
+//   includeAdminOnly — include KV site events flagged adminOnly (staff preview)
+//   authToken        — forward a staff Bearer token upstream so Django also
+//                      returns staff_only events; disables shared caching
+export async function buildHomepageFeed(context, { includeAdminOnly = false, authToken = "", forceFresh = false } = {}) {
+  const now = Date.now();
+  const [siteEvents, upstreamEvents] = await Promise.all([
+    buildPublishedSiteEvents(context.env, { includeAdminOnly }),
+    authToken ? buildEvents(authToken) : getUpstreamEvents(context, now, forceFresh),
+  ]);
+  // Site events come first so their curated title/image win when the same
+  // published Otra Guide event also appears in the upstream public feed.
+  const visibleEvents = dedupeEvents([...siteEvents, ...upstreamEvents])
+    .filter((event) => isCurrentOrFutureEvent(event, now));
+  const events = await applyImageOverrides(visibleEvents, context.env);
+  for (const event of events) event.slug = eventSlug(event.title);
+  const rows = await buildRows(events, context.env);
+  return { events, rows, hasSiteEvents: siteEvents.length > 0 };
+}
+
+async function getUpstreamEvents(context, now, forceFresh) {
+  const cache = caches.default;
+  const cacheKey = new Request(new URL("/api/homepage-upstream-events", context.request.url));
+  const cached = await cache.match(cacheKey);
+  if (cached && !forceFresh) {
+    const generatedAt = Number(cached.headers.get("x-generated-at")) || 0;
+    const ageSeconds = (now - generatedAt) / 1000;
+    if (ageSeconds >= FRESH_SECONDS) {
+      context.waitUntil(storeUpstreamEvents(cache, cacheKey, now));
+    }
+    try {
+      const payload = await cached.json();
+      return Array.isArray(payload.events) ? payload.events : [];
+    } catch {
+      return [];
+    }
+  }
+
+  const stored = await storeUpstreamEvents(cache, cacheKey, now);
+  try {
+    const payload = await stored.json();
+    return Array.isArray(payload.events) ? payload.events : [];
+  } catch {
+    return [];
+  }
+}
+
+async function storeUpstreamEvents(cache, cacheKey, now) {
+  const events = await buildEvents();
+  const body = JSON.stringify({ events });
+  const stored = new Response(body, {
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": `public, max-age=${EDGE_TTL}`,
+      "x-generated-at": String(now),
+    },
+  });
+  await cache.put(cacheKey, stored.clone());
+  return stored;
+}
+
+async function buildRows(events, env) {
+  const ids = events.map((ev) => String(ev.id));
+  const existing = new Set(ids);
+  const fallback = [{ id: "main", title: "", eventIds: ids }];
+  const kv = env && env.OVERRIDES;
+  if (!kv) return fallback;
+
+  let layout;
+  try {
+    layout = await kv.get("homepage:layout", "json");
+  } catch {
+    layout = null;
+  }
+  const rows = normalizeRows(layout && layout.rows, existing);
+  if (!rows.length) return fallback;
+
+  const assigned = new Set(rows.flatMap((row) => row.eventIds));
+  const missing = ids.filter((id) => !assigned.has(id));
+  if (missing.length) rows[0].eventIds.push(...missing);
+  return rows.filter((row) => row.eventIds.length);
+}
+
+function normalizeRows(raw, existing) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((row, i) => {
+      const id = typeof row.id === "string" && row.id.trim() ? row.id.trim() : `row-${i + 1}`;
+      const title = typeof row.title === "string" ? row.title.trim().slice(0, 80) : "";
+      const eventIds = Array.isArray(row.eventIds)
+        ? [...new Set(row.eventIds.map((value) => String(value)).filter((id) => existing.has(id)))]
+        : [];
+      return { id, title, eventIds };
+    })
+    .filter((row) => row.eventIds.length);
+}
+
+export async function buildPublishedSiteEvents(env, { includeAdminOnly = false } = {}) {
+  const kv = env && env.OVERRIDES;
+  if (!kv) return [];
+
+  const out = [];
+  let cursor;
+  do {
+    let page;
+    try {
+      page = await kv.list({ prefix: "site-event:", cursor });
+    } catch {
+      return out;
+    }
+    for (const key of page.keys || []) {
+      let project;
+      try {
+        project = await kv.get(key.name, "json");
+      } catch {
+        project = null;
+      }
+      if (!project || typeof project !== "object" || project.status !== "published") continue;
+      // Admin-only site events never reach the public feed (which is edge
+      // cached); only the staff preview endpoint opts in to seeing them.
+      if (project.adminOnly === true && !includeAdminOnly) continue;
+      const draftId = key.name.replace(/^site-event:/, "");
+      const id = project.otraGuideId ? String(project.otraGuideId) : draftId;
+      const localCard = LOCAL_CARD_INFO[id];
+      const startDate = validDateValue(project.startDate);
+      const endDate = validDateValue(project.endDate);
+      out.push({
+        id,
+        title: projectCardTitle(project),
+        date: startDate,
+        endDate,
+        isPerennial: project.isPerennial === true,
+        venue: (localCard && localCard.venue) || projectVenue(project),
+        // KV drafts carry no Otra Guide location; dedupe backfills it from the
+        // matching upstream event so the card location still comes from there.
+        location: "",
+        dateLabel: (localCard && localCard.dateLabel) || projectDateLabel(project),
+        img:
+          (typeof project.image === "string" && project.image) ||
+          (project.claudeDesign && typeof project.claudeDesign.image === "string" && project.claudeDesign.image) ||
+          "",
+      });
+    }
+    cursor = page.list_complete ? undefined : page.cursor;
+  } while (cursor);
+
+  return out.sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
+}
+
+async function fetchJson(url, authToken = "") {
+  const headers = { Accept: "application/json" };
+  if (authToken) headers.authorization = `Bearer ${authToken}`;
+  try {
+    // Authenticated responses must never enter the shared edge cache.
+    const resp = await fetch(
+      url,
+      authToken
+        ? { headers }
+        : { headers, cf: { cacheTtl: UPSTREAM_TTL, cacheEverything: true } }
+    );
+    if (!resp.ok) return null;
+    return await resp.json();
+  } catch {
+    return null;
+  }
+}
+
+function feedUrl(page) {
+  return `${API}/events/nonperennial/?category_id=${CATEGORY_ID}&page=${page}&page_size=${PAGE_SIZE}`;
+}
+
+async function buildEvents(authToken = "") {
+  // Fetch the first few pages in one parallel round (the dataset is small, so
+  // this usually covers it) instead of waiting on page 1 to learn the count.
+  // Only if the feed turns out to be larger do we fetch the remaining pages.
+  const probe = Math.min(MAX_PAGES, PROBE_PAGES);
+  const firstBatch = await Promise.all(
+    Array.from({ length: probe }, (_, i) => fetchJson(feedUrl(i + 1), authToken))
+  );
+  if (!firstBatch[0]) return [];
+
+  const results = [];
+  for (const data of firstBatch) {
+    if (data && data.results) results.push(...data.results);
+  }
+  const count = firstBatch[0].count || results.length;
+  const totalPages = Math.min(MAX_PAGES, Math.ceil(count / PAGE_SIZE));
+  if (totalPages > probe) {
+    const rest = await Promise.all(
+      Array.from({ length: totalPages - probe }, (_, i) => fetchJson(feedUrl(probe + i + 1), authToken))
+    );
+    for (const data of rest) {
+      if (data && data.results) results.push(...data.results);
+    }
+  }
+
+  // Dedupe by id, preserving feed order (mini-event expansion repeats ids).
+  const byId = new Map();
+  for (const ev of results) if (!byId.has(ev.id)) byId.set(ev.id, ev);
+
+  // Narrow to events that could plausibly be ticketed BEFORE hitting the
+  // ticket-types endpoint — this is what keeps the cold build fast. The feed
+  // mixes in dozens of happy-hours (is_ticketed false, not perennial) that we
+  // can drop for free. The only candidates are standalone ticketed events
+  // (is_ticketed true) and the perennial top-shelf cards (whose is_ticketed is
+  // forced false by the serializer, so the flag can't be trusted for them).
+  const candidates = [...byId.values()]
+    .filter((ev) => !EXCLUDED_IDS.has(ev.id) && (ev.is_ticketed || ev.is_perennial))
+    .slice(0, MAX_TICKET_CHECKS);
+
+  // Confirm each candidate actually has ticket types configured.
+  const ticketCounts = await Promise.all(
+    candidates.map(async (ev) => {
+      const data = await fetchJson(`${API}/ticket/purchase/tickets/${ev.id}/`, authToken);
+      return data ? data.count || 0 : 0;
+    })
+  );
+  const ticketed = candidates.filter((_, i) => ticketCounts[i] > 0);
+
+  // Order: We Love R&B first, then the other dated (non-perennial) events by
+  // date, then the perennial top-shelf tours (which carry no meaningful date).
+  const rank = (ev) => {
+    if (ev.id === FEATURED_ID) return 0;
+    return ev.is_perennial ? 2 : 1;
+  };
+  ticketed.sort((a, b) => {
+    const ra = rank(a);
+    const rb = rank(b);
+    if (ra !== rb) return ra - rb;
+    if (ra === 1) return new Date(a.start_date) - new Date(b.start_date);
+    return 0;
+  });
+
+  return ticketed.map((ev) => ({
+    id: ev.id,
+    title: ev.title,
+    // Perennial top-shelf events recur (e.g. daily tours); a single start
+    // date would be misleading, so the card shows no date for them.
+    date: ev.is_perennial ? null : ev.start_date,
+    endDate: ev.end_date || ev.start_date || null,
+    isPerennial: !!ev.is_perennial,
+    venue: cardVenue(ev),
+    // Real Otra Guide event location (empty when unset) — wins over a curated
+    // venue during dedupe so the location always reflects the event.
+    location: eventLocation(ev),
+    dateLabel: cardDateLabel(ev),
+    // Homepage cards render at roughly 400px wide. Prefer the 800px variant
+    // for retina displays instead of downloading the 1600px event hero.
+    img: LOCAL_MAIN_IMAGES[String(ev.id)] || ev.half_web_image_url || ev.card_image_url || ev.full_web_image_url,
+  }));
+}
+
+function isCurrentOrFutureEvent(event, now = Date.now()) {
+  if (!event || typeof event !== "object") return false;
+  const today = dateKeyInTimeZone(now, HOMEPAGE_TIME_ZONE);
+  const boundary = validDateValue(event.endDate) || validDateValue(event.date);
+  // A perennial event with no finite end date is considered ongoing. Dated
+  // events must have a current/future end (or start when no end is supplied).
+  if (!boundary) return event.isPerennial === true;
+  return dateKeyInTimeZone(boundary, HOMEPAGE_TIME_ZONE) >= today;
+}
+
+function dedupeEvents(events) {
+  // Site events come first so their curated title/image win. But the location
+  // must come from the Otra Guide event: when a real event location exists on
+  // either copy (e.g. the upstream feed duplicate of a published draft), it
+  // overrides the curated venue.
+  const byId = new Map();
+  for (const event of events) {
+    const id = String((event && event.id) || "");
+    if (!id) continue;
+    const kept = byId.get(id);
+    if (!kept) {
+      byId.set(id, event);
+      continue;
+    }
+    const loc = String(kept.location || event.location || "").trim();
+    if (loc) kept.venue = loc;
+  }
+  return [...byId.values()];
+}
+
+function validDateValue(value) {
+  if (typeof value !== "string" || !value.trim()) return null;
+  return Number.isFinite(new Date(value).getTime()) ? value : null;
+}
+
+function dateKeyInTimeZone(value, timeZone) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date(value));
+  const get = (type) => parts.find((part) => part.type === type)?.value || "";
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
+async function applyImageOverrides(events, env) {
+  if (!env || !env.OVERRIDES || !events.length) return events;
+  const overrides = await Promise.all(
+    events.map(async (ev) => {
+      try {
+        return (
+          (await env.OVERRIDES.get(`event:${ev.id}`, "json")) ||
+          (await env.OVERRIDES.get(`override:${ev.id}`, "json"))
+        );
+      } catch {
+        return null;
+      }
+    })
+  );
+  return events.map((ev, i) => {
+    const override = overrides[i];
+    const image = homepageOverrideImage(override);
+    return image ? { ...ev, img: image } : ev;
+  });
+}
+
+function homepageOverrideImage(override) {
+  if (!override || typeof override !== "object") return "";
+  if (typeof override.image === "string" && override.image) return override.image;
+  const fields = override.fields;
+  if (!fields || typeof fields !== "object" || Array.isArray(fields)) return "";
+
+  const entries = Object.entries(fields);
+  const hero = entries.find(([key, field]) => {
+    if (!field || field.type !== "image" || typeof field.value !== "string" || !field.value) return false;
+    return (
+      key.includes("#evHeroImg") ||
+      key.includes(".ev-hero-img") ||
+      /^image:main > section:nth-of-type\(1\) > img$/.test(key)
+    );
+  });
+  if (hero) return hero[1].value;
+
+  const firstImage = entries.find(([, field]) => field && field.type === "image" && typeof field.value === "string" && field.value);
+  return firstImage ? firstImage[1].value : "";
+}
+
+// The card location comes from the Otra Guide event itself (Event.location).
+// Ignore a value that merely repeats the title — some events store the title
+// in that field instead of a real venue.
+function eventLocation(ev) {
+  const loc = ev && typeof ev.location === "string" ? ev.location.trim() : "";
+  return loc && loc !== String((ev && ev.title) || "").trim() ? loc : "";
+}
+
+function cardVenue(ev) {
+  const loc = eventLocation(ev);
+  if (loc) return loc;
+  // Fallbacks for events whose Otra Guide location is empty or unhelpful.
+  const local = LOCAL_CARD_INFO[String(ev.id)];
+  if (local && local.venue) return local.venue;
+  const fromDescription = venueFromText(ev.description || ev.group_description || "");
+  if (fromDescription) return fromDescription;
+  if (ev.group_name && ev.group_name !== ev.title) return ev.group_name;
+  return "Curaçao";
+}
+
+function cardDateLabel(ev) {
+  const local = LOCAL_CARD_INFO[String(ev.id)];
+  if (local && local.dateLabel) return local.dateLabel;
+  return ev.is_perennial ? "Flexible dates" : "";
+}
+
+function projectVenue(project) {
+  const info = project.claudeDesign && Array.isArray(project.claudeDesign.practicalInfo)
+    ? project.claudeDesign.practicalInfo
+    : [];
+  const location = info.find((item) => item && /^location$/i.test(item.key || ""));
+  if (location && location.value) return location.value;
+  const eyebrow = project.claudeDesign && typeof project.claudeDesign.eyebrow === "string" ? project.claudeDesign.eyebrow : "";
+  const parts = eyebrow.split("·").map((part) => part.trim()).filter(Boolean);
+  return parts[1] || "Curaçao";
+}
+
+function projectCardTitle(project) {
+  const title = typeof project.title === "string" ? project.title.trim() : "";
+  const design = project.claudeDesign && typeof project.claudeDesign === "object" ? project.claudeDesign : {};
+  const displayTitle = typeof design.displayTitle === "string" ? design.displayTitle.trim() : "";
+  const subtitle = typeof design.subtitle === "string" ? design.subtitle.trim() : "";
+
+  // Claude designs store the hero subtitle alongside the event title for the
+  // event detail page. On homepage cards that subtitle can be a ticket type,
+  // so keep the card's first line limited to the actual event title.
+  if (displayTitle && (!title || (subtitle && title === `${displayTitle} - ${subtitle}`))) return displayTitle;
+  return title || displayTitle || "Claude Design Event";
+}
+
+function projectDateLabel(project) {
+  const design = project.claudeDesign && typeof project.claudeDesign === "object" ? project.claudeDesign : {};
+  const meta = Array.isArray(design.meta) ? design.meta : [];
+  const rateNames = Array.isArray(design.rates)
+    ? design.rates.map((rate) => String(rate && rate.name || "").trim().toLowerCase()).filter(Boolean)
+    : [];
+  const schedule = meta
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .filter((item) => !isTicketMetadata(item, rateNames));
+
+  // If a dated design has no schedule metadata, let the browser format the
+  // event start date. "Flexible dates" is only accurate for perennial events.
+  return schedule.length ? schedule.join(" · ") : (project.isPerennial ? "Flexible dates" : "");
+}
+
+function isTicketMetadata(value, rateNames) {
+  const text = value.toLowerCase().replace(/\s+/g, " ").trim();
+  if (rateNames.some((name) => text === name || text.startsWith(`${name} `))) return true;
+  if (/(?:[$€£ƒ]|\b(?:usd|ang|xcg|awg|eur|naf|fl\.?)\b)\s*\d/i.test(value)) return true;
+  return /\b(?:early bird|general admission|ticket(?:s| type)?|presale|door price)\b/i.test(value);
+}
+
+function venueFromText(value) {
+  const match = String(value || "").match(/(?:^|\n)\s*(?:Venue|Location):\s*([^\n\r]+)/i);
+  return match ? match[1].trim() : "";
+}

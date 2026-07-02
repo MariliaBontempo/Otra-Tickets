@@ -5,6 +5,7 @@
 // the site-side content override is read fresh and merged last.
 
 import { eventSlug } from "../_lib/event-slug.js";
+import { checkStaff } from "../admin/api/_auth.js";
 
 const API = "https://otraguide.com/api";
 const UPSTREAM_TTL = 300;
@@ -23,6 +24,13 @@ export async function onRequestGet(context) {
   const base = await getBasePayload(context, id, url, project);
   if (!base) return json({ error: "not found" }, 404);
 
+  // Admin-only events are hidden from the public; a valid staff Bearer token
+  // may still fetch them (used by the admin preview). Staff responses are
+  // never cacheable.
+  const adminOnly = (project && project.adminOnly === true) || base.adminOnly === true;
+  if (adminOnly && !(await isStaffRequest(context))) return json({ error: "not found" }, 404);
+  delete base.adminOnly;
+
   const override = await readOverride(context.env, id, project && project.id);
   let payload = override ? { ...base, ...pickOverride(override) } : base;
   if (project) {
@@ -34,7 +42,7 @@ export async function onRequestGet(context) {
     };
   }
   payload.slug = eventSlug(payload.title);
-  return json(payload, 200, override ? 0 : 60);
+  return json(payload, 200, adminOnly || override ? 0 : 60);
 }
 
 async function getBasePayload(context, id, url, project) {
@@ -130,7 +138,15 @@ async function getDraftPayload(env, id) {
     isDraft: true,
     status: draft.status === "published" ? "published" : "draft",
     design: draft.claudeDesign && typeof draft.claudeDesign === "object" ? draft.claudeDesign : null,
+    adminOnly: draft.adminOnly === true,
   };
+}
+
+async function isStaffRequest(context) {
+  const auth = context.request.headers.get("authorization") || "";
+  const match = auth.match(/^Bearer (.+)$/);
+  if (!match) return false;
+  return checkStaff(match[1], context.env);
 }
 
 async function readOverride(env, id, fallbackId = "") {

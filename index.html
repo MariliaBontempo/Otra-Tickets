@@ -9,8 +9,32 @@
      the stylesheet, fonts and hero artwork, so the row data is already in
      flight (often arrived) by the time the render script runs. -->
 <script>
-  window.__eventsApi = "/api/homepage-events" + (location.search.includes("fresh=1") ? "?fresh=1" : "");
-  window.__eventsPromise = fetch(window.__eventsApi).then(function (r) { return r.json(); });
+  (function () {
+    var publicApi = "/api/homepage-events" + (location.search.includes("fresh=1") ? "?fresh=1" : "");
+    var adminToken = "";
+    if (location.search.includes("adminView=1")) {
+      // The staff token is copied into this tab's sessionStorage when the tab
+      // is opened from the admin. Pasting the URL in a fresh tab has no token
+      // and silently falls back to the public feed.
+      try { adminToken = sessionStorage.getItem("otra_admin_token") || ""; } catch (e) { adminToken = ""; }
+    }
+    var publicFetch = function () {
+      window.__eventsApi = publicApi;
+      return fetch(publicApi).then(function (r) { return r.json(); });
+    };
+    if (adminToken) {
+      window.__eventsApi = "/admin/api/homepage-events";
+      window.__adminView = true;
+      window.__eventsPromise = fetch(window.__eventsApi, { headers: { authorization: "Bearer " + adminToken } })
+        .then(function (r) {
+          if (!r.ok) { window.__adminView = false; return publicFetch(); }
+          return r.json();
+        })
+        .catch(function () { window.__adminView = false; return publicFetch(); });
+    } else {
+      window.__eventsPromise = publicFetch();
+    }
+  })();
 </script>
 <!-- LCP element is the hero wordmark overlay; preload ONLY it at high priority so it
      wins the race on slow links. The full-bleed composite mosaic behind it carries
@@ -866,6 +890,15 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
       console.error("Could not load homepage events:", err);
       markRowsReady();
       return;
+    }
+    if (window.__adminView) {
+      const badge = document.createElement("div");
+      badge.textContent = "Admin view — includes admin-only events";
+      badge.style.cssText =
+        "position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:9999;" +
+        "background:#0d1720;color:#7fd4c1;border:1px solid #1fa9a0;border-radius:999px;" +
+        "padding:8px 18px;font:600 13px/1 Inter,sans-serif;pointer-events:none;";
+      document.body.appendChild(badge);
     }
     if (!events.length) {
       markRowsReady();

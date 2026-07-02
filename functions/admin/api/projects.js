@@ -36,6 +36,18 @@ export async function onRequestPost(context) {
     return json({ project: next });
   }
 
+  if (url.searchParams.get("action") === "set-admin-only") {
+    const kv = context.env.OVERRIDES;
+    if (!kv) return json({ error: "overrides store not configured" }, 503);
+    const id = (url.searchParams.get("id") || "").trim();
+    if (!isDraftId(id)) return json({ error: "invalid draft id" }, 400);
+    const project = await getProject(kv, id);
+    if (!project) return json({ error: "draft not found" }, 404);
+    const next = { ...project, adminOnly: url.searchParams.get("value") === "true" };
+    await putProject(kv, next);
+    return json({ project: next });
+  }
+
   if (url.searchParams.get("action") === "publish") {
     const kv = context.env.OVERRIDES;
     if (!kv) return json({ error: "overrides store not configured" }, 503);
@@ -129,6 +141,7 @@ export async function onRequestPost(context) {
     ticketQuantities: parseQuantities(form.get("ticketQuantities"), parsed.rates.length),
     ticketTypeIds: [],
     usesExistingOtraGuideEvent: !!existingEventId,
+    adminOnly: String(form.get("adminOnly") || "false") === "true",
   };
 
   if (existingEventId) {
@@ -388,6 +401,7 @@ function normalizeProject(raw, id) {
     ticketQuantities: Array.isArray(raw.ticketQuantities) ? raw.ticketQuantities : [],
     ticketTypeIds: Array.isArray(raw.ticketTypeIds) ? raw.ticketTypeIds : [],
     usesExistingOtraGuideEvent: !!raw.usesExistingOtraGuideEvent,
+    adminOnly: !!raw.adminOnly,
     syncError: typeof raw.syncError === "string" ? raw.syncError : "",
   };
 }

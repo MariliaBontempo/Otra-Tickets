@@ -395,6 +395,18 @@
   }
   .icon-btn svg { width: 19px; height: 19px; stroke-width: 2; }
 
+  .admin-only-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--muted);
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .admin-only-toggle input { width: auto; margin: 0; }
+  .admin-only-toggle:has(input:checked) { color: var(--accent); }
+
   .top-status {
     color: var(--muted);
     font-size: 13px;
@@ -441,6 +453,10 @@
       <select id="pageSelect" aria-label="Select page"></select>
       <div class="row split">
         <div class="top-status" id="status"></div>
+        <label class="admin-only-toggle hidden" id="adminOnlyWrap" title="Even after publishing, this event stays hidden from the public site and is visible only to admins.">
+          <input id="adminOnlyToggle" type="checkbox" />
+          <span>Admin only</span>
+        </label>
         <button class="btn hidden" id="editCheckoutBtn" type="button">Edit checkout</button>
         <button class="btn ghost hidden" id="archivePageBtn" type="button">Archive</button>
         <button class="btn primary hidden" id="publishDraftBtn" type="button">Publish</button>
@@ -493,6 +509,10 @@
         <button class="choice-card" id="manageHomepageBtn" type="button">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 6h16"/><path d="M4 12h10"/><path d="M4 18h16"/><path d="M18 10v4"/><path d="M16 12h4"/></svg>
           <span><strong>Manage homepage</strong><span>Reorder homepage rows, add rows, and choose which cards appear in each row.</span></span>
+        </button>
+        <button class="choice-card" id="adminViewBtn" type="button" title="Open from the admin so the staff session carries over to the new tab.">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+          <span><strong>Admin View</strong><span>Open the homepage including admin-only events, exactly as staff will see it.</span></span>
         </button>
       </div>
     </main>
@@ -720,6 +740,10 @@
         <h2>Ticket quantities</h2>
         <div class="ticket-quantity-list" id="ticketQuantities"></div>
       </div>
+      <label class="publish-option">
+        <input id="draftAdminOnly" type="checkbox" />
+        <span><strong>Admin only</strong><span>Even after publishing, this event stays hidden from the public site and is visible only to admins.</span></span>
+      </label>
       <div class="status" id="draftSetupStatus"></div>
       <div class="row split">
         <button class="btn ghost" id="cancelDraftSetupBtn" type="button">Cancel</button>
@@ -844,6 +868,11 @@
     await loadPages();
   });
 
+  $("adminViewBtn").addEventListener("click", () => {
+    // Plain window.open keeps the same browsing context group, so the new tab
+    // receives a copy of sessionStorage (including the staff token).
+    window.open("/?adminView=1", "_blank");
+  });
   $("addEventBtn").addEventListener("click", () => {
     hubView.classList.add("hidden");
     addView.classList.remove("hidden");
@@ -944,6 +973,7 @@
     $("existingEventSelect").innerHTML = '<option value="">Search for an Otra Guide event</option>';
     $("existingEventMeta").textContent = "";
     document.querySelector('input[name="eventMode"][value="new"]').checked = true;
+    $("draftAdminOnly").checked = false;
     $("teamSearch").value = "";
     document.querySelector('input[name="teamMode"][value="existing"]').checked = true;
     renderTeamOptions();
@@ -1136,6 +1166,7 @@
       "ticketQuantities",
       JSON.stringify([...document.querySelectorAll("[data-ticket-quantity]")].map((input) => Number(input.value)))
     );
+    form.set("adminOnly", String($("draftAdminOnly").checked));
     $("confirmDraftSetupBtn").disabled = true;
     $("draftSetupStatus").textContent = eventMode === "existing"
       ? "Creating draft from existing Otra Guide event..."
@@ -1184,6 +1215,7 @@
   }
 
   $("pageSelect").addEventListener("change", () => selectPage($("pageSelect").value));
+  $("adminOnlyToggle").addEventListener("change", setAdminOnly);
   $("editCheckoutBtn").addEventListener("click", openCheckoutModal);
   $("archivePageBtn").addEventListener("click", archiveSelectedPage);
   $("publishDraftBtn").addEventListener("click", openPublishModal);
@@ -1585,6 +1617,8 @@
     $("archivePageBtn").classList.toggle("hidden", !selected);
     $("editCheckoutBtn").classList.toggle("hidden", !eventIdForPage(selected));
     $("publishDraftBtn").classList.toggle("hidden", !isDraft(selected) || selected.status === "published");
+    $("adminOnlyWrap").classList.toggle("hidden", !isDraft(selected));
+    $("adminOnlyToggle").checked = !!(selected && selected.adminOnly);
     $("previewFrame").src = selected.url;
     $("description").value = "";
     $("imageInput").value = "";
@@ -1765,6 +1799,27 @@
 
   function isDraft(page) {
     return !!page && (page.isDraft || page.status === "draft" || /^draft-/.test(page.id));
+  }
+
+  async function setAdminOnly() {
+    if (!selected || !isDraft(selected)) return;
+    const value = $("adminOnlyToggle").checked;
+    $("adminOnlyToggle").disabled = true;
+    setStatus(value ? "Marking as admin only..." : "Making public...");
+    try {
+      const data = await api(
+        `/admin/api/projects?action=set-admin-only&id=${encodeURIComponent(selected.id)}&value=${value}`,
+        { method: "POST", headers: authHeaders() }
+      );
+      selected.adminOnly = !!(data.project && data.project.adminOnly);
+      $("adminOnlyToggle").checked = selected.adminOnly;
+      setStatus(selected.adminOnly ? "Event is now admin only." : "Event is now public.", "ok");
+    } catch (err) {
+      $("adminOnlyToggle").checked = !value;
+      setStatus(err.message, "error");
+    } finally {
+      $("adminOnlyToggle").disabled = false;
+    }
   }
 
   function fillForm(override) {

@@ -77,6 +77,7 @@ async function buildDraftPages(env) {
         type: project.status === "published" ? "Published draft" : "Draft event",
         isDraft: true,
         status: project.status === "published" ? "published" : "draft",
+        adminOnly: project.adminOnly === true,
         otraGuideId: project.otraGuideId ? String(project.otraGuideId) : "",
         syncError: typeof project.syncError === "string" ? project.syncError : "",
         // Preview the exact Otra Tickets draft selected in the admin. Using
