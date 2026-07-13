@@ -4,7 +4,22 @@
 <meta charset="UTF-8" />
 <link rel="icon" type="image/png" href="favicon.png" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Otra Tickets — Events Mosaic</title>
+<title>Otra Tickets | Curaçao Events, Tours &amp; Experiences</title>
+<meta name="description" content="Book Curaçao events, tours, nightlife, concerts, and island experiences through Otra Tickets, powered by Otra Guide." />
+<link rel="canonical" href="https://otratickets.com/" />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="Otra Tickets" />
+<meta property="og:title" content="Otra Tickets | Curaçao Events, Tours &amp; Experiences" />
+<meta property="og:description" content="Book Curaçao events, tours, nightlife, concerts, and island experiences through Otra Tickets, powered by Otra Guide." />
+<meta property="og:url" content="https://otratickets.com/" />
+<meta property="og:image" content="https://otratickets.com/uploads/variants/mosaic-hero-1920.webp" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="Otra Tickets | Curaçao Events, Tours &amp; Experiences" />
+<meta name="twitter:description" content="Book Curaçao events, tours, nightlife, concerts, and island experiences through Otra Tickets, powered by Otra Guide." />
+<meta name="twitter:image" content="https://otratickets.com/uploads/variants/mosaic-hero-1920.webp" />
+<script type="application/ld+json">
+{"@context":"https://schema.org","@graph":[{"@type":"WebSite","name":"Otra Tickets","url":"https://otratickets.com/","description":"Book Curaçao events, tours, nightlife, concerts, and island experiences through Otra Tickets, powered by Otra Guide.","publisher":{"@id":"https://otratickets.com/#organization"}},{"@type":"Organization","@id":"https://otratickets.com/#organization","name":"Otra Tickets","url":"https://otratickets.com/","areaServed":{"@type":"Place","name":"Curaçao"},"parentOrganization":{"@type":"Organization","name":"Otra Guide","url":"https://otraguide.com/"}}]}
+</script>
 <!-- Kick off the events fetch at the very start of parsing, in parallel with
      the stylesheet, fonts and hero artwork, so the row data is already in
      flight (often arrived) by the time the render script runs. -->
@@ -70,6 +85,17 @@
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
 
 html { scroll-behavior: smooth; }
 
@@ -800,6 +826,7 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
   </header>
 
   <section class="mosaic-main">
+    <h1 class="sr-only">Otra Tickets - Curaçao events, tours, and experiences</h1>
     <div class="canvas" id="canvas" data-screen-label="Events Mosaic">
       <div class="mosaic" id="mosaic">
         <picture>
