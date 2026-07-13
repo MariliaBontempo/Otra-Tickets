@@ -5,7 +5,22 @@
 
 <link rel="icon" type="image/png" href="favicon.png" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <link rel="preload" as="image" href="uploads/variants/clearboat-hero-1600.webp" type="image/webp" fetchpriority="high" />
-<title>Otra Tickets — Clearboat</title>
+<title>Clearboat Curaçao Tickets | Otra Tickets</title>
+<meta name="description" content="Book Clearboat Curaçao tickets for a 90-minute glass-bottom boat tour from Daaibooi Beach with reef views, snacks, and swim stops." />
+<link rel="canonical" href="https://otratickets.com/clearboat" />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="Otra Tickets" />
+<meta property="og:title" content="Clearboat Curaçao Tickets | Otra Tickets" />
+<meta property="og:description" content="Book Clearboat Curaçao tickets for a 90-minute glass-bottom boat tour from Daaibooi Beach with reef views, snacks, and swim stops." />
+<meta property="og:url" content="https://otratickets.com/clearboat" />
+<meta property="og:image" content="https://otratickets.com/uploads/variants/clearboat-hero-1600.webp" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="Clearboat Curaçao Tickets | Otra Tickets" />
+<meta name="twitter:description" content="Book Clearboat Curaçao tickets for a 90-minute glass-bottom boat tour from Daaibooi Beach with reef views, snacks, and swim stops." />
+<meta name="twitter:image" content="https://otratickets.com/uploads/variants/clearboat-hero-1600.webp" />
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"TouristTrip","name":"Clearboat Curaçao West Coast Tour","url":"https://otratickets.com/clearboat","description":"Book Clearboat Curaçao tickets for a 90-minute glass-bottom boat tour from Daaibooi Beach with reef views, snacks, and swim stops.","image":"https://otratickets.com/uploads/variants/clearboat-hero-1600.webp","provider":{"@type":"Organization","name":"Otra Tickets","url":"https://otratickets.com/"},"areaServed":{"@type":"Place","name":"Daaibooi Beach, Curaçao"},"offers":{"@type":"Offer","url":"https://otratickets.com/clearboat","price":"50","priceCurrency":"USD","availability":"https://schema.org/InStock"}}
+</script>
 <style>
 @font-face { font-family: "Inter"; font-style: normal; font-weight: 400; font-display: swap; src: url("fonts/inter-400.woff2") format("woff2"); }
 @font-face { font-family: "Inter"; font-style: normal; font-weight: 500; font-display: swap; src: url("fonts/inter-500.woff2") format("woff2"); }
@@ -1129,7 +1144,13 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
         if (!resp.ok) return;
         const data = await resp.json();
         if (data && /^#[0-9A-Fa-f]{6}$/.test(data.accent || "")) {
-          document.documentElement.style.setProperty("--accent", data.accent);
+          const current = getComputedStyle(document.documentElement)
+            .getPropertyValue("--accent")
+            .trim()
+            .toLowerCase();
+          if (current !== data.accent.toLowerCase()) {
+            document.documentElement.style.setProperty("--accent", data.accent);
+          }
         }
       } catch (e) {
         /* keep the CSS default */

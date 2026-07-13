@@ -5,8 +5,11 @@
     "build": "node scripts/build-pages.mjs",
     "check:headers": "node scripts/check-headers.mjs",
     "check:fonts": "node scripts/check-fonts.mjs",
+    "check:seo": "node scripts/check-seo-aeo.mjs",
     "gen:variants": "node scripts/gen-image-variants.mjs",
     "check:payload": "node scripts/check-payload-budget.mjs",
-    "check:admin-only": "node scripts/check-admin-only.mjs"
+    "check:admin-only": "node scripts/check-admin-only.mjs",
+    "check:overrides": "node scripts/check-overrides-idempotent.mjs",
+    "check:ux": "node scripts/check-ux-states.mjs"
   }
 }

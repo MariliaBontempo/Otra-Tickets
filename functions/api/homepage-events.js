@@ -8,6 +8,8 @@
 // ticket types configured, sorts them, and returns a slim JSON list.
 //
 // Latency strategy (events change rarely, so favour serving fast over fresh):
+//   * KV last-known-good snapshot - served instantly on any edge-cache miss;
+//     a background rebuild repopulates the edge cache and refreshes the snapshot.
 //   * stale-while-revalidate — a cached copy is served instantly; once it is
 //     older than FRESH_SECONDS it is still returned immediately while a fresh
 //     build runs in the background. Only a completely cold cache waits.
@@ -19,21 +21,20 @@
 // staff-only admin preview endpoint (/admin/api/homepage-events). This public
 // route never includes admin-only events, so its cached responses stay safe.
 
-import { buildHomepageFeed, EDGE_TTL } from "../_lib/homepage-feed.js";
+import { getPublicHomepageFeed, EDGE_TTL } from "../_lib/homepage-feed.js";
 
 export async function onRequestGet(context) {
   const url = new URL(context.request.url);
   const forceFresh = url.searchParams.get("fresh") === "1";
-  const { events, rows, hasSiteEvents } = await buildHomepageFeed(context, { forceFresh });
-  return json({ events, rows }, 200, hasSiteEvents ? 0 : 120);
+  const { events, rows, hasSiteEvents, feedSource } = await getPublicHomepageFeed(context, { forceFresh });
+  return json({ events, rows }, 200, hasSiteEvents ? 0 : 120, feedSource);
 }
 
-function json(obj, status = 200, maxAge = 0) {
-  return new Response(JSON.stringify(obj), {
-    status,
-    headers: {
-      "content-type": "application/json; charset=utf-8",
-      "cache-control": maxAge ? `public, max-age=${maxAge}, stale-while-revalidate=${EDGE_TTL}` : "no-store",
-    },
-  });
+function json(obj, status = 200, maxAge = 0, feedSource = "") {
+  const headers = {
+    "content-type": "application/json; charset=utf-8",
+    "cache-control": maxAge ? `public, max-age=${maxAge}, stale-while-revalidate=${EDGE_TTL}` : "no-store",
+  };
+  if (feedSource) headers["x-feed-source"] = feedSource;
+  return new Response(JSON.stringify(obj), { status, headers });
 }

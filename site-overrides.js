@@ -28,7 +28,13 @@
 
   function applyLegacyOverride(override) {
     if (override.accentColor && /^#[0-9A-Fa-f]{6}$/.test(override.accentColor)) {
-      document.documentElement.style.setProperty("--accent", override.accentColor);
+      const current = getComputedStyle(document.documentElement)
+        .getPropertyValue("--accent")
+        .trim()
+        .toLowerCase();
+      if (current !== override.accentColor.toLowerCase()) {
+        document.documentElement.style.setProperty("--accent", override.accentColor);
+      }
     }
 
     if (override.description) {
@@ -49,17 +55,17 @@
 
     if (override.image) {
       document.querySelectorAll(".ev-hero-img, .ev-story-img").forEach((img) => {
-        img.src = override.image;
+        applyGuardedImage(img, override.image);
       });
     }
   }
 
-  function applyFieldOverrides(fields, attempt = 0) {
-    let applied = 0;
+  function applyFieldOverrides(fields, attempt = 0, applied = new Set()) {
     for (const [key, field] of Object.entries(fields)) {
-      if (!field) continue;
+      if (applied.has(key)) continue;
+      if (!field) { applied.add(key); continue; }
       const index = key.indexOf(":");
-      if (index < 0) continue;
+      if (index < 0) { applied.add(key); continue; }
       const type = key.slice(0, index);
       const selector = key.slice(index + 1);
       let el = null;
@@ -69,38 +75,67 @@
           el = document.querySelector(selector.slice("main > ".length));
         }
       } catch {
+        applied.add(key);
         continue;
       }
       if (!el) continue;
 
       if (type === "remove" && field.type === "remove") {
         el.remove();
-        applied++;
+        applied.add(key);
         continue;
       }
       if (type === "text" && field.type === "text") {
         const value = typeof field.value === "string" ? field.value : "";
-        el.textContent = value;
-        if (value.includes("\n")) el.style.whiteSpace = "pre-line";
-        applied++;
+        if (el.textContent !== value) {
+          el.textContent = value;
+          if (value.includes("\n")) el.style.whiteSpace = "pre-line";
+        }
+        applied.add(key);
+        continue;
       }
       if (type === "image" && field.type === "image" && field.value) {
-        applyImage(el, field.value);
-        applied++;
+        applyGuardedImage(el, field.value);
+        applied.add(key);
+        continue;
       }
     }
 
-    if (attempt < 30) {
-      setTimeout(() => applyFieldOverrides(fields, attempt + 1), 250);
+    const remaining = Object.keys(fields).filter((k) => !applied.has(k));
+    if (remaining.length > 0 && attempt < 30) {
+      setTimeout(() => applyFieldOverrides(fields, attempt + 1, applied), 250);
     }
   }
 
-  function applyImage(el, value) {
-    if (el.tagName === "IMG" || el.tagName === "VIDEO") {
-      if (el.tagName === "VIDEO") el.poster = value;
-      else el.src = value;
+  function applyGuardedImage(el, value) {
+    if (el.tagName === "IMG") {
+      const abs = new URL(value, location.href).href;
+      if (el.src !== abs) {
+        applyDecodedImage(el, value);
+      }
       return;
     }
-    el.style.backgroundImage = `url("${value.replace(/"/g, "%22")}")`;
+    if (el.tagName === "VIDEO") {
+      const abs = new URL(value, location.href).href;
+      if (el.poster !== abs) {
+        el.poster = value;
+      }
+      return;
+    }
+    const bg = `url("${value.replace(/"/g, "%22")}")`;
+    if (el.style.backgroundImage !== bg) {
+      el.style.backgroundImage = bg;
+    }
+  }
+
+  function applyDecodedImage(el, value) {
+    const pre = new Image();
+    pre.src = value;
+    function assign() { el.src = value; }
+    if (typeof pre.decode === "function") {
+      pre.decode().then(assign, assign);
+    } else {
+      pre.onload = pre.onerror = assign;
+    }
   }
 })();
