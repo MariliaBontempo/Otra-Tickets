@@ -1144,7 +1144,13 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
         if (!resp.ok) return;
         const data = await resp.json();
         if (data && /^#[0-9A-Fa-f]{6}$/.test(data.accent || "")) {
-          document.documentElement.style.setProperty("--accent", data.accent);
+          const current = getComputedStyle(document.documentElement)
+            .getPropertyValue("--accent")
+            .trim()
+            .toLowerCase();
+          if (current !== data.accent.toLowerCase()) {
+            document.documentElement.style.setProperty("--accent", data.accent);
+          }
         }
       } catch (e) {
         /* keep the CSS default */
