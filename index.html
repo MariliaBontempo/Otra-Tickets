@@ -35,7 +35,10 @@
     }
     var publicFetch = function () {
       window.__eventsApi = publicApi;
-      return fetch(publicApi).then(function (r) { return r.json(); });
+      return fetch(publicApi).then(function (r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      });
     };
     if (adminToken) {
       window.__eventsApi = "/admin/api/homepage-events" + (location.search.includes("fresh=1") ? "?fresh=1" : "");
@@ -673,6 +676,36 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
   .enter-arrow { animation: none; }
 }
 
+/* ---- rows skeleton + inline state blocks (additive; loading/error/empty only) ---- */
+.sk-card { cursor: default; }
+.sk-card:hover { border-color: var(--steel-soft); box-shadow: 0 0 16px var(--steel-glow); }
+.sk-card:hover .card-img { transform: none; }
+.sk-line { display: block; margin: 0 auto; border-radius: 6px; background: #12151b; }
+.sk-head { margin: 0; width: 180px; height: 22px; }
+.sk-title { width: 70%; height: 22px; }
+.sk-venue { width: 45%; height: 15px; margin-top: 8px; }
+.sk-date  { width: 55%; height: 15px; margin-top: 5px; }
+.sk-shimmer {
+  background-color: #0c0e12;
+  background-image: linear-gradient(100deg, rgba(255,255,255,0) 40%, rgba(255,255,255,0.05) 50%, rgba(255,255,255,0) 60%);
+  background-size: 200% 100%;
+  animation: skShimmer 1.4s ease-in-out infinite;
+}
+@keyframes skShimmer { from { background-position: 180% 0; } to { background-position: -80% 0; } }
+@media (prefers-reduced-motion: reduce) { .sk-shimmer { animation: none; } }
+.sk-slow, .rows-state { padding: 0 clamp(24px, 4vw, 56px); }
+.sk-slow { margin-top: 18px; color: var(--fog); font-size: 15px; }
+.rows-state { margin-top: 28px; }
+.rows-state h2 { font-family: var(--font-display); font-weight: 700; font-size: 22px; letter-spacing: 0.02em; text-transform: uppercase; color: var(--silver-text); }
+.rows-state p { margin-top: 10px; color: var(--fog); font-size: 15px; }
+.rows-state button {
+  margin-top: 18px; font-family: var(--font-body); font-size: 14.5px; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--silver-text); background: transparent;
+  border: 1px solid var(--line); padding: 12px 24px; cursor: pointer;
+  transition: border-color 0.25s ease;
+}
+.rows-state button:hover { border-color: var(--steel-soft); }
+
 </style>
 </head>
 <body>
@@ -853,7 +886,57 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
   </section>
 
   <main class="store">
-    <div id="rows"></div>
+    <div id="rows">
+      <div id="rows-skeleton" aria-hidden="true">
+        <section class="row">
+          <div class="row-head"><span class="sk-line sk-head"></span></div>
+          <div class="track-wrap">
+            <div class="track">
+              <article class="card sk-card">
+                <div class="card-img sk-shimmer"></div>
+                <div class="card-body">
+                  <span class="sk-line sk-title"></span>
+                  <span class="sk-line sk-venue"></span>
+                  <span class="sk-line sk-date"></span>
+                </div>
+              </article>
+              <article class="card sk-card">
+                <div class="card-img sk-shimmer"></div>
+                <div class="card-body">
+                  <span class="sk-line sk-title"></span>
+                  <span class="sk-line sk-venue"></span>
+                  <span class="sk-line sk-date"></span>
+                </div>
+              </article>
+              <article class="card sk-card">
+                <div class="card-img sk-shimmer"></div>
+                <div class="card-body">
+                  <span class="sk-line sk-title"></span>
+                  <span class="sk-line sk-venue"></span>
+                  <span class="sk-line sk-date"></span>
+                </div>
+              </article>
+              <article class="card sk-card">
+                <div class="card-img sk-shimmer"></div>
+                <div class="card-body">
+                  <span class="sk-line sk-title"></span>
+                  <span class="sk-line sk-venue"></span>
+                  <span class="sk-line sk-date"></span>
+                </div>
+              </article>
+              <article class="card sk-card">
+                <div class="card-img sk-shimmer"></div>
+                <div class="card-body">
+                  <span class="sk-line sk-title"></span>
+                  <span class="sk-line sk-venue"></span>
+                  <span class="sk-line sk-date"></span>
+                </div>
+              </article>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
   </main>
 
     <footer>
@@ -876,12 +959,15 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
     window.addEventListener("resize", fit);
     fit();
 
-    /* ===== events storefront rows — revealed by scrolling down from the hero ===== */
-    (async function () {
+    /* ===== events storefront rows - revealed by scrolling down from the hero ===== */
+    (function () {
     const rowsTarget = document.getElementById("rows");
+    const skeletonEl = document.getElementById("rows-skeleton");
     const enterLink = document.querySelector(".enter");
     let rowsReady = false;
     let scrollWhenReady = false;
+    let slowTimer = null, slowLine = null, badgeShown = false;
+    let byId = new Map();
 
     if (enterLink) {
       enterLink.classList.add("is-loading");
@@ -904,32 +990,45 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
       }
     }
 
-    // The track is fed by the Otra Guide API (category 339, ticketed events
-    // only) through the same-origin /api/homepage-events Pages Function.
-    let events = [];
-    let feedData = {};
-    try {
-      // Reuse the fetch started in <head>; fall back to a fresh one if needed.
-      feedData = await (window.__eventsPromise ||
-        fetch(window.__eventsApi || "/api/homepage-events").then((r) => r.json()));
-      events = (feedData && feedData.events) || [];
-    } catch (err) {
-      console.error("Could not load homepage events:", err);
-      markRowsReady();
-      return;
+    function startSlowTimer() {
+      stopSlowTimer();
+      slowTimer = setTimeout(() => {
+        slowLine = document.createElement("p");
+        slowLine.className = "sk-slow";
+        slowLine.textContent = "Still loading events - hang tight.";
+        rowsTarget.append(slowLine);
+      }, 5000);
     }
-    if (window.__adminView) {
-      const badge = document.createElement("div");
-      badge.textContent = "Admin view — includes admin-only events";
-      badge.style.cssText =
-        "position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:9999;" +
-        "background:#0d1720;color:#7fd4c1;border:1px solid #1fa9a0;border-radius:999px;" +
-        "padding:8px 18px;font:600 13px/1 Inter,sans-serif;pointer-events:none;";
-      document.body.appendChild(badge);
+
+    function stopSlowTimer() {
+      if (slowTimer) { clearTimeout(slowTimer); slowTimer = null; }
+      if (slowLine) { slowLine.remove(); slowLine = null; }
     }
-    if (!events.length) {
-      markRowsReady();
-      return;
+
+    function renderRowsState(heading, body, withRetry) {
+      const block = document.createElement("section");
+      block.className = "rows-state";
+      const h = document.createElement("h2"); h.textContent = heading;
+      const p = document.createElement("p"); p.textContent = body;
+      block.append(h, p);
+      if (withRetry) {
+        const btn = document.createElement("button");
+        btn.type = "button"; btn.textContent = "Try again";
+        btn.addEventListener("click", () => {
+          block.remove();
+          rowsTarget.append(skeletonEl);
+          loadRows(freshFetch);
+        });
+        block.append(btn);
+      }
+      rowsTarget.append(block);
+    }
+
+    function freshFetch() {
+      return fetch(window.__eventsApi || "/api/homepage-events").then((r) => {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      });
     }
 
     // "Saturday July 4 · 6PM" in Curaçao time, matching the old card style.
@@ -944,14 +1043,6 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
       time = time.replace(":00", "").replace(/\s/g, "");
       return day + " " + month + " " + dayNum + " · " + time;
     }
-
-    // Every published event uses its canonical title slug. The server route
-    // resolves that slug to the event id and preserves bespoke templates.
-    const byId = new Map(events.map((ev) => [String(ev.id), ev]));
-    const rowData = Array.isArray(feedData.rows) && feedData.rows.length
-      ? feedData.rows
-      : [{ id: "main", title: "", eventIds: events.map((ev) => String(ev.id)) }];
-    preloadFirstRowImages(rowData[0], byId);
 
     // Build the tracks
     const ICON_L = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="15 5 8 12 15 19"/></svg>';
@@ -1075,8 +1166,6 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
       sec.append(wrap);
       container.append(sec);
     }
-    rowData.forEach(buildRow);
-    markRowsReady();
 
     function preloadFirstRowImages(row, map) {
       if (!row || !Array.isArray(row.eventIds)) return;
@@ -1092,6 +1181,52 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
           document.head.append(link);
         });
     }
+
+    async function loadRows(fetchFeed) {
+      startSlowTimer();
+      let events = [], feedData = {};
+      try {
+        // Reuse the fetch started in <head> on first load; fresh fetch on retry.
+        feedData = await fetchFeed();
+        events = (feedData && feedData.events) || [];
+      } catch (err) {
+        stopSlowTimer();
+        skeletonEl.remove();
+        renderRowsState("We couldn't load events.", "Check your connection and try again.", true);
+        markRowsReady();
+        return;
+      }
+      stopSlowTimer();
+      if (window.__adminView && !badgeShown) {
+        badgeShown = true;
+        const badge = document.createElement("div");
+        badge.textContent = "Admin view - includes admin-only events";
+        badge.style.cssText =
+          "position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:9999;" +
+          "background:#0d1720;color:#7fd4c1;border:1px solid #1fa9a0;border-radius:999px;" +
+          "padding:8px 18px;font:600 13px/1 Inter,sans-serif;pointer-events:none;";
+        document.body.appendChild(badge);
+      }
+      if (!events.length) {
+        skeletonEl.remove();
+        renderRowsState("No upcoming events right now.", "New events are added all the time - check back soon.", false);
+        markRowsReady();
+        return;
+      }
+
+      // Every published event uses its canonical title slug. The server route
+      // resolves that slug to the event id and preserves bespoke templates.
+      byId = new Map(events.map((ev) => [String(ev.id), ev]));
+      const rowData = Array.isArray(feedData.rows) && feedData.rows.length
+        ? feedData.rows
+        : [{ id: "main", title: "", eventIds: events.map((ev) => String(ev.id)) }];
+      preloadFirstRowImages(rowData[0], byId);
+      skeletonEl.remove();
+      rowData.forEach(buildRow);
+      markRowsReady();
+    }
+
+    loadRows(() => window.__eventsPromise || freshFetch());
     })();
 
     /* ============ HEADER DROPDOWNS ============ */
