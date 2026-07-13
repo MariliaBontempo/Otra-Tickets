@@ -48,6 +48,8 @@ const FRESH_SECONDS = 600;
 export const EDGE_TTL = 86400;
 // Edge-cache the upstream otraguide responses to speed up rebuilds.
 const UPSTREAM_TTL = 300;
+// KV key for the last-known-good homepage feed snapshot (OVERRIDES namespace).
+const SNAPSHOT_KEY = "__homepage_feed_snapshot__";
 const HOMEPAGE_TIME_ZONE = "America/Curacao";
 
 // Build the full { events, rows } homepage payload.
@@ -76,6 +78,67 @@ export async function buildHomepageFeed(context, { includeAdminOnly = false, aut
   for (const event of events) event.slug = eventSlug(event.title);
   const rows = await buildRows(events, context.env);
   return { events, rows, hasSiteEvents: siteEvents.length > 0 };
+}
+
+// Read the KV snapshot and validate it. Returns the snapshot object or null.
+async function readSnapshot(env) {
+  if (!env || !env.OVERRIDES) return null;
+  try {
+    const raw = await env.OVERRIDES.get(SNAPSHOT_KEY, "json");
+    if (!raw || !Array.isArray(raw.events) || !Array.isArray(raw.rows) || raw.events.length === 0) return null;
+    return raw;
+  } catch {
+    return null;
+  }
+}
+
+// Write the last-known-good snapshot to KV. Skipped when events is empty
+// (never overwrite a good snapshot with a failed/empty build).
+async function writeSnapshot(env, { events, rows, hasSiteEvents }) {
+  if (!env || !env.OVERRIDES || !events.length) return;
+  await env.OVERRIDES.put(
+    SNAPSHOT_KEY,
+    JSON.stringify({ events, rows, hasSiteEvents, generatedAt: Date.now() })
+  );
+}
+
+// Public homepage feed with a three-tier latency strategy:
+//   edge hit  -> serve instantly via existing SWR (feedSource: "edge")
+//   KV hit    -> serve snapshot instantly, rebuild in background (feedSource: "kv-stale")
+//   cold      -> foreground build, snapshot-write in background (feedSource: "origin")
+// forceFresh skips both fast paths and always rebuilds from origin.
+export async function getPublicHomepageFeed(context, { forceFresh = false } = {}) {
+  if (forceFresh) {
+    const result = await buildHomepageFeed(context, { forceFresh: true });
+    context.waitUntil(writeSnapshot(context.env, result));
+    return { ...result, feedSource: "origin" };
+  }
+
+  const probeKey = new Request(new URL("/api/homepage-upstream-events", context.request.url));
+  const edgeHit = await caches.default.match(probeKey);
+
+  if (edgeHit) {
+    const result = await buildHomepageFeed(context, {});
+    return { ...result, feedSource: "edge" };
+  }
+
+  const snapshot = await readSnapshot(context.env);
+
+  if (snapshot) {
+    context.waitUntil(
+      buildHomepageFeed(context, {}).then((fresh) => writeSnapshot(context.env, fresh))
+    );
+    return {
+      events: snapshot.events,
+      rows: snapshot.rows,
+      hasSiteEvents: snapshot.hasSiteEvents,
+      feedSource: "kv-stale",
+    };
+  }
+
+  const result = await buildHomepageFeed(context, {});
+  context.waitUntil(writeSnapshot(context.env, result));
+  return { ...result, feedSource: "origin" };
 }
 
 // The admin (staff) upstream build is cached under its own key so the public
