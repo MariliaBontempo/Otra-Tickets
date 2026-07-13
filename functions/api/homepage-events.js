@@ -8,7 +8,7 @@
 // ticket types configured, sorts them, and returns a slim JSON list.
 //
 // Latency strategy (events change rarely, so favour serving fast over fresh):
-//   * KV last-known-good snapshot — served instantly on any edge-cache miss;
+//   * KV last-known-good snapshot - served instantly on any edge-cache miss;
 //     a background rebuild repopulates the edge cache and refreshes the snapshot.
 //   * stale-while-revalidate — a cached copy is served instantly; once it is
 //     older than FRESH_SECONDS it is still returned immediately while a fresh
