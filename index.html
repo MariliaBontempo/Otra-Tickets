@@ -563,14 +563,8 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
   inset: 0;
   transform: scale(0.9);
   transform-origin: center center;
-  /* fill `backwards`, NOT `both`: the base styles already equal the final
-     keyframe, and a forwards-filled filter animation never releases its
-     composited layer (Chrome intermittently stops painting it) */
-  animation: wordmarkIn 1.7s cubic-bezier(0.16, 1, 0.3, 1) backwards;
-  /* keep the sheen's blend mode contained to the wordmark group; without this
-     the screen blend participates in page compositing alongside the header's
-     backdrop-filter, which intermittently drops the whole layer in Chrome */
-  isolation: isolate;
+  animation: wordmarkIn 1.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+  will-change: transform, opacity, filter;
 }
 .wordmark-img {
   position: absolute;
@@ -601,10 +595,7 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
 @keyframes wordmarkIn {
   0%   { opacity: 0; transform: scale(0.82) translateY(16px); filter: blur(18px); }
   55%  { opacity: 1; }
-  /* end on `none` (not blur(0)): with fill-mode both, a lingering blur(0)
-     keeps the element on a filtered composited layer forever, which Chrome
-     intermittently stops painting (wordmark vanishes over the mosaic) */
-  100% { opacity: 1; transform: scale(0.9) translateY(0); filter: none; }
+  100% { opacity: 1; transform: scale(0.9) translateY(0); filter: blur(0); }
 }
 @keyframes wordmarkSheen {
   0%   { background-position: 180% 0; opacity: 0; }
