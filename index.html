@@ -519,10 +519,12 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
   top: 0; left: 0; right: 0;
   z-index: 100;
 }
-/* the splash hero fills the first fold (100vw × 100vh), then content follows */
+/* the splash hero starts BELOW the fixed header (not behind it) and fills the
+   rest of the first fold, then content follows */
 .mosaic-main {
   position: relative;
-  height: 100vh;
+  margin-top: var(--header-h);
+  height: calc(100vh - var(--header-h));
   width: 100%;
   padding: 0;                  /* override the storefront's main { padding-top } */
   background: #000;
@@ -999,7 +1001,10 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
     // so the locked composition always fills the viewport in both width and height.
     const canvas = document.getElementById("canvas");
     function fit() {
-      const s = Math.max(window.innerWidth / 1920, window.innerHeight / 1080);
+      // scale to cover the hero section itself (it no longer spans the full
+      // viewport - it starts below the fixed header)
+      const hero = canvas.closest(".mosaic-main") || document.body;
+      const s = Math.max(hero.clientWidth / 1920, hero.clientHeight / 1080);
       canvas.style.setProperty("--s", s);
     }
     window.addEventListener("resize", fit);
