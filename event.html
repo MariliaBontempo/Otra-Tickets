@@ -734,6 +734,27 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
   .nav, .page-intro p { display: none; }
   .brand .wordmark { display: none; }
 }
+
+/* ---- SKELETON STATES ---- */
+.sk {
+  background: linear-gradient(90deg, var(--ink-2) 25%, var(--ink-3) 50%, var(--ink-2) 75%);
+  background-size: 200% 100%;
+  animation: skShimmer 1.6s linear infinite;
+  border-radius: 4px;
+}
+@keyframes skShimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+@media (prefers-reduced-motion: reduce) { .sk { animation: none; } }
+.sk-hero { position: absolute; inset: 0; }
+.sk-title-group { display: flex; flex-direction: column; gap: 16px; margin-bottom: 28px; }
+.sk-eyebrow { height: 14px; width: 120px; }
+.sk-h1 { height: clamp(45px, 8.4vw, 141px); width: 80%; }
+.sk-meta { height: 16px; width: 200px; }
+.sk-tickets { display: grid; grid-template-columns: repeat(auto-fit, minmax(208px, 1fr)); gap: 18px; margin-top: 48px; }
+.sk-ticket { min-height: 120px; }
+.ev-rates-empty { grid-column: 1 / -1; }
 </style>
 </head>
 <body>
@@ -882,7 +903,7 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
     </div>
   </header>
 
-  <main class="detail">
+  <main class="detail" aria-busy="true">
 
     <!-- Generic event template — every section below is populated from
          /api/event?id=<id>. Sections with no data are hidden at runtime. -->
@@ -890,6 +911,7 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
     <!-- ============ HERO (image only) ============ -->
     <section class="ev-hero" data-screen-label="Hero">
       <img class="ev-hero-img" id="evHeroImg" alt="" />
+      <div data-skeleton aria-hidden="true" class="sk sk-hero"></div>
       <div class="ev-hero-veil"></div>
       <div class="scroll-cue">
         <span>Scroll</span>
@@ -899,6 +921,11 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
 
     <!-- ============ TITLE BLOCK ============ -->
     <section class="ev-titleblock section-pad reveal" data-screen-label="Title">
+      <div data-skeleton aria-hidden="true" class="sk-title-group">
+        <div class="sk sk-eyebrow"></div>
+        <div class="sk sk-h1"></div>
+        <div class="sk sk-meta"></div>
+      </div>
       <span class="ev-eyebrow" id="evEyebrow"></span>
       <h1 id="evTitle"></h1>
       <p class="ev-tag" id="evTag" hidden></p>
@@ -954,6 +981,15 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
       <span class="ev-eyebrow">Practical Info</span>
       <h2 class="ev-h2" style="margin-top:18px;">Before you go</h2>
       <div class="ev-info-grid" id="evInfoGrid"></div>
+    </section>
+
+    <!-- ============ TICKETS SKELETON ============ -->
+    <section data-skeleton aria-hidden="true" id="evTicketsSkeleton" class="section-pad">
+      <div class="sk-tickets">
+        <div class="sk sk-ticket"></div>
+        <div class="sk sk-ticket"></div>
+        <div class="sk sk-ticket"></div>
+      </div>
     </section>
 
     <!-- ============ RATES ============ -->
@@ -1080,7 +1116,7 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
     (async function () {
       const $ = (id) => document.getElementById(id);
       const id = document.documentElement.dataset.eventId || new URLSearchParams(location.search).get("id");
-      if (!id) { showError("No event was specified."); return; }
+      if (!id) { showError(); return; }
 
       let ev;
       try {
@@ -1111,10 +1147,11 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
         }
       } catch (err) {
         console.error("Could not load event:", err);
-        showError("We couldn't load this event.");
+        showError();
         return;
       }
 
+      removeSkeletons();
       const CURRENCY = { USD: "$", EUR: "€", ANG: "ƒ", AWG: "ƒ" };
       const cur = (code) => CURRENCY[code] || (code ? code + " " : "$");
       // 1,000 style grouping, no decimals when whole.
@@ -1309,6 +1346,11 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
           })
           .join("");
         $("evRatesSection").hidden = false;
+      } else {
+        $("evRatesSection").querySelector(".ev-h2").textContent = "Tickets aren't on sale yet.";
+        $("evRates").innerHTML = '<p class="ev-rates-empty">Check back soon, or <a href="/">explore other events</a>.</p>';
+        $("evRatesSection").querySelector(".ev-rates-foot").hidden = true;
+        $("evRatesSection").hidden = false;
       }
 
       // ----- BOOKING (embedded checkout) -----
@@ -1355,11 +1397,19 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
         return String(s || "").replace(/["\\]/g, "\\$&");
       }
 
-      function showError(msg) {
+      function removeSkeletons() {
+        document.querySelectorAll("[data-skeleton]").forEach((el) => el.remove());
+        const m = document.querySelector("main.detail");
+        if (m) m.removeAttribute("aria-busy");
+      }
+
+      function showError() {
+        removeSkeletons();
         $("evEyebrow").textContent = "Otra Tickets";
-        $("evTitle").textContent = msg;
-        const a = $("evActions");
-        a.innerHTML = '<a class="btn-ghost" href="index.html">Back to events</a>';
+        $("evTitle").textContent = "We couldn't load this event.";
+        $("evTag").textContent = "It may have ended, or the link may be out of date.";
+        $("evTag").hidden = false;
+        $("evActions").innerHTML = '<a class="btn-metal" href="/">Browse all events</a>';
       }
 
       function revealAll() {
