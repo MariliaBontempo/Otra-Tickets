@@ -455,6 +455,34 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
   .nav, .page-intro p { display: none; }
   .brand .wordmark { display: none; }
 }
+
+/* ===== Responsive header (mobile) ===== */
+@media (max-width: 720px) {
+  :root { --header-h: 84px; }
+  .header { gap: 10px; }
+  .brand img { width: 52px; height: 52px; }
+  .header-actions { gap: 0; }
+  .icon-btn { width: 42px; height: 42px; }
+  .hdr-trigger { padding: 10px 8px; gap: 6px; }
+  /* icons carry the meaning on small screens; the text labels + carets are
+     what pushed the actions past the right edge */
+  .hdr-trigger [data-loc-label],
+  .hdr-trigger .loc-flag,
+  .hdr-trigger .caret { display: none; }
+  /* dropdowns become full-width sheets pinned under the header (the
+     desktop right-anchored panels overflow a narrow viewport) */
+  .dd-panel {
+    position: fixed;
+    left: 10px;
+    right: 10px;
+    top: calc(var(--header-h) + 8px);
+    min-width: 0;
+    max-height: calc(100dvh - var(--header-h) - 20px);
+    overflow-y: auto;
+  }
+  .dd-panel::before { display: none; }
+}
+
 </style>
 </head>
 <body>
