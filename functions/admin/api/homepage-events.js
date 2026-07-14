@@ -8,7 +8,7 @@
 //   * never cached (per-auth response)
 
 import { requireStaff, json } from "./_auth.js";
-import { buildHomepageFeed } from "../../_lib/homepage-feed.js";
+import { buildHomepageFeed, applyFixedRows } from "../../_lib/homepage-feed.js";
 
 export async function onRequestGet(context) {
   const accessToken = await requireStaff(context.request, context.env);
@@ -20,5 +20,5 @@ export async function onRequestGet(context) {
     authToken: accessToken,
     forceFresh: url.searchParams.get("fresh") === "1",
   });
-  return json({ events, rows });
+  return json({ events, rows: applyFixedRows(events, rows) });
 }

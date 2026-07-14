@@ -80,6 +80,98 @@ export async function buildHomepageFeed(context, { includeAdminOnly = false, aut
   return { events, rows, hasSiteEvents: siteEvents.length > 0 };
 }
 
+// ── Fixed storefront rows ──
+// The homepage always opens with two fixed categories, mirroring the events
+// page handoff: "This Week" (whatever is actually happening during the current
+// Mon-Sun week in Curaçao time) followed by "Tours & Adventures" (the
+// perennial tours - Clearboat first, then the Iguana rides). They are computed
+// from the event list on EVERY response - never baked into the edge cache or
+// the KV snapshot - so "This Week" keeps tracking the calendar even while the
+// feed body is served stale. Events no fixed row claims land in an "Upcoming
+// Events" row between the two, so nothing curated ever disappears.
+const DAY_MS = 86400000;
+const THIS_WEEK_ROW = { id: "this-week", title: "This Week" };
+const TOURS_ROW = { id: "tours-adventures", title: "Tours & Adventures" };
+const UPCOMING_ROW = { id: "upcoming", title: "Upcoming Events" };
+
+export function applyFixedRows(events, rows, now = Date.now()) {
+  const fixed = [
+    { ...THIS_WEEK_ROW, eventIds: thisWeekEventIds(events, now) },
+    { ...TOURS_ROW, eventIds: tourEventIds(events) },
+  ];
+  // A stored layout row with the same title (e.g. a manually curated "THIS
+  // WEEK") is superseded by the computed one.
+  const reserved = new Set(fixed.map((row) => rowTitleKey(row.title)));
+  const layoutRows = (Array.isArray(rows) ? rows : []).filter(
+    (row) => row && !reserved.has(rowTitleKey(row.title))
+  );
+  const merged = [...fixed, ...layoutRows];
+  const assigned = new Set(merged.flatMap((row) => row.eventIds));
+  const missing = events.map((ev) => String(ev.id)).filter((id) => !assigned.has(id));
+  // "Upcoming Events" slots in right after This Week, above Tours & Adventures.
+  if (missing.length) merged.splice(1, 0, { ...UPCOMING_ROW, eventIds: missing });
+  return merged.filter((row) => row.eventIds.length);
+}
+
+function rowTitleKey(title) {
+  return String(title || "")
+    .toLowerCase()
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function thisWeekEventIds(events, now) {
+  const todayKey = dateKeyInTimeZone(now, HOMEPAGE_TIME_ZONE);
+  const weekEndKey = dateKeyInTimeZone(now + daysUntilSunday(now) * DAY_MS, HOMEPAGE_TIME_ZONE);
+  const happening = events.filter((ev) => happensDuring(ev, todayKey, weekEndKey));
+  // Dated events lead (soonest first); the always-running tours fill in after.
+  const dated = happening
+    .filter((ev) => ev.isPerennial !== true)
+    .sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0));
+  const tours = happening.filter((ev) => ev.isPerennial === true).sort(byTourRank);
+  return [...dated, ...tours].map((ev) => String(ev.id));
+}
+
+// Days left until the Sunday that closes the current week in Curaçao.
+function daysUntilSunday(now) {
+  const weekday = new Intl.DateTimeFormat("en-US", {
+    timeZone: HOMEPAGE_TIME_ZONE,
+    weekday: "short",
+  }).format(new Date(now));
+  const index = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].indexOf(weekday);
+  return index < 0 ? 0 : 6 - index;
+}
+
+// Does the event's date span touch the [fromKey..toKey] day window?
+function happensDuring(ev, fromKey, toKey) {
+  const start = validDateValue(ev.date);
+  const end = validDateValue(ev.endDate) || start;
+  // No usable dates at all: only an ongoing perennial claims the week.
+  if (!start && !end) return ev.isPerennial === true;
+  const startKey = start ? dateKeyInTimeZone(start, HOMEPAGE_TIME_ZONE) : null;
+  const endKey = end ? dateKeyInTimeZone(end, HOMEPAGE_TIME_ZONE) : null;
+  return (!startKey || startKey <= toKey) && (!endKey || endKey >= fromKey);
+}
+
+function tourEventIds(events) {
+  return events
+    .filter((ev) => ev.isPerennial === true)
+    .sort(byTourRank)
+    .map((ev) => String(ev.id));
+}
+
+function byTourRank(a, b) {
+  return tourRank(a) - tourRank(b);
+}
+
+function tourRank(ev) {
+  const title = String((ev && ev.title) || "").toLowerCase();
+  if (/clear\s*boat/.test(title)) return 0;
+  if (title.includes("iguana")) return 1;
+  return 2;
+}
+
 // Read the KV snapshot and validate it. Returns the snapshot object or null.
 async function readSnapshot(env) {
   if (!env || !env.OVERRIDES) return null;
@@ -107,7 +199,14 @@ async function writeSnapshot(env, { events, rows, hasSiteEvents }) {
 //   KV hit    -> serve snapshot instantly, rebuild in background (feedSource: "kv-stale")
 //   cold      -> foreground build, snapshot-write in background (feedSource: "origin")
 // forceFresh skips both fast paths and always rebuilds from origin.
-export async function getPublicHomepageFeed(context, { forceFresh = false } = {}) {
+// The fixed rows (This Week / Tours & Adventures) are applied on the way out,
+// after every cache/snapshot path, so they always reflect the current date.
+export async function getPublicHomepageFeed(context, options = {}) {
+  const result = await getPublicHomepageFeedRaw(context, options);
+  return { ...result, rows: applyFixedRows(result.events, result.rows) };
+}
+
+async function getPublicHomepageFeedRaw(context, { forceFresh = false } = {}) {
   if (forceFresh) {
     const result = await buildHomepageFeed(context, { forceFresh: true });
     context.waitUntil(writeSnapshot(context.env, result));
@@ -189,12 +288,13 @@ async function storeUpstreamEvents(cache, cacheKey, now, authToken = "", env = n
   return stored;
 }
 
+// Raw curated layout rows from KV. Events the layout doesn't place are NOT
+// force-fitted here - applyFixedRows sweeps them into "Upcoming Events" at
+// serve time, so the stored snapshot stays a faithful copy of the layout.
 async function buildRows(events, env) {
-  const ids = events.map((ev) => String(ev.id));
-  const existing = new Set(ids);
-  const fallback = [{ id: "main", title: "", eventIds: ids }];
+  const existing = new Set(events.map((ev) => String(ev.id)));
   const kv = env && env.OVERRIDES;
-  if (!kv) return fallback;
+  if (!kv) return [];
 
   let layout;
   try {
@@ -202,13 +302,7 @@ async function buildRows(events, env) {
   } catch {
     layout = null;
   }
-  const rows = normalizeRows(layout && layout.rows, existing);
-  if (!rows.length) return fallback;
-
-  const assigned = new Set(rows.flatMap((row) => row.eventIds));
-  const missing = ids.filter((id) => !assigned.has(id));
-  if (missing.length) rows[0].eventIds.push(...missing);
-  return rows.filter((row) => row.eventIds.length);
+  return normalizeRows(layout && layout.rows, existing);
 }
 
 function normalizeRows(raw, existing) {
