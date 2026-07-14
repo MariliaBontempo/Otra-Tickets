@@ -2,8 +2,14 @@
 //
 // Staff-only homepage row layout editor. The public homepage keeps using the
 // event feed, while this stores only row order, row titles, and selected card ids.
+//
+// The fixed rows (This Week / Upcoming Events / Tours & Adventures) are
+// computed by the feed, not stored: GET returns them marked { fixed: true }
+// so the editor can show them locked in place, and PUT strips them so they
+// never enter the saved layout.
 
 import { requireStaff, json } from "./_auth.js";
+import { applyFixedRows, isFixedHomepageRow } from "../../_lib/homepage-feed.js";
 
 const KEY = "homepage:layout";
 
@@ -23,10 +29,7 @@ export async function onRequestGet(context) {
     layout = null;
   }
   const rows = normalizeRows(layout && layout.rows, existing);
-  return json({
-    events,
-    rows: rows.length ? rows : [{ id: "main", title: "", eventIds: events.map((ev) => String(ev.id)) }],
-  });
+  return json({ events, rows: markFixedRows(applyFixedRows(events, rows)) });
 }
 
 export async function onRequestPut(context) {
@@ -43,13 +46,18 @@ export async function onRequestPut(context) {
   }
 
   const feed = await fetchHomepageFeed(context.request);
-  const existing = new Set((feed.events || []).map((ev) => String(ev.id)));
-  const rows = normalizeRows(body && body.rows, existing);
-  if (!rows.length) return json({ error: "at least one row with one event is required" }, 400);
+  const events = Array.isArray(feed.events) ? feed.events : [];
+  const existing = new Set(events.map((ev) => String(ev.id)));
+  // The fixed rows always exist on top, so an empty curated layout is valid.
+  const rows = normalizeRows(body && body.rows, existing).filter((row) => !isFixedHomepageRow(row));
 
   const layout = { rows, updatedAt: new Date().toISOString() };
   await kv.put(KEY, JSON.stringify(layout));
-  return json({ rows });
+  return json({ rows: markFixedRows(applyFixedRows(events, rows)) });
+}
+
+function markFixedRows(rows) {
+  return rows.map((row) => (isFixedHomepageRow(row) ? { ...row, fixed: true } : row));
 }
 
 async function fetchHomepageFeed(request) {

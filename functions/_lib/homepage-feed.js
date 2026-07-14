@@ -99,11 +99,10 @@ export function applyFixedRows(events, rows, now = Date.now()) {
     { ...THIS_WEEK_ROW, eventIds: thisWeekEventIds(events, now) },
     { ...TOURS_ROW, eventIds: tourEventIds(events) },
   ];
-  // A stored layout row with the same title (e.g. a manually curated "THIS
-  // WEEK") is superseded by the computed one.
-  const reserved = new Set(fixed.map((row) => rowTitleKey(row.title)));
+  // A stored layout row that names a fixed category (e.g. a manually curated
+  // "THIS WEEK") is superseded by the computed one.
   const layoutRows = (Array.isArray(rows) ? rows : []).filter(
-    (row) => row && !reserved.has(rowTitleKey(row.title))
+    (row) => row && !isFixedHomepageRow(row)
   );
   const merged = [...fixed, ...layoutRows];
   const assigned = new Set(merged.flatMap((row) => row.eventIds));
@@ -111,6 +110,18 @@ export function applyFixedRows(events, rows, now = Date.now()) {
   // "Upcoming Events" slots in right after This Week, above Tours & Adventures.
   if (missing.length) merged.splice(1, 0, { ...UPCOMING_ROW, eventIds: missing });
   return merged.filter((row) => row.eventIds.length);
+}
+
+// Rows the server manages automatically. They are recomputed on every feed
+// response and must never be stored in homepage:layout - the admin editor
+// shows them locked and the layout PUT strips them before saving.
+export function isFixedHomepageRow(row) {
+  if (!row || typeof row !== "object") return false;
+  const id = String(row.id || "");
+  const key = rowTitleKey(row.title);
+  return [THIS_WEEK_ROW, UPCOMING_ROW, TOURS_ROW].some(
+    (fixedRow) => id === fixedRow.id || key === rowTitleKey(fixedRow.title)
+  );
 }
 
 function rowTitleKey(title) {

@@ -217,6 +217,20 @@
   }
   .layout-row-card.dragging { opacity: 0.4; }
   .layout-row-card.drag-over { border-color: var(--accent, #4a90d9); }
+  .layout-row-card.fixed-row { border-style: dashed; }
+  .fixed-row-head { display: flex; align-items: center; gap: 10px; }
+  .fixed-row-head strong { font-size: 15px; }
+  .fixed-badge {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--accent, #4a90d9);
+    border: 1px solid currentColor;
+    border-radius: 999px;
+    padding: 3px 10px;
+  }
+  .fixed-row-note { font-size: 13px; color: var(--muted); }
+  .fixed-row .event-order-item { cursor: default; }
   .layout-row-card header {
     display: grid;
     grid-template-columns: auto 1fr auto;
@@ -898,6 +912,7 @@
     hubView.classList.remove("hidden");
   });
   $("addHomepageRowBtn").addEventListener("click", () => {
+    syncHomepageRowsFromDom();
     homepageRows.push({ id: "row-" + Date.now(), title: "New row", eventIds: [] });
     renderHomepageRows();
   });
@@ -1451,23 +1466,60 @@
   }
 
   function syncHomepageRowsFromDom() {
-    homepageRows = [...document.querySelectorAll(".layout-row-card")].map((card) => ({
-      id: card.dataset.rowId,
-      title: card.querySelector("[data-row-title]").value,
-      eventIds: [...card.querySelectorAll("[data-order-list] [data-order-id]")].map((el) => el.dataset.orderId),
-    }));
+    // Fixed (auto-managed) rows have no editable fields; carry them over as-is.
+    const byId = Object.fromEntries(homepageRows.map((row) => [String(row.id), row]));
+    homepageRows = [...document.querySelectorAll(".layout-row-card")]
+      .map((card) => {
+        if (card.dataset.fixed) return byId[card.dataset.rowId];
+        return {
+          id: card.dataset.rowId,
+          title: card.querySelector("[data-row-title]").value,
+          eventIds: [...card.querySelectorAll("[data-order-list] [data-order-id]")].map((el) => el.dataset.orderId),
+        };
+      })
+      .filter(Boolean);
+  }
+
+  function fixedRowNote(id) {
+    if (id === "this-week") return "Automatic: events happening during the current week (Curaçao time), plus the daily tours. Updates by itself as the calendar moves.";
+    if (id === "upcoming") return "Automatic: dated events outside the current week that are not placed in any row below.";
+    if (id === "tours-adventures") return "Automatic: the perennial tours - Clearboat first, then the Iguana rides.";
+    return "Managed automatically by the site.";
   }
 
   function renderHomepageRows() {
     const host = $("homepageRows");
     host.innerHTML = "";
+    const eventMap = Object.fromEntries(homepageEvents.map((e) => [String(e.id), e]));
     homepageRows.forEach((row, rowIndex) => {
       const card = document.createElement("section");
       card.className = "layout-row-card";
       card.dataset.rowId = row.id;
 
       const selectedIds = (row.eventIds || []).map(String);
-      const eventMap = Object.fromEntries(homepageEvents.map((e) => [String(e.id), e]));
+
+      if (row.fixed) {
+        card.classList.add("fixed-row");
+        card.dataset.fixed = "1";
+        card.innerHTML = `
+          <header class="fixed-row-head">
+            <strong>${esc(row.title || "")}</strong>
+            <span class="fixed-badge">Automatic</span>
+          </header>
+          <p class="fixed-row-note">${esc(fixedRowNote(row.id))}</p>
+          <div>
+            <p class="event-picker-label">Current cards</p>
+            <div class="event-order-list">
+              ${selectedIds.map((id) => {
+                const event = eventMap[id];
+                return `<div class="event-order-item"><span class="event-order-handle">•</span><span class="event-order-name">${esc(event ? event.title : id)}<small>${esc(id)}</small></span></div>`;
+              }).join("")}
+            </div>
+          </div>
+        `;
+        host.append(card);
+        return;
+      }
 
       card.innerHTML = `
         <header>
@@ -1497,7 +1549,7 @@
         </div>
       `;
 
-      card.querySelector("[data-row-up]").disabled = rowIndex === 0;
+      card.querySelector("[data-row-up]").disabled = rowIndex === 0 || !!(homepageRows[rowIndex - 1] || {}).fixed;
       card.querySelector("[data-row-down]").disabled = rowIndex === homepageRows.length - 1;
       card.querySelector("[data-row-up]").addEventListener("click", () => moveHomepageRow(rowIndex, -1));
       card.querySelector("[data-row-down]").addEventListener("click", () => moveHomepageRow(rowIndex, 1));
@@ -1600,6 +1652,8 @@
     syncHomepageRowsFromDom();
     const next = index + delta;
     if (next < 0 || next >= homepageRows.length) return;
+    // The automatic rows are pinned at the top; nothing moves past them.
+    if ((homepageRows[next] || {}).fixed) return;
     const [row] = homepageRows.splice(index, 1);
     homepageRows.splice(next, 0, row);
     renderHomepageRows();
