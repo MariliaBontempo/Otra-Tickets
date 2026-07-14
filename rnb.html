@@ -435,7 +435,7 @@ main { padding-top: calc(var(--header-h) + 22px); padding-bottom: 80px; }
    EVENT DETAIL PAGE
    ============================================================ */
 :root { --metal: linear-gradient(176deg,#eef1f4 0%,#c2c8d0 40%,#8e949d 62%,#e4e8ec 100%); }
-main.detail { padding: 0; }
+main.detail { padding: 0; padding-top: var(--header-h); } /* hero starts below the fixed menu, not behind it */
 
 /* reveal-on-scroll */
 .reveal { opacity: 0; transform: translateY(28px); transition: opacity .9s var(--ease, cubic-bezier(.22,1,.36,1)), transform .9s var(--ease, cubic-bezier(.22,1,.36,1)); }
