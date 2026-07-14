@@ -78,9 +78,9 @@ body {
   align-items: center;
   gap: 40px;
   padding: 0 clamp(28px, 4vw, 64px);
-  background: linear-gradient(180deg, rgba(7,8,10,0.92), rgba(7,8,10,0.72));
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  /* fully opaque: page content (hero mosaic, cards) must never show through
+     the fixed menu bar */
+  background: linear-gradient(180deg, #07080a, #0b0d11);
   border-bottom: 1px solid var(--line);
 }
 
