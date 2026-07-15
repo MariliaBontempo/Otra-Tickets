@@ -493,9 +493,29 @@ main.detail { padding: 0; padding-top: var(--header-h); } /* hero starts below t
 }
 .btn-ghost:hover { border-color: var(--steel-soft); }
 
-.scroll-cue { position: absolute; left: 50%; bottom: 26px; transform: translateX(-50%); z-index: 3; display: flex; flex-direction: column; align-items: center; gap: 8px; color: var(--fog-2); font-size: 11px; letter-spacing: 0.26em; text-transform: uppercase; }
-.scroll-cue svg { width: 22px; height: 22px; stroke: var(--fog); animation: nudge 2.2s ease-in-out infinite; }
-@keyframes nudge { 0%,100% { transform: translateY(0); } 50% { transform: translateY(6px); } }
+.scroll-cue {
+  position: absolute; left: 50%; bottom: 34px; transform: translateX(-50%); z-index: 3;
+  display: flex; flex-direction: column; align-items: center; gap: 13px;
+  color: var(--silver-text); font-size: 13px; letter-spacing: 0.28em; text-transform: uppercase;
+  background: none; border: none; cursor: pointer; padding: 0; font-family: var(--font-body);
+  transition: color .25s ease;
+}
+.scroll-cue:hover { color: #fff; }
+.scroll-cue .ring {
+  position: relative; width: 60px; height: 60px; border-radius: 50%;
+  border: 2px solid var(--steel-soft);
+  background: rgba(7,8,10,0.42);
+  backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+  display: grid; place-items: center;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.4);
+  transition: border-color .25s ease, background .25s ease, transform .25s var(--ease, cubic-bezier(.22,1,.36,1));
+}
+.scroll-cue:hover .ring { border-color: var(--steel); background: color-mix(in srgb, var(--steel) 12%, transparent); transform: translateY(3px); }
+.scroll-cue .ring::before { content: ""; position: absolute; inset: -2px; border-radius: 50%; border: 2px solid var(--steel); opacity: 0; animation: cuePulse 2.4s ease-out infinite; }
+.scroll-cue svg { width: 26px; height: 26px; stroke: var(--steel-text); stroke-width: 2.4; animation: nudge 1.8s ease-in-out infinite; }
+@keyframes nudge { 0%,100% { transform: translateY(-3px); } 50% { transform: translateY(4px); } }
+@keyframes cuePulse { 0% { opacity: 0.7; transform: scale(1); } 100% { opacity: 0; transform: scale(1.55); } }
+@media (prefers-reduced-motion: reduce) { .scroll-cue svg { animation: none; } .scroll-cue .ring::before { animation: none; } }
 
 /* ---- STORY ---- */
 .ev-story { display: grid; grid-template-columns: 1.08fr 0.92fr; gap: clamp(36px, 5vw, 84px); align-items: center; }
@@ -877,10 +897,13 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
     <section class="ev-hero" data-screen-label="Hero">
       <img class="ev-hero-img" src="uploads/variants/clearboat-hero-1600.webp" alt="Clearboat glass-bottom boat on the turquoise west coast of Curaçao" width="1600" height="900" decoding="async" fetchpriority="high" />
       <div class="ev-hero-veil"></div>
-      <div class="scroll-cue">
-        <span>Scroll</span>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="6 9 12 15 18 9"/></svg>
-      </div>
+      <button class="scroll-cue" type="button" aria-label="Scroll down to the event details"
+              onclick="window.scrollBy({ top: window.innerHeight * 0.88, behavior: 'smooth' })">
+        <span class="ring">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="6 9 12 15 18 9"/></svg>
+        </span>
+        <span>Scroll down</span>
+      </button>
     </section>
 
     <!-- ============ TITLE BLOCK ============ -->
