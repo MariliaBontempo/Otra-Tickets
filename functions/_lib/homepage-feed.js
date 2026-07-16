@@ -72,8 +72,7 @@ export async function buildHomepageFeed(context, { includeAdminOnly = false, aut
   }
   // Site events come first so their curated title/image win when the same
   // published Otra Guide event also appears in the upstream public feed.
-  const visibleEvents = dedupeEvents([...siteEvents, ...upstreamEvents])
-    .filter((event) => isCurrentOrFutureEvent(event, now));
+  const visibleEvents = dedupeEvents([...siteEvents, ...upstreamEvents]);
   const events = await applyImageOverrides(visibleEvents, context.env);
   for (const event of events) event.slug = eventSlug(event.title);
   const rows = await buildRows(events, context.env);
@@ -81,34 +80,43 @@ export async function buildHomepageFeed(context, { includeAdminOnly = false, aut
 }
 
 // ── Fixed storefront rows ──
-// The homepage always opens with two fixed categories, mirroring the events
+// The homepage always opens with fixed categories, mirroring the events
 // page handoff: "This Week" (whatever is actually happening during the current
-// Mon-Sun week in Curaçao time) followed by "Tours & Adventures" (the
-// perennial tours - Clearboat first, then the Iguana rides). They are computed
-// from the event list on EVERY response - never baked into the edge cache or
-// the KV snapshot - so "This Week" keeps tracking the calendar even while the
-// feed body is served stale. Events no fixed row claims land in an "Upcoming
-// Events" row between the two, so nothing curated ever disappears.
+// Mon-Sun week in Curaçao time), "Upcoming Events", "Tours & Adventures", and
+// a final "Past Events" row. They are computed from the event list on EVERY
+// response - never baked into the edge cache or the KV snapshot - so date-based
+// rows keep tracking the calendar even while the feed body is served stale.
 const DAY_MS = 86400000;
 const THIS_WEEK_ROW = { id: "this-week", title: "This Week" };
 const TOURS_ROW = { id: "tours-adventures", title: "Tours & Adventures" };
 const UPCOMING_ROW = { id: "upcoming", title: "Upcoming Events" };
+const PAST_ROW = { id: "past-events", title: "Past Events" };
 
 export function applyFixedRows(events, rows, now = Date.now()) {
+  const currentEvents = events.filter((event) => isCurrentOrFutureEvent(event, now));
+  const currentIds = new Set(currentEvents.map((ev) => String(ev.id)));
   const fixed = [
-    { ...THIS_WEEK_ROW, eventIds: thisWeekEventIds(events, now) },
-    { ...TOURS_ROW, eventIds: tourEventIds(events) },
+    { ...THIS_WEEK_ROW, eventIds: thisWeekEventIds(currentEvents, now) },
+    { ...TOURS_ROW, eventIds: tourEventIds(currentEvents) },
   ];
   // A stored layout row that names a fixed category (e.g. a manually curated
   // "THIS WEEK") is superseded by the computed one.
-  const layoutRows = (Array.isArray(rows) ? rows : []).filter(
-    (row) => row && !isFixedHomepageRow(row)
-  );
+  const layoutRows = (Array.isArray(rows) ? rows : [])
+    .filter((row) => row && !isFixedHomepageRow(row))
+    .map((row) => ({
+      ...row,
+      eventIds: (Array.isArray(row.eventIds) ? row.eventIds : [])
+        .map((id) => String(id))
+        .filter((id) => currentIds.has(id)),
+    }))
+    .filter((row) => row.eventIds.length);
   const merged = [...fixed, ...layoutRows];
   const assigned = new Set(merged.flatMap((row) => row.eventIds));
-  const missing = events.map((ev) => String(ev.id)).filter((id) => !assigned.has(id));
+  const missing = currentEvents.map((ev) => String(ev.id)).filter((id) => !assigned.has(id));
   // "Upcoming Events" slots in right after This Week, above Tours & Adventures.
   if (missing.length) merged.splice(1, 0, { ...UPCOMING_ROW, eventIds: missing });
+  const past = pastEventIds(events, now);
+  if (past.length) merged.push({ ...PAST_ROW, eventIds: past });
   return merged.filter((row) => row.eventIds.length);
 }
 
@@ -119,7 +127,7 @@ export function isFixedHomepageRow(row) {
   if (!row || typeof row !== "object") return false;
   const id = String(row.id || "");
   const key = rowTitleKey(row.title);
-  return [THIS_WEEK_ROW, UPCOMING_ROW, TOURS_ROW].some(
+  return [THIS_WEEK_ROW, UPCOMING_ROW, TOURS_ROW, PAST_ROW].some(
     (fixedRow) => id === fixedRow.id || key === rowTitleKey(fixedRow.title)
   );
 }
@@ -170,6 +178,19 @@ function tourEventIds(events) {
     .filter((ev) => ev.isPerennial === true)
     .sort(byTourRank)
     .map((ev) => String(ev.id));
+}
+
+function pastEventIds(events, now) {
+  return events
+    .filter((ev) => !isCurrentOrFutureEvent(ev, now))
+    .sort((a, b) => pastSortTime(b) - pastSortTime(a))
+    .map((ev) => String(ev.id));
+}
+
+function pastSortTime(ev) {
+  const value = validDateValue(ev.endDate) || validDateValue(ev.date);
+  const time = value ? new Date(value).getTime() : 0;
+  return Number.isFinite(time) ? time : 0;
 }
 
 function byTourRank(a, b) {
