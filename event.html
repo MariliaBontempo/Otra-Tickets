@@ -432,13 +432,13 @@ main.detail { padding: 0; padding-top: var(--header-h); } /* hero starts below t
 @media (prefers-reduced-motion: reduce) { .reveal { opacity: 1; transform: none; transition: none; } }
 
 .ev-eyebrow {
-  display: inline-flex; align-items: center; gap: 16px;
-  font-size: 13px; font-weight: 600; letter-spacing: 0.3em; text-transform: uppercase;
-  color: var(--fog-2);
+  display: inline-flex; align-items: center; gap: 18px;
+  font-size: 16px; font-weight: 600; letter-spacing: 0.3em; text-transform: uppercase;
+  color: var(--steel-text);
 }
 .ev-eyebrow::before, .ev-eyebrow::after { content: ""; width: 44px; height: 2px; background: var(--steel); display: inline-block; }
 
-.section-pad { padding: clamp(72px, 10vh, 140px) clamp(22px, 5vw, 80px); max-width: 1240px; margin: 0 auto; }
+.section-pad { padding: clamp(46px, 6vh, 88px) clamp(22px, 5vw, 80px); max-width: 1240px; margin: 0 auto; }
 
 /* ---- HERO ---- */
 .ev-hero { position: relative; width: 100%; aspect-ratio: 16 / 9; overflow: hidden; display: flex; align-items: flex-end; }
@@ -456,8 +456,8 @@ main.detail { padding: 0; padding-top: var(--header-h); } /* hero starts below t
 }
 .ev-hero .ev-sub { font-family: var(--font-display); font-weight: 500; font-size: clamp(18px, 2.4vw, 30px); color: var(--silver-text); letter-spacing: 0.01em; margin-top: 10px; }
 .ev-hero .ev-tag { margin-top: 22px; max-width: 620px; font-size: clamp(16px, 1.5vw, 21px); line-height: 1.5; color: var(--fog); text-wrap: pretty; }
-.ev-hero-meta { margin-top: 26px; display: flex; flex-wrap: wrap; align-items: center; gap: 14px 20px; font-size: 15px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--fog); }
-.ev-hero-meta .dot { color: var(--steel); }
+.ev-hero-meta { margin-top: 26px; display: flex; flex-wrap: wrap; align-items: center; gap: 14px 22px; font-size: clamp(17px, 1.6vw, 22px); font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--rnb-text); }
+.ev-hero-meta .dot { color: var(--rnb); }
 
 .btn-metal {
   font-family: var(--font-body); font-weight: 600; font-size: 15px; letter-spacing: 0.06em; text-transform: uppercase;
@@ -499,21 +499,24 @@ main.detail { padding: 0; padding-top: var(--header-h); } /* hero starts below t
 @media (prefers-reduced-motion: reduce) { .scroll-cue svg { animation: none; } .scroll-cue .ring::before { animation: none; } }
 
 /* ---- STORY ---- */
-.ev-story { display: grid; grid-template-columns: 1.08fr 0.92fr; gap: clamp(36px, 5vw, 84px); align-items: center; }
+.ev-story { display: grid; grid-template-columns: 0.82fr 1.18fr; gap: clamp(40px, 5vw, 96px); align-items: center; max-width: 1500px; }
 .ev-pull { font-family: var(--font-display); font-style: italic; font-weight: 500; font-size: clamp(28px, 4vw, 54px); line-height: 1.05; letter-spacing: -0.02em; color: var(--silver-text); text-wrap: balance; }
-.ev-body { margin-top: 28px; display: flex; flex-direction: column; gap: 18px; font-size: clamp(16px, 1.3vw, 19px); line-height: 1.62; color: var(--fog); max-width: 560px; text-wrap: pretty; }
+.ev-body { margin-top: 28px; display: flex; flex-direction: column; gap: 18px; font-size: clamp(16px, 1.3vw, 20px); line-height: 1.62; color: var(--fog); max-width: 660px; text-wrap: pretty; }
 .ev-story image-slot { width: 100%; aspect-ratio: 16 / 9; border: 1px solid var(--line); }
 
 /* ---- APPRECIATE full-bleed band ---- */
 .ev-band { position: relative; width: 100vw; margin-left: calc(50% - 50vw); aspect-ratio: 16 / 9; display: flex; align-items: center; overflow: hidden; }
-.ev-band-bg { position: absolute; inset: 0; background-size: cover; background-position: center; }
-.ev-band-veil { position: absolute; inset: 0; background: linear-gradient(90deg, rgba(7,8,10,0.92) 0%, rgba(7,8,10,0.66) 40%, rgba(7,8,10,0.12) 78%, rgba(7,8,10,0) 100%); }
+.ev-band-bg { position: absolute; inset: 0; background-size: cover; background-position: center; filter: brightness(0.66) saturate(0.96); }
+.ev-band-veil { position: absolute; inset: 0; background: linear-gradient(90deg, rgba(7,8,10,0.95) 0%, rgba(7,8,10,0.8) 42%, rgba(7,8,10,0.4) 78%, rgba(7,8,10,0.15) 100%); }
 .ev-band-inner { position: relative; z-index: 2; max-width: 1240px; margin: 0 auto; padding: clamp(64px,9vh,120px) clamp(22px,5vw,80px); width: 100%; }
 .ev-band h2, .ev-h2 { font-family: var(--font-display); font-weight: 800; font-size: clamp(30px, 4vw, 56px); line-height: 1.0; letter-spacing: -0.02em; text-transform: uppercase; color: var(--silver-text); }
 .ev-likes { margin-top: 40px; display: flex; flex-direction: column; gap: 0; max-width: 720px; }
 .ev-like { display: flex; align-items: baseline; gap: 20px; padding: 22px 0; border-top: 1px solid var(--line); font-size: clamp(17px, 1.6vw, 23px); color: var(--silver-text); font-weight: 500; }
 .ev-like:last-child { border-bottom: 1px solid var(--line); }
 .ev-like .n { font-family: var(--font-display); font-size: 14px; letter-spacing: 0.1em; color: var(--steel-text, #8fbce9); flex-shrink: 0; width: 34px; }
+.ev-like.detailed { flex-direction: column; align-items: flex-start; gap: 12px; padding: 24px 0; }
+.ev-like .nm { font-family: var(--font-display); font-weight: 700; font-size: 16px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--rnb-text); line-height: 1.3; text-wrap: balance; }
+.ev-like .ds { font-size: clamp(16px, 1.5vw, 21px); line-height: 1.5; color: #d6dade; text-wrap: pretty; }
 
 /* ---- GALLERY drop slots ---- */
 .ev-gallery-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
@@ -524,7 +527,7 @@ main.detail { padding: 0; padding-top: var(--header-h); } /* hero starts below t
 /* ---- PRACTICAL INFO ---- */
 .ev-info-grid { margin-top: 48px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; background: var(--rnb-soft); border: 2px solid var(--rnb-soft); }
 .ev-info-cell { background: var(--ink); padding: 30px 30px 34px; }
-.ev-info-cell .k { font-size: 12px; font-weight: 600; letter-spacing: 0.22em; text-transform: uppercase; color: var(--fog-2); }
+.ev-info-cell .k { font-size: 12px; font-weight: 600; letter-spacing: 0.22em; text-transform: uppercase; color: var(--fog); }
 .ev-info-cell .v { margin-top: 12px; font-size: 18px; line-height: 1.45; color: var(--silver-text); }
 
 /* ---- RATES ---- */
@@ -592,7 +595,7 @@ main.detail { padding: 0; padding-top: var(--header-h); } /* hero starts below t
 /* lower row: guests + summary */
 .ev-book-lower { margin-top: 30px; display: grid; grid-template-columns: 1.1fr 0.9fr; gap: clamp(28px, 4vw, 56px); align-items: start; }
 
-.ev-sub-h { font-size: 13px; font-weight: 600; letter-spacing: 0.2em; text-transform: uppercase; color: var(--fog); margin: 0 0 16px; }
+.ev-sub-h { font-size: 16px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--silver-text); margin: 0 0 16px; }
 
 .ev-tiers { display: flex; flex-direction: column; gap: 12px; }
 .ev-tier { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 20px; border: 1px solid var(--line); background: var(--ink-2); }
@@ -642,9 +645,10 @@ main.detail { padding: 0; padding-top: var(--header-h); } /* hero starts below t
 .ev-photoband::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(7,8,10,0.45), transparent 14%, transparent 86%, rgba(7,8,10,0.6)); }
 /* title block (below hero image) */
 .ev-titleblock { padding-top: clamp(54px, 8vh, 92px); padding-bottom: clamp(36px, 5vh, 64px); }
-.ev-titleblock .ev-eyebrow { color: var(--rnb-text); }
-.ev-titleblock .ev-eyebrow::before { background: var(--rnb); }
-.ev-titleblock h1 { font-family: var(--font-display); font-weight: 900; font-size: clamp(54px, 10vw, 168px); line-height: 0.84; letter-spacing: -0.04em; text-transform: uppercase; color: var(--silver-text); margin: 16px 0 0; }
+.ev-titleblock h1 { font-family: var(--font-display); font-weight: 900; font-size: clamp(52px, 9vw, 150px); line-height: 0.86; letter-spacing: -0.03em; text-transform: uppercase; color: var(--silver-text); margin: 16px 0 0; }
+.ev-titleblock .ev-sub { font-family: var(--font-display); font-weight: 500; font-size: clamp(18px, 2.4vw, 30px); color: var(--silver-text); letter-spacing: 0.01em; margin-top: 10px; }
+.ev-titleblock .ev-venue { margin-top: 28px; font-size: clamp(21px, 2.3vw, 32px); font-weight: 700; letter-spacing: 0.18em; gap: 24px; }
+.ev-titleblock .ev-venue::before, .ev-titleblock .ev-venue::after { width: 72px; height: 3px; }
 .rnb-edition {
   display: inline-flex; align-items: baseline; gap: 0.32em;
   margin-top: 20px;
@@ -655,9 +659,9 @@ main.detail { padding: 0; padding-top: var(--header-h); } /* hero starts below t
 }
 .rnb-edition .sup { font-size: 0.52em; font-weight: 700; }
 .rnb-venue { margin-top: 12px; font-family: var(--font-display); font-weight: 900; font-size: clamp(36px, 6.6vw, 104px); line-height: 0.9; letter-spacing: -0.03em; text-transform: uppercase; color: var(--silver-text); }
-.ev-titleblock .ev-tag { margin-top: 24px; max-width: 680px; font-size: clamp(16px, 1.5vw, 21px); line-height: 1.55; color: var(--fog); text-wrap: pretty; }
+.ev-titleblock .ev-tag { margin-top: 22px; max-width: 680px; font-size: clamp(16px, 1.5vw, 21px); line-height: 1.55; color: var(--fog); text-wrap: pretty; }
 .ev-hero-actions { margin-top: 34px; display: flex; flex-wrap: wrap; gap: 16px; align-items: center; }
-.ev-titleblock .ev-hero-meta { margin-top: 26px; }
+.ev-titleblock .ev-hero-meta { margin-top: 24px; }
 .ev-titleblock .ev-hero-meta .dot { color: var(--rnb); }
 
 /* ===== We Love R&B — magenta accent theme (page content only) ===== */
@@ -1277,7 +1281,7 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
         '<a class="btn-ghost" href="#story">Read more</a>';
 
       // ----- STORY (description) -----
-      const paras = paragraphs(ev.description);
+      let paras = paragraphs(ev.description);
       if (paras.length) {
         const body = $("evBody");
         body.innerHTML = "";
@@ -1285,6 +1289,9 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
         if (design.pullQuote) {
           $("evPullQuote").textContent = design.pullQuote;
           $("evPullQuote").hidden = false;
+          // Descriptions often open with the pull quote line; the quote is
+          // already rendered above the body, so drop the duplicate.
+          if (paras[0] && paras[0].trim() === design.pullQuote.trim()) paras = paras.slice(1);
         }
         paras.forEach((p) => {
           const el = document.createElement("p");
@@ -1315,7 +1322,14 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
         if (design.bandEyebrow) $("evBandEyebrow").textContent = design.bandEyebrow;
         $("evBandTitle").textContent = design.bandTitle || "";
         $("evLikes").innerHTML = (design.appreciates || [])
-          .map((text, i) => '<div class="ev-like"><span class="n">' + String(i + 1).padStart(2, "0") + '</span><span>' + esc(text) + "</span></div>")
+          .map((item, i) => {
+            // Titled items ({ name, description }) come from the newer design
+            // exports; plain strings render as the classic numbered list.
+            if (item && typeof item === "object") {
+              return '<div class="ev-like detailed"><span class="nm">' + esc(item.name || "") + '</span><span class="ds">' + esc(item.description || "") + "</span></div>";
+            }
+            return '<div class="ev-like"><span class="n">' + String(i + 1).padStart(2, "0") + '</span><span>' + esc(item) + "</span></div>";
+          })
           .join("");
         $("evBandSection").hidden = false;
       }

@@ -477,9 +477,7 @@ async function parseClaudeDesignZip(bytes, draftId, options = {}) {
     bandImage,
     bandEyebrow: cleanText(matchSection(band, /<span[^>]*class=["'][^"']*ev-eyebrow[^"']*["'][^>]*>([\s\S]*?)<\/span>/i)),
     bandTitle: cleanText(matchSection(band, /<h2\b[^>]*>([\s\S]*?)<\/h2>/i)),
-    appreciates: allMatches(band, /<div[^>]*class=["'][^"']*ev-like[^"']*["'][^>]*>[\s\S]*?<span[^>]*class=["']n["'][^>]*>[\s\S]*?<\/span>\s*<span[^>]*>([\s\S]*?)<\/span>[\s\S]*?<\/div>/gi)
-      .map(cleanText)
-      .filter(Boolean),
+    appreciates: extractAppreciates(band),
     photoBandImage,
     practicalTitle: cleanText(matchSection(info, /<h2\b[^>]*>([\s\S]*?)<\/h2>/i)),
     practicalInfo: extractCells(info),
@@ -774,6 +772,30 @@ function matchSection(value, pattern) {
 
 function allMatches(value, pattern) {
   return [...String(value || "").matchAll(pattern)].map((match) => match[1] || match[0]);
+}
+
+// Band highlights come in two export formats: the numbered list
+// (<span class="n">01</span><span>text</span> - stored as plain strings) and
+// the titled list (<span class="nm">name</span><span class="ds">description</span>
+// - stored as { name, description } objects). The event template renders both.
+function extractAppreciates(band) {
+  const items = [...String(band || "").matchAll(/<div[^>]*class=["'][^"']*ev-like[^"']*["'][^>]*>([\s\S]*?)<\/div>/gi)]
+    .map((match) => match[1]);
+  const out = [];
+  for (const item of items) {
+    const nm = item.match(/<span[^>]*class=["'][^"']*\bnm\b[^"']*["'][^>]*>([\s\S]*?)<\/span>/i);
+    const ds = item.match(/<span[^>]*class=["'][^"']*\bds\b[^"']*["'][^>]*>([\s\S]*?)<\/span>/i);
+    if (nm || ds) {
+      const name = cleanText(nm && nm[1]);
+      const description = cleanText(ds && ds[1]);
+      if (name || description) out.push({ name, description });
+      continue;
+    }
+    const plain = item.match(/<span[^>]*class=["']n["'][^>]*>[\s\S]*?<\/span>\s*<span[^>]*>([\s\S]*?)<\/span>/i);
+    const text = cleanText(plain && plain[1]);
+    if (text) out.push(text);
+  }
+  return out;
 }
 
 function attr(tag, name) {
