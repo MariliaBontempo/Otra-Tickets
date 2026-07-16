@@ -1329,8 +1329,10 @@
     setStatus("Saving color...");
     try {
       await persistCurrentOverride();
-      // Color is already live in the iframe via applyAccentToPreview — no reload needed.
-      // Reloading would race against ev.accent from the event API overwriting our color.
+      // The event API now serves the saved accent (it overrides the team
+      // color), so reload the preview to show the draft/published page
+      // exactly as visitors will see it.
+      refreshPreview();
       setStatus("Color saved.", "ok");
     } catch (err) {
       setStatus(err.message, "error");

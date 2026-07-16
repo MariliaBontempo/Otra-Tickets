@@ -1180,8 +1180,12 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
         // admin-only events that 404 for the public.
         let adminToken = "";
         try { adminToken = sessionStorage.getItem("otra_admin_token") || ""; } catch (e) { adminToken = ""; }
+        // The admin preview reloads with a fresh _preview stamp after every
+        // save; carry it into the API call so a just-saved override is never
+        // masked by a response cached up to 60s earlier.
+        const previewStamp = new URLSearchParams(location.search).get("_preview") || "";
         const resp = await fetch(
-          "/api/event?id=" + encodeURIComponent(id),
+          "/api/event?id=" + encodeURIComponent(id) + (previewStamp ? "&_preview=" + encodeURIComponent(previewStamp) : ""),
           adminToken ? { headers: { authorization: "Bearer " + adminToken } } : undefined
         );
         if (!resp.ok) throw new Error("HTTP " + resp.status);

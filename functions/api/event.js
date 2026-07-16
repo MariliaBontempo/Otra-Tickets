@@ -169,6 +169,10 @@ function pickOverride(override) {
   if (override.description) out.description = override.description;
   if (override.image) out.image = override.image;
   if (override.checkoutEventId) out.checkoutEventId = override.checkoutEventId;
+  // The accent saved in the admin wins over the Otra Guide team/calendar color.
+  if (typeof override.accentColor === "string" && /^#[0-9A-Fa-f]{6}$/.test(override.accentColor.trim())) {
+    out.accent = override.accentColor.trim().toLowerCase();
+  }
   return out;
 }
 
