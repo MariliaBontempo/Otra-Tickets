@@ -1430,7 +1430,8 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
       loadCheckout(
         ev.checkoutEventId || ev.id,
         ev.checkoutBaseUrl || "https://otraguide.com",
-        ev.accentIsOverride ? ev.accent : ""
+        ev.accentIsOverride || ev.isPerennial ? ev.accent : "",
+        !!ev.isPerennial
       );
 
       // re-run the reveal observer for the now-visible sections
@@ -1496,14 +1497,15 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
       // library pins the iframe at a fixed height and ignores the checkout's own
       // resize messages, forcing an inner scrollbar — so we honor those messages
       // and grow the iframe to its full content height.
-      function loadCheckout(eventId, checkoutBaseUrl, accentOverride) {
+      function loadCheckout(eventId, checkoutBaseUrl, accentOverride, isRecurring) {
         function mount() {
           window.OtraStripeCheckoutEmbed.create({
             eventId: eventId,
             containerId: "otra-checkout-container",
             baseUrl: checkoutBaseUrl,
-            isRecurring: false,
-            // An admin-saved accent recolours the checkout to match the page.
+            isRecurring: !!isRecurring,
+            // Admin-saved accents recolour standard checkout; recurring embeds
+            // also pass the event accent so the calendar can use the Otra theme.
             accent: accentOverride || "",
           });
           const container = document.getElementById("otra-checkout-container");
