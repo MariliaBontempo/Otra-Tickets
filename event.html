@@ -1509,15 +1509,32 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
             accent: accentOverride || "",
           });
           const container = document.getElementById("otra-checkout-container");
+          let lastIframeHeight = 0;
+          let didScrollToRecurringCheckout = false;
           window.addEventListener("message", function (e) {
             if (e.origin !== new URL(checkoutBaseUrl).origin) return;
             const d = e.data;
             if (d && d.type === "OTRA_IFRAME_RESIZE" && d.height) {
               const iframe = container && container.querySelector("iframe");
               if (!iframe) return;
+              const nextHeight = Math.ceil(d.height);
               iframe.setAttribute("scrolling", "no");
-              iframe.style.height = Math.ceil(d.height) + "px";
+              iframe.style.height = nextHeight + "px";
               iframe.style.overflow = "hidden";
+              if (
+                isRecurring &&
+                nextHeight > 1000 &&
+                nextHeight - lastIframeHeight > 250 &&
+                !didScrollToRecurringCheckout
+              ) {
+                didScrollToRecurringCheckout = true;
+                requestAnimationFrame(() => {
+                  const iframeTop = iframe.getBoundingClientRect().top + window.scrollY;
+                  const checkoutOffset = Math.min(760, Math.round(nextHeight * 0.45));
+                  window.scrollTo({ top: Math.max(0, iframeTop + checkoutOffset - 110), behavior: "smooth" });
+                });
+              }
+              lastIframeHeight = nextHeight;
             }
           });
         }
