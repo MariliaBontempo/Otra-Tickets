@@ -518,12 +518,6 @@ main.detail { padding: 0; padding-top: var(--header-h); } /* hero starts below t
 .ev-like .nm { font-family: var(--font-display); font-weight: 700; font-size: 16px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--rnb-text); line-height: 1.3; text-wrap: balance; }
 .ev-like .ds { font-size: clamp(16px, 1.5vw, 21px); line-height: 1.5; color: #d6dade; text-wrap: pretty; }
 
-/* ---- GALLERY drop slots ---- */
-.ev-gallery-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
-.ev-gallery { margin-top: 34px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
-.ev-gallery image-slot { width: 100%; aspect-ratio: 4 / 3; border: 1px solid var(--line); }
-.ev-gallery img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border: 1px solid var(--line); display: block; }
-
 /* ---- PRACTICAL INFO ---- */
 .ev-info-grid { margin-top: 48px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; background: var(--rnb-soft); border: 2px solid var(--rnb-soft); }
 .ev-info-cell { background: var(--ink); padding: 30px 30px 34px; }
@@ -731,14 +725,14 @@ main.detail { padding: 0; padding-top: var(--header-h); } /* hero starts below t
 
 @media (max-width: 980px) {
   .ev-story, .ev-book-lower { grid-template-columns: 1fr; }
-  .ev-info-grid, .ev-rates, .ev-gallery { grid-template-columns: 1fr 1fr; }
+  .ev-info-grid, .ev-rates { grid-template-columns: 1fr 1fr; }
   .ev-summary { position: static; }
   .ev-day { min-height: 96px; padding: 9px 7px 11px; }
   .ev-slot { padding: 7px 8px; font-size: 13px; gap: 7px; }
   .ev-day .dnum { font-size: 16px; }
 }
 @media (max-width: 620px) {
-  .ev-info-grid, .ev-rates, .ev-gallery { grid-template-columns: 1fr; }
+  .ev-info-grid, .ev-rates { grid-template-columns: 1fr; }
   .ev-cal-head .mo { font-size: 22px; }
   .ev-dow { font-size: 11px; padding: 12px 0; }
   .ev-day { min-height: 76px; }
@@ -1018,17 +1012,6 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
     <!-- ============ PHOTO BAND ============ -->
     <section class="ev-photoband reveal" id="evPhotoBandSection" hidden>
       <img id="evPhotoBandImg" alt="" loading="lazy" />
-    </section>
-
-    <!-- ============ GALLERY ============ -->
-    <section class="section-pad reveal" id="evGallerySection" hidden>
-      <div class="ev-gallery-head">
-        <div>
-          <span class="ev-eyebrow">Images</span>
-          <h2 class="ev-h2" style="margin-top:18px;">All images</h2>
-        </div>
-      </div>
-      <div class="ev-gallery" id="evGallery"></div>
     </section>
 
     <!-- ============ PRACTICAL INFO ============ -->
@@ -1342,36 +1325,6 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
         $("evPhotoBandImg").src = design.photoBandImage;
         $("evPhotoBandImg").alt = ev.title;
         $("evPhotoBandSection").hidden = false;
-      }
-
-      const gallerySources = [];
-      const seenGallery = new Set();
-      const addGallerySource = (src) => {
-        if (typeof src !== "string") return;
-        const value = src.trim();
-        if (!value || seenGallery.has(value)) return;
-        seenGallery.add(value);
-        gallerySources.push(value);
-      };
-      const rawGallery = Array.isArray(design.galleryImages) && design.galleryImages.length
-        ? design.galleryImages
-        : Array.isArray(design.assets)
-          ? design.assets
-          : [];
-      rawGallery.forEach((src) => {
-        if (typeof src !== "string") return;
-        if (!src.startsWith("/") && !/^https?:/i.test(src)) return;
-        addGallerySource(src);
-      });
-      [ev.image, design.storyImage, design.videoImage, design.bandImage, design.photoBandImage].forEach(addGallerySource);
-      const usedSources = new Set([ev.image, design.storyImage, design.videoImage, design.bandImage, design.photoBandImage].filter(Boolean));
-      const galleryImages = gallerySources.filter((src) => !usedSources.has(src));
-      if (galleryImages.length) {
-        const grid = $("evGallery");
-        grid.innerHTML = galleryImages
-          .map((src, index) => '<img src="' + esc(src) + '" alt="' + esc(ev.title + " image " + (index + 1)) + '" loading="lazy" />')
-          .join("");
-        $("evGallerySection").hidden = false;
       }
 
       // ----- PRACTICAL INFO -----
