@@ -182,7 +182,7 @@ function tourEventIds(events) {
 
 function pastEventIds(events, now) {
   return events
-    .filter((ev) => !isCurrentOrFutureEvent(ev, now))
+    .filter((ev) => ev.isPerennial !== true && !isCurrentOrFutureEvent(ev, now))
     .sort((a, b) => pastSortTime(b) - pastSortTime(a))
     .map((ev) => String(ev.id));
 }
