@@ -18,6 +18,14 @@ const rows = applyFixedRows([
     endDate: "2026-07-01T23:00:00-04:00",
     isPerennial: true,
   },
+  {
+    id: 3,
+    title: "Recurring card mislabeled as non-perennial",
+    date: "2026-07-01T20:00:00-04:00",
+    endDate: "2026-07-01T23:00:00-04:00",
+    isPerennial: false,
+    dateLabel: "Two daily departures · About 1 hour",
+  },
 ], [], now);
 
 const past = rows.find((row) => row.id === "past-events");

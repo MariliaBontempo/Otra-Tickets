@@ -182,9 +182,16 @@ function tourEventIds(events) {
 
 function pastEventIds(events, now) {
   return events
-    .filter((ev) => ev.isPerennial !== true && !isCurrentOrFutureEvent(ev, now))
+    .filter((ev) => !isRecurringHomepageEvent(ev) && !isCurrentOrFutureEvent(ev, now))
     .sort((a, b) => pastSortTime(b) - pastSortTime(a))
     .map((ev) => String(ev.id));
+}
+
+function isRecurringHomepageEvent(ev) {
+  if (!ev || typeof ev !== "object") return false;
+  if (ev.isPerennial === true) return true;
+  const label = String(ev.dateLabel || "").toLowerCase();
+  return /\b(?:daily|nightly|weekly|flexible dates|departures?)\b/.test(label);
 }
 
 function pastSortTime(ev) {
