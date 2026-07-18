@@ -50,6 +50,7 @@ function makeEl(tagName, init) {
 async function runScenario(opts) {
   const { fields, accentColor, selectors, computedAccent } = opts;
   const timerQueue = [];
+  const listeners = {};
   let timerCount = 0;
   let setPropertyCalls = 0;
 
@@ -75,6 +76,9 @@ async function runScenario(opts) {
           if ((p in selectors) && selectors[p]) found.push(selectors[p]);
         }
         return { forEach: function(fn) { found.forEach(fn); } };
+      },
+      addEventListener(type, fn) {
+        (listeners[type] || (listeners[type] = [])).push(fn);
       },
       createElement(tag) {
         return { tagName: tag.toUpperCase(), textContent: '', innerHTML: '', appendChild: function() {} };
@@ -132,7 +136,16 @@ async function runScenario(opts) {
 
   for (let i = 0; i < 3; i++) await flush();
 
-  return { timerCount, setPropertyCalls };
+  return {
+    timerCount,
+    setPropertyCalls,
+    async dispatch(type) {
+      for (const fn of listeners[type] || []) {
+        fn({ type });
+        for (let i = 0; i < 3; i++) await flush();
+      }
+    }
+  };
 }
 
 const BASE_HREF = 'https://otratickets.com/clearboat';
@@ -298,6 +311,33 @@ const BASE_HREF = 'https://otratickets.com/clearboat';
   assert(
     result.setPropertyCalls === 0,
     '(e) empty fields: expected 0 mutations, got ' + result.setPropertyCalls
+  );
+}
+
+// ---- Scenario (f): dynamic event render overwrites early field apply ----
+{
+  const fTitle = makeEl('h1', { textContent: '' });
+
+  const result = await runScenario({
+    fields: {
+      'text:#evTitle': { type: 'text', value: 'Edited Preview Title' },
+    },
+    selectors: {
+      '#evTitle': fTitle,
+    },
+  });
+
+  assert(
+    fTitle.textContent === 'Edited Preview Title',
+    '(f) initial dynamic field apply: expected edited title, got ' + fTitle.textContent
+  );
+
+  fTitle.textContent = 'API Rendered Title';
+  await result.dispatch('otra:event-rendered');
+
+  assert(
+    fTitle.textContent === 'Edited Preview Title',
+    '(f) dynamic render event: expected edited title after reapply, got ' + fTitle.textContent
   );
 }
 

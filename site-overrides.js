@@ -9,6 +9,12 @@
       if (!override) return;
       applyLegacyOverride(override);
       applyFieldOverrides(override.fields || {});
+      if (typeof document.addEventListener === "function") {
+        document.addEventListener("otra:event-rendered", () => {
+          applyLegacyOverride(override);
+          applyFieldOverrides(override.fields || {}, 0, new Set());
+        });
+      }
     })
     .catch(() => {});
 

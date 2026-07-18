@@ -1389,6 +1389,7 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
 
       // re-run the reveal observer for the now-visible sections
       revealAll();
+      document.dispatchEvent(new CustomEvent("otra:event-rendered", { detail: { id: ev.id } }));
 
       // ---------- helpers ----------
       function renderMeta(host, parts) {
