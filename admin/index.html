@@ -1927,7 +1927,7 @@
     if (isText) {
       const saved = activeField && fieldOverrideForKey(activeField.key);
       const hasSavedText = saved && saved.type === "text" && typeof saved.value === "string";
-      $("description").value = hasSavedText ? saved.value : activeField && activeField.element ? activeField.element.textContent.trim() : getPreviewDescription();
+      $("description").value = hasSavedText ? saved.value : textValueForField(activeField);
     }
     if (isImage) {
       const saved = activeField && fieldOverrideForKey(activeField.key);
@@ -1963,6 +1963,22 @@
     }
   }
 
+  function textValueForField(field) {
+    if (!field) return getPreviewDescription();
+    if (field.key === "text:#evBody" || (field.element && field.element.classList && field.element.classList.contains("ev-body"))) {
+      return descriptionTextFromBody(field.element);
+    }
+    return field.element ? field.element.textContent.trim() : getPreviewDescription();
+  }
+
+  function descriptionTextFromBody(body) {
+    if (!body) return "";
+    const paragraphs = [...body.querySelectorAll("p")]
+      .map((p) => p.textContent.trim())
+      .filter(Boolean);
+    return paragraphs.length ? paragraphs.join("\n\n") : body.textContent.trim();
+  }
+
   function getPreviewImage() {
     try {
       const doc = $("previewFrame").contentDocument;
@@ -1993,7 +2009,7 @@
     ensurePreviewStyles(doc);
     const fields = candidateElements(doc);
     fields.forEach((field) => {
-      const host = editHost(field.element);
+      const host = editHost(field.element, field);
       if (!host || host.querySelector(`:scope > [data-otra-admin-edit="${cssAttr(field.key)}"]`)) return;
       host.classList.add("otra-admin-edit-host");
       const btn = makePreviewButton(doc, field);
@@ -2119,7 +2135,7 @@
     const main = doc.querySelector("main") || doc.body;
     const textSelector = [
       "h1", "h2", "h3",
-      ".ev-eyebrow", ".ev-sub", ".ev-tag", ".ev-pull", ".ev-body p",
+      ".ev-eyebrow", ".ev-sub", ".ev-tag", ".ev-pull",
       ".ev-hero-meta span:not(.dot)", ".ev-video .vlabel .tag", ".ev-video .vlabel .ttl",
       ".rnb-roster li", ".rnb-host span", ".rnb-host b", ".rnb-host-credit",
       ".ev-info-cell .k", ".ev-info-cell .v",
@@ -2135,6 +2151,7 @@
 
     const fields = [];
     const seen = new Set();
+    addGroupedStoryFields(doc, fields, seen);
     main.querySelectorAll(textSelector).forEach((el) => {
       const selector = selectorFor(el, doc);
       const key = selector ? "text:" + selector : "";
@@ -2150,6 +2167,35 @@
       fields.push({ type: "image", key: "image:" + selector, element: el });
     });
     return fields;
+  }
+
+  function addGroupedStoryFields(doc, fields, seen) {
+    const title = doc.querySelector("#evTitle");
+    if (title) {
+      const key = "text:#evTitle";
+      seen.add(key);
+      fields.push({
+        type: "text",
+        key,
+        element: title,
+        host: title.closest(".ev-titleblock") || title.parentElement || title,
+      });
+    }
+
+    const body = doc.querySelector("#evBody, #story .ev-body");
+    if (body) {
+      const selector = body.id ? "#" + cssEscape(body.id) : selectorFor(body, doc);
+      const key = selector ? "text:" + selector : "";
+      if (key) {
+        seen.add(key);
+        fields.push({
+          type: "text",
+          key,
+          element: body,
+          host: body.parentElement || body,
+        });
+      }
+    }
   }
 
   function candidateSections(doc) {
@@ -2265,7 +2311,8 @@
     return /url\(/.test(el.style.backgroundImage || getComputedStyle(el).backgroundImage || "");
   }
 
-  function editHost(el) {
+  function editHost(el, field) {
+    if (field && field.host) return field.host;
     if (el.classList.contains("ev-band-bg")) return el.parentElement;
     if (el.tagName === "IMG" || el.tagName === "VIDEO") return el.parentElement || el;
     return el;

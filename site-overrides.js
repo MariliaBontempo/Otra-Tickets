@@ -87,6 +87,11 @@
       }
       if (type === "text" && field.type === "text") {
         const value = typeof field.value === "string" ? field.value : "";
+        if (isDescriptionBody(el)) {
+          applyDescriptionBody(el, value);
+          applied.add(key);
+          continue;
+        }
         if (el.textContent !== value) {
           el.textContent = value;
           if (value.includes("\n")) el.style.whiteSpace = "pre-line";
@@ -105,6 +110,29 @@
     if (remaining.length > 0 && attempt < 30) {
       setTimeout(() => applyFieldOverrides(fields, attempt + 1, applied), 250);
     }
+  }
+
+  function isDescriptionBody(el) {
+    return el && el.classList && el.classList.contains("ev-body");
+  }
+
+  function applyDescriptionBody(el, value) {
+    const next = String(value || "").trim();
+    const current = [...el.querySelectorAll("p")]
+      .map((p) => p.textContent.trim())
+      .filter(Boolean)
+      .join("\n\n");
+    if (current === next) return;
+    el.innerHTML = "";
+    next
+      .split(/\n{2,}/)
+      .map((p) => p.trim())
+      .filter(Boolean)
+      .forEach((text) => {
+        const p = document.createElement("p");
+        p.textContent = text;
+        el.appendChild(p);
+      });
   }
 
   function applyGuardedImage(el, value) {
