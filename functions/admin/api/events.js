@@ -42,6 +42,13 @@ export async function onRequestPut(context) {
     return json({ error: "invalid json" }, 400);
   }
 
+  // Date sync: {eventId, startDate: "YYYY-MM-DD"} moves the real event to a
+  // new day, preserving the original start time and duration so the checkout
+  // calendar, feeds and emails follow the page edit.
+  if (body && body.startDate && !body.tickets) {
+    return updateEventDate(context, accessToken, body);
+  }
+
   const eventId = cleanInteger(body && body.eventId);
   const submitted = body && Array.isArray(body.tickets) ? body.tickets : [];
   if (!eventId) return json({ error: "event id is required" }, 400);
@@ -188,6 +195,50 @@ async function hydrateEvent(context, accessToken, eventId) {
     regionId: detail.team && detail.team.region ? detail.team.region : null,
     tickets,
   };
+}
+
+
+async function updateEventDate(context, accessToken, body) {
+  const eventId = cleanInteger(body && body.eventId);
+  const startDate = String((body && body.startDate) || "").trim();
+  if (!eventId) return json({ error: "event id is required" }, 400);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate)) return json({ error: "startDate must be YYYY-MM-DD" }, 400);
+
+  const detail = await otraJson(context, accessToken, `/events/details/${eventId}/`);
+  if (!detail || !detail.id) return json({ error: "event not found" }, 404);
+  if (detail.is_perennial || detail.is_recurring) {
+    return json({ error: "recurring events keep their schedule in the tickets dashboard - date NOT changed" }, 400);
+  }
+  // The public serializers don't expose slug (the update endpoint's address);
+  // the isolated Otra Tickets media app provides it by id.
+  const slugData = await otraJson(context, accessToken, `/otra-tickets/media/event-slug/${eventId}/`);
+  const slug = (slugData && slugData.slug) || detail.slug;
+  if (!slug) return json({ error: "event has no slug - date NOT changed" }, 400);
+  const oldStart = new Date(detail.start_date);
+  const oldEnd = new Date(detail.end_date || detail.start_date);
+  if (Number.isNaN(oldStart.getTime())) return json({ error: "event has no valid start date" }, 400);
+
+  // Keep the event's local wall-clock time: swap only the date portion of the
+  // ISO string (start_date comes back like 2026-08-09T12:00:00-04:00).
+  const swapDay = (iso, day) => String(iso).replace(/^\d{4}-\d{2}-\d{2}/, day);
+  const durationMs = oldEnd.getTime() - oldStart.getTime();
+  const newStartIso = swapDay(detail.start_date, startDate);
+  const newEnd = new Date(new Date(newStartIso).getTime() + Math.max(0, durationMs));
+  const endDay = newEnd.toISOString().slice(0, 10);
+  // End keeps its own wall-clock time too; shift its date by the same number
+  // of days the start moved.
+  const dayMs = 86400000;
+  const dayDelta = Math.round((new Date(startDate + "T00:00:00Z") - new Date(String(detail.start_date).slice(0, 10) + "T00:00:00Z")) / dayMs);
+  const oldEndDay = new Date(String(detail.end_date || detail.start_date).slice(0, 10) + "T00:00:00Z");
+  const newEndDay = new Date(oldEndDay.getTime() + dayDelta * dayMs).toISOString().slice(0, 10);
+  const newEndIso = swapDay(detail.end_date || detail.start_date, newEndDay);
+
+  const updated = await otraWrite(context, accessToken, `/events/update/${encodeURIComponent(slug)}/`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ start_date: newStartIso, end_date: newEndIso }),
+  });
+  return json({ event: { id: detail.id, start_date: updated.start_date || newStartIso, end_date: updated.end_date || newEndIso } });
 }
 
 async function otraJson(context, accessToken, path) {
