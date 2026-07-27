@@ -256,6 +256,28 @@ async function updateEventDate(context, accessToken, body) {
       });
     }
   } catch {}
+
+  // The event page hero and the homepage cards read the site's own copies
+  // (KV site-event dates + cached feed), not Django - keep them in step and
+  // refresh the public feed so every date display moves together.
+  try {
+    const kv = context.env.OVERRIDES;
+    if (kv) {
+      let cursor;
+      do {
+        const page = await kv.list({ prefix: "site-event:", cursor });
+        for (const key of page.keys || []) {
+          const project = await kv.get(key.name, "json");
+          if (project && String(project.otraGuideId || "") === String(eventId)) {
+            await kv.put(key.name, JSON.stringify({ ...project, startDate: newStartIso, endDate: newEndIso }));
+          }
+        }
+        cursor = page.list_complete ? undefined : page.cursor;
+      } while (cursor);
+    }
+    const origin = new URL(context.request.url).origin;
+    context.waitUntil(fetch(`${origin}/api/homepage-events?fresh=1`));
+  } catch {}
   return json({ event: { id: detail.id, start_date: updated.start_date || newStartIso, end_date: updated.end_date || newEndIso } });
 }
 
