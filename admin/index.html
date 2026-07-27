@@ -480,6 +480,8 @@
           <span>Admin only</span>
         </label>
         <button class="btn hidden" id="editCheckoutBtn" type="button">Edit checkout</button>
+        <button class="btn hidden" id="clonePageBtn" type="button">Clone</button>
+        <button class="btn ghost hidden" id="renameDraftBtn" type="button">Rename</button>
         <button class="btn ghost hidden" id="archivePageBtn" type="button">Archive</button>
         <button class="btn primary hidden" id="publishDraftBtn" type="button">Publish</button>
         <button class="btn ghost" id="logoutBtn" type="button">Sign out</button>
@@ -683,6 +685,31 @@
       <div class="row split">
         <button class="btn ghost" id="cancelCheckoutBtn" type="button">Cancel</button>
         <button class="btn primary" id="saveCheckoutBtn" type="submit">Save checkout</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="modal-backdrop hidden" id="cloneModal" role="dialog" aria-modal="true">
+    <form class="modal" id="cloneForm">
+      <div class="modal-head">
+        <div>
+          <h2>Clone draft</h2>
+          <p class="muted" id="cloneMeta"></p>
+        </div>
+      </div>
+      <div class="stack">
+        <label><input type="radio" name="cloneEventMode" value="new" checked />
+          New Otra Guide event (copies the original's team, dates, location and tickets; stays unpublished)</label>
+        <label><input type="radio" name="cloneEventMode" value="existing" />
+          Use an existing Otra Guide event</label>
+        <label>Existing event ID
+          <input id="cloneExistingEventId" type="text" inputmode="numeric" placeholder="e.g. 7456" />
+        </label>
+        <div class="status" id="cloneStatus"></div>
+      </div>
+      <div class="row">
+        <button class="btn ghost" id="cancelCloneBtn" type="button">Cancel</button>
+        <button class="btn primary" id="confirmCloneBtn" type="submit">Clone</button>
       </div>
     </form>
   </div>
@@ -1245,6 +1272,11 @@
   $("adminOnlyToggle").addEventListener("change", setAdminOnly);
   $("editCheckoutBtn").addEventListener("click", openCheckoutModal);
   $("archivePageBtn").addEventListener("click", archiveSelectedPage);
+  $("clonePageBtn").addEventListener("click", cloneSelectedPage);
+  $("renameDraftBtn").addEventListener("click", () => {
+    if (!selected || !isDraft(selected)) return;
+    openEditor("rename");
+  });
   $("publishDraftBtn").addEventListener("click", openPublishModal);
   $("previewFrame").addEventListener("load", () => {
     injectEditControls();
@@ -1598,6 +1630,28 @@
   $("editForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!selected) return;
+    if (modalMode === "rename") {
+      const name = $("description").value.trim();
+      if (!name) return setStatus("Name is required.", "error");
+      $("saveBtn").disabled = true;
+      setStatus("Renaming draft...");
+      try {
+        const params = new URLSearchParams({ action: "rename", id: selected.id });
+        const data = await api("/admin/api/projects?" + params.toString(), {
+          method: "POST",
+          headers: authHeaders({ "content-type": "application/json" }),
+          body: JSON.stringify({ name }),
+        });
+        closeModal();
+        setStatus(`Draft renamed to "${data.project.title}".`, "ok");
+        await loadPages(selected.id);
+      } catch (err) {
+        setStatus(err.message, "error");
+      } finally {
+        $("saveBtn").disabled = false;
+      }
+      return;
+    }
     if (modalMode === "image" && $("imageInput").files[0]) {
       await uploadCurrentImage();
       return;
@@ -1931,6 +1985,8 @@
     if (!selected) return;
     $("pageSelect").value = selected.id;
     $("archivePageBtn").classList.toggle("hidden", !selected);
+    $("clonePageBtn").classList.toggle("hidden", !(isDraft(selected) || /^\d+$/.test(String(selected.id))));
+    $("renameDraftBtn").classList.toggle("hidden", !isDraft(selected));
     $("editCheckoutBtn").classList.toggle("hidden", !eventIdForPage(selected));
     $("publishDraftBtn").classList.toggle("hidden", !isDraft(selected) || selected.status === "published");
     $("adminOnlyWrap").classList.toggle("hidden", !isDraft(selected));
@@ -2053,6 +2109,54 @@
     $("publishModal").classList.add("hidden");
   }
 
+  function cloneSelectedPage() {
+    if (!selected) return;
+    $("cloneMeta").textContent = selected.title + " - " + selected.type;
+    $("cloneStatus").textContent = "";
+    $("cloneStatus").className = "status";
+    $("cloneExistingEventId").value = "";
+    $("cloneModal").classList.remove("hidden");
+  }
+
+  $("cancelCloneBtn").addEventListener("click", () => $("cloneModal").classList.add("hidden"));
+  $("cloneForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const mode = document.querySelector('input[name="cloneEventMode"]:checked').value;
+    const existingEventId = $("cloneExistingEventId").value.trim();
+    if (mode === "existing" && !/^\d+$/.test(existingEventId)) {
+      $("cloneStatus").textContent = "Enter the numeric Otra Guide event ID.";
+      $("cloneStatus").className = "status error";
+      return;
+    }
+    const btn = $("confirmCloneBtn");
+    btn.disabled = true;
+    $("cloneStatus").textContent = mode === "existing"
+      ? "Cloning and binding to the existing event..."
+      : "Cloning and creating a hidden Otra Guide event with tickets...";
+    $("cloneStatus").className = "status";
+    try {
+      const params = new URLSearchParams({ action: "clone", id: selected.id });
+      const data = await api("/admin/api/projects?" + params.toString(), {
+        method: "POST",
+        headers: authHeaders({ "content-type": "application/json" }),
+        body: JSON.stringify(mode === "existing" ? { existingEventId: Number(existingEventId) } : {}),
+      });
+      $("cloneModal").classList.add("hidden");
+      setStatus(
+        data.warning
+          ? `Cloned with sync pending: ${data.warning}`
+          : `Cloned as "${data.project.title}" (draft).`,
+        data.warning ? "error" : "ok"
+      );
+      await loadPages(data.project.id);
+    } catch (err) {
+      $("cloneStatus").textContent = err.message;
+      $("cloneStatus").className = "status error";
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
   async function archiveSelectedPage() {
     if (!selected) return;
     const label = `${selected.title} - ${selected.type}`;
@@ -2174,16 +2278,19 @@
     if (!selected) return;
     activeField = field && field.key ? field : null;
     modalMode = activeField ? activeField.type : field;
-    const isText = modalMode === "text" || modalMode === "description";
+    const isRename = modalMode === "rename";
+    const isText = modalMode === "text" || modalMode === "description" || isRename;
     const isImage = modalMode === "image";
     const isCheckout = modalMode === "checkout";
-    $("modalTitle").textContent = isText ? "Edit text" : isImage ? "Edit image" : "Edit checkout";
+    $("modalTitle").textContent = isRename ? "Rename draft" : isText ? "Edit text" : isImage ? "Edit image" : "Edit checkout";
     $("modalMeta").textContent = selected.title + " - " + selected.type;
     $("textEditor").classList.toggle("hidden", !isText);
     $("imageEditor").classList.toggle("hidden", !isImage);
     $("checkoutEditor").classList.toggle("hidden", !isCheckout);
 
-    if (isText) {
+    if (isRename) {
+      $("description").value = selected.title;
+    } else if (isText) {
       const saved = activeField && fieldOverrideForKey(activeField.key);
       const hasSavedText = saved && saved.type === "text" && typeof saved.value === "string";
       $("description").value = hasSavedText ? saved.value : textValueForField(activeField);
