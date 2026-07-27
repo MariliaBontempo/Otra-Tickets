@@ -1,18 +1,25 @@
 // Cloudflare Pages Function: POST /admin/api/upload
 //
-// Staff-only image upload. Prefer R2 when available; otherwise store small
+// Staff-only media upload. Prefer R2 when available; otherwise store small
 // images in the OVERRIDES KV namespace and serve them from /override-images/.
+// Videos are R2-only: they are far too large for the KV fallback.
 
 import { requireStaff, json } from "./_auth.js";
 
 const MAX_BYTES = 8 * 1024 * 1024;
 const KV_MAX_BYTES = 2 * 1024 * 1024;
+const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
 const KV_IMAGE_PREFIX = "uploaded-image:";
 const TYPES = {
   "image/jpeg": "jpg",
   "image/png": "png",
   "image/webp": "webp",
   "image/avif": "avif",
+};
+const VIDEO_TYPES = {
+  "video/mp4": "mp4",
+  "video/webm": "webm",
+  "video/quicktime": "mov",
 };
 
 export async function onRequestPost(context) {
@@ -30,11 +37,14 @@ export async function onRequestPost(context) {
   const file = form.get("file");
   if (!/^(?:\d+|draft-[a-zA-Z0-9-]+)$/.test(id)) return json({ error: "invalid id" }, 400);
   if (!(file instanceof File)) return json({ error: "file is required" }, 400);
-  if (!TYPES[file.type]) return json({ error: "unsupported image type" }, 400);
-  if (file.size > MAX_BYTES) return json({ error: "image must be 8MB or smaller" }, 400);
+  const isVideo = !!VIDEO_TYPES[file.type];
+  if (!TYPES[file.type] && !isVideo) return json({ error: "unsupported media type" }, 400);
+  if (isVideo && file.size > MAX_VIDEO_BYTES) return json({ error: "video must be 100MB or smaller" }, 400);
+  if (!isVideo && file.size > MAX_BYTES) return json({ error: "image must be 8MB or smaller" }, 400);
 
-  const key = `${id}/${crypto.randomUUID()}.${TYPES[file.type]}`;
+  const key = `${id}/${crypto.randomUUID()}.${isVideo ? VIDEO_TYPES[file.type] : TYPES[file.type]}`;
   const bucket = context.env.OVERRIDE_IMAGES;
+  if (isVideo && !bucket) return json({ error: "video upload requires R2 storage" }, 503);
   if (bucket) {
     await bucket.put(key, file.stream(), {
       httpMetadata: {
