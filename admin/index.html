@@ -702,9 +702,11 @@
           New Otra Guide event (copies the original's team, dates, location and tickets; stays unpublished)</label>
         <label><input type="radio" name="cloneEventMode" value="existing" />
           Use an existing Otra Guide event</label>
-        <label>Existing event ID
-          <input id="cloneExistingEventId" type="text" inputmode="numeric" placeholder="e.g. 7456" />
+        <label>Search Otra Guide events
+          <input id="cloneEventSearch" type="search" placeholder="Type event name or ID" />
         </label>
+        <div class="stack" id="cloneEventResults"></div>
+        <div class="muted" id="cloneEventSelected"></div>
         <div class="status" id="cloneStatus"></div>
       </div>
       <div class="row">
@@ -2109,25 +2111,67 @@
     $("publishModal").classList.add("hidden");
   }
 
+  let cloneChosenEvent = null;
+  let cloneSearchTimer = null;
+
   function cloneSelectedPage() {
     if (!selected) return;
     $("cloneMeta").textContent = selected.title + " - " + selected.type;
     $("cloneStatus").textContent = "";
     $("cloneStatus").className = "status";
-    $("cloneExistingEventId").value = "";
+    $("cloneEventSearch").value = "";
+    $("cloneEventResults").innerHTML = "";
+    $("cloneEventSelected").textContent = "";
+    cloneChosenEvent = null;
     $("cloneModal").classList.remove("hidden");
+  }
+
+  $("cloneEventSearch").addEventListener("input", () => {
+    clearTimeout(cloneSearchTimer);
+    cloneSearchTimer = setTimeout(searchCloneEvents, 300);
+  });
+
+  async function searchCloneEvents() {
+    const query = $("cloneEventSearch").value.trim();
+    if (query.length < 2) return;
+    $("cloneEventResults").innerHTML = "<span class=\"muted\">Searching...</span>";
+    try {
+      const data = await api("/admin/api/events?q=" + encodeURIComponent(query), { headers: authHeaders() });
+      const events = data.events || [];
+      $("cloneEventResults").innerHTML = "";
+      if (!events.length) {
+        $("cloneEventResults").innerHTML = "<span class=\"muted\">No ticketed events found.</span>";
+        return;
+      }
+      for (const event of events.slice(0, 8)) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "btn ghost";
+        btn.textContent = `${event.title} (#${event.id})`;
+        btn.addEventListener("click", () => {
+          cloneChosenEvent = event;
+          document.querySelector('input[name="cloneEventMode"][value="existing"]').checked = true;
+          $("cloneEventSelected").textContent = `Selected: ${event.title} (#${event.id})`;
+        });
+        $("cloneEventResults").appendChild(btn);
+      }
+    } catch (err) {
+      $("cloneEventResults").innerHTML = "";
+      $("cloneStatus").textContent = err.message;
+      $("cloneStatus").className = "status error";
+    }
   }
 
   $("cancelCloneBtn").addEventListener("click", () => $("cloneModal").classList.add("hidden"));
   $("cloneForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     const mode = document.querySelector('input[name="cloneEventMode"]:checked').value;
-    const existingEventId = $("cloneExistingEventId").value.trim();
-    if (mode === "existing" && !/^\d+$/.test(existingEventId)) {
-      $("cloneStatus").textContent = "Enter the numeric Otra Guide event ID.";
+    if (mode === "existing" && !cloneChosenEvent) {
+      $("cloneStatus").textContent = "Search and choose an existing Otra Guide event.";
       $("cloneStatus").className = "status error";
       return;
     }
+    const existingEventId = cloneChosenEvent ? String(cloneChosenEvent.id) : "";
     const btn = $("confirmCloneBtn");
     btn.disabled = true;
     $("cloneStatus").textContent = mode === "existing"
