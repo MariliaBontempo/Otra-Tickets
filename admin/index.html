@@ -1350,6 +1350,65 @@
     });
   }
 
+  // A price edited on the page must also change the real checkout price.
+  // When a saved text override is a rates-section price cell, parse it and
+  // sync the matching Otra Guide ticket type through the admin events API.
+  const RATE_PRICE_KEY_RE = /^text:(?:main > )?#evRates > div:nth-of-type\((\d+)\) > div:nth-of-type\(2\)$/;
+
+  function linkedEventIdForPage() {
+    const raw = String(overrideIdForPage(selected) || "");
+    if (/^\d+$/.test(raw)) return raw;
+    const prod = raw.match(/^draft-prod-(\d+)$/);
+    if (prod) return prod[1];
+    const checkout = currentOverride && currentOverride.checkoutEventId;
+    if (checkout && /^\d+$/.test(String(checkout))) return String(checkout);
+    return "";
+  }
+
+  async function maybeSyncTicketPrice(field, value) {
+    const match = field && RATE_PRICE_KEY_RE.exec(field.key || "");
+    if (!match) return;
+    const priceMatch = String(value || "").replace(",", ".").match(/(\d+(?:\.\d{1,2})?)/);
+    if (!priceMatch) {
+      return setStatus("Price text saved, but no number found - checkout price NOT changed.", "error");
+    }
+    const price = Number(priceMatch[1]);
+    const eventId = linkedEventIdForPage();
+    if (!eventId) {
+      return setStatus("Price text saved, but this page has no linked event - checkout price NOT changed.", "error");
+    }
+    let rowName = "";
+    try {
+      const doc = $("previewFrame").contentDocument;
+      const cell = doc.querySelector(`#evRates > div:nth-of-type(${match[1]}) > div:nth-of-type(1)`);
+      rowName = cell ? cell.textContent.trim().replace(/\s+/g, " ").replace(/Edit text$/i, "").trim() : "";
+    } catch {}
+    setStatus("Updating checkout price...");
+    const data = await api(`/admin/api/events?id=${encodeURIComponent(eventId)}`, { headers: authHeaders() });
+    const event = data.events && data.events[0];
+    if (!event || !Array.isArray(event.tickets) || !event.tickets.length) {
+      throw new Error("No ticket types found for this event - checkout price NOT changed.");
+    }
+    const rowIndex = Number(match[1]) - 1;
+    let ticket = rowName
+      ? event.tickets.find((t) => String(t.name).trim().toLowerCase() === rowName.toLowerCase())
+      : null;
+    if (!ticket) ticket = event.tickets[rowIndex];
+    if (!ticket) throw new Error("Could not match a ticket type - checkout price NOT changed.");
+    const tickets = event.tickets.map((t) => ({ ...t, price: t.id === ticket.id ? price.toFixed(2) : t.price }));
+    const raw = String(overrideIdForPage(selected) || "");
+    await api("/admin/api/events", {
+      method: "PUT",
+      headers: authHeaders({ "content-type": "application/json" }),
+      body: JSON.stringify({
+        eventId: Number(eventId),
+        draftId: /^draft-(?!prod-)/.test(raw) ? raw : "",
+        tickets,
+      }),
+    });
+    setStatus(`Saved. Checkout price updated: ${ticket.name} -> $${price.toFixed(2)}`, "ok");
+  }
+
   async function pipelineFetch(path, options) {
     let resp;
     try {
@@ -1495,11 +1554,14 @@
     }
     $("saveBtn").disabled = true;
     setStatus("Saving...");
+    const savedField = activeField;
+    const savedValue = $("description").value;
     try {
       await persistCurrentOverride();
       closeModal();
       refreshPreview();
       setStatus("Saved.", "ok");
+      await maybeSyncTicketPrice(savedField, savedValue);
     } catch (err) {
       setStatus(err.message, "error");
     } finally {
