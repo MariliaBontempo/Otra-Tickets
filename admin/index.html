@@ -1409,6 +1409,56 @@
     setStatus(`Saved. Checkout price updated: ${ticket.name} -> $${price.toFixed(2)}`, "ok");
   }
 
+  // A date edited on the page must move the real event too (checkout
+  // calendar, feeds, emails). Date-bearing spots: the booking heading, the
+  // hero date and the practical-info "Date" row. Recurring events are
+  // refused server-side (their schedule lives in the tickets dashboard).
+  function isDateField(field) {
+    const el = field && field.element;
+    if (!el || !el.closest) return false;
+    if (el.closest("#book") && /^h\d$/i.test(el.tagName || "")) return true;
+    if (el.closest(".ev-hero-meta")) return true;
+    const row = el.closest("#evInfoGrid > div");
+    if (row) {
+      const key = row.querySelector("div:nth-of-type(1)");
+      const label = key ? key.textContent.replace(/Edit text/i, "").trim().toLowerCase() : "";
+      return label === "date";
+    }
+    return false;
+  }
+
+  const MONTHS = ["january","february","march","april","may","june","july","august","september","october","november","december"];
+
+  function parseDateText(value) {
+    const text = String(value || "").toLowerCase();
+    const iso = text.match(/(\d{4})-(\d{2})-(\d{2})/);
+    if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+    const named = text.match(new RegExp(`(${MONTHS.join("|")})\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:,)?\\s+(\\d{4})`));
+    if (!named) return "";
+    const month = String(MONTHS.indexOf(named[1]) + 1).padStart(2, "0");
+    return `${named[3]}-${month}-${String(named[2]).padStart(2, "0")}`;
+  }
+
+  async function maybeSyncEventDate(field, value) {
+    if (!isDateField(field)) return;
+    const day = parseDateText(value);
+    if (!day) {
+      return setStatus("Date text saved, but no full date found - event date NOT changed.", "error");
+    }
+    const eventId = linkedEventIdForPage();
+    if (!eventId) {
+      return setStatus("Date text saved, but this page has no linked event - event date NOT changed.", "error");
+    }
+    setStatus("Updating event date...");
+    const data = await api("/admin/api/events", {
+      method: "PUT",
+      headers: authHeaders({ "content-type": "application/json" }),
+      body: JSON.stringify({ eventId: Number(eventId), startDate: day }),
+    });
+    const start = data.event && data.event.start_date ? String(data.event.start_date).slice(0, 10) : day;
+    setStatus(`Saved. Event date updated to ${start} (checkout calendar included).`, "ok");
+  }
+
   async function pipelineFetch(path, options) {
     let resp;
     try {
@@ -1562,6 +1612,7 @@
       refreshPreview();
       setStatus("Saved.", "ok");
       await maybeSyncTicketPrice(savedField, savedValue);
+      await maybeSyncEventDate(savedField, savedValue);
     } catch (err) {
       setStatus(err.message, "error");
     } finally {

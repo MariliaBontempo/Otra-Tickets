@@ -29,11 +29,34 @@ export async function onRequestGet(context) {
     buildDraftPages(context.env),
     buildTemplatePages(apiBase(context.env)),
   ]);
+  // Publishing a draft retires its draft entry immediately: pencil edits on
+  // draft ids never reach the public page (it reads the numeric event id).
+  // If the upstream feed hasn't caught up with the freshly published event
+  // yet, synthesize its live entry from the draft so there's no gap.
   const liveEventIds = new Set(dynamic.map((page) => String(page.id)));
-  const visibleDrafts = drafts.filter(
-    (page) => !(page.status === "published" && page.otraGuideId && liveEventIds.has(String(page.otraGuideId)))
-  );
-  return json({ pages: [...visibleDrafts, ...MANUAL_PAGES, ...dynamic].filter((page) => !hiddenIds.has(String(page.id))) });
+  const visibleDrafts = [];
+  const synthesized = [];
+  for (const page of drafts) {
+    const eventId = page.otraGuideId ? String(page.otraGuideId) : "";
+    if (page.status === "published" && eventId) {
+      if (!liveEventIds.has(eventId)) {
+        liveEventIds.add(eventId);
+        synthesized.push({
+          id: eventId,
+          title: page.title,
+          type: "Published draft",
+          url: `/event.html?id=${encodeURIComponent(eventId)}`,
+        });
+      }
+      continue;
+    }
+    visibleDrafts.push(page);
+  }
+  return json({
+    pages: [...visibleDrafts, ...MANUAL_PAGES, ...synthesized, ...dynamic].filter(
+      (page) => !hiddenIds.has(String(page.id))
+    ),
+  });
 }
 
 export async function onRequestPost(context) {
