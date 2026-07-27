@@ -681,6 +681,9 @@
       </div>
       <p>Edit the ticket names, descriptions, prices, currencies, and total quantities used by the Otra Guide checkout.</p>
       <div class="checkout-ticket-list" id="checkoutTickets"></div>
+      <div class="row">
+        <button class="btn ghost" id="addTicketTypeBtn" type="button">+ Add ticket type</button>
+      </div>
       <div class="status" id="checkoutStatus"></div>
       <div class="row split">
         <button class="btn ghost" id="cancelCheckoutBtn" type="button">Cancel</button>
@@ -2023,8 +2026,8 @@
     try {
       const data = await api(`/admin/api/events?id=${encodeURIComponent(eventId)}`, { headers: authHeaders() });
       checkoutEvent = data.events && data.events[0] ? data.events[0] : null;
-      if (!checkoutEvent || !checkoutEvent.tickets || !checkoutEvent.tickets.length) throw new Error("No ticket types were found for this event.");
-      renderCheckoutTickets(checkoutEvent.tickets);
+      if (!checkoutEvent) throw new Error("Event not found on Otra Guide.");
+      renderCheckoutTickets(checkoutEvent.tickets || []);
       $("checkoutStatus").textContent = "";
       $("saveCheckoutBtn").disabled = false;
     } catch (err) {
@@ -2058,12 +2061,35 @@
     }).join("");
   }
 
+  $("addTicketTypeBtn").addEventListener("click", () => {
+    const card = document.createElement("section");
+    card.className = "checkout-ticket";
+    card.dataset.checkoutTicket = "";
+    card.innerHTML = `
+        <div class="checkout-ticket-head">
+          <label>Ticket name<input data-checkout-name type="text" maxlength="120" required placeholder="e.g. VIP Table" /></label>
+          <label>Price<input data-checkout-price type="number" min="0" step="0.01" required placeholder="0.00" /></label>
+          <label>Currency<select data-checkout-currency required>
+            ${["USD", "EUR", "ANG"].map((currency) => `<option value="${currency}">${currency}</option>`).join("")}
+          </select></label>
+        </div>
+        <label>Description<textarea data-checkout-description></textarea></label>
+        <label>Total quantity<input data-checkout-quantity type="number" min="1" step="1" required value="100" /></label>
+        <span class="checkout-ticket-note">New ticket type - created on Save. <a href="#" data-checkout-discard>Discard</a></span>`;
+    card.querySelector("[data-checkout-discard]").addEventListener("click", (event) => {
+      event.preventDefault();
+      card.remove();
+    });
+    $("checkoutTickets").appendChild(card);
+    card.querySelector("[data-checkout-name]").focus();
+  });
+
   async function saveCheckout(e) {
     e.preventDefault();
     const eventId = eventIdForPage(selected);
     if (!eventId || !checkoutEvent) return;
     const tickets = [...document.querySelectorAll("[data-checkout-ticket]")].map((card) => ({
-      id: Number(card.dataset.checkoutTicket),
+      id: card.dataset.checkoutTicket ? Number(card.dataset.checkoutTicket) : null,
       name: card.querySelector("[data-checkout-name]").value.trim(),
       description: card.querySelector("[data-checkout-description]").value.trim(),
       price: card.querySelector("[data-checkout-price]").value,
