@@ -185,15 +185,17 @@
       return;
     }
     if (el.dataset && el.dataset.otraVideo === abs) return;
+    // Keep the original slot element in place (hidden): the page's own render
+    // keeps finding it by id and writing the design image there - if the
+    // <video> inherited that id, its src would be overwritten with a JPG and
+    // playback would stall forever at readyState 0.
     const video = document.createElement("video");
     video.className = el.className;
-    if (el.id) video.id = el.id;
     video.src = value;
     video.controls = true;
     video.playsInline = true;
     video.preload = "metadata";
     if (el.tagName === "IMG" && el.src) video.poster = el.src;
-    video.dataset.otraVideo = abs;
     // The event template sizes the video section's media by tag (.ev-video img)
     // and reserves .ev-video-el for a real full-bleed player; a swapped-in
     // <video> needs that class or it renders at its tiny intrinsic size.
@@ -204,7 +206,9 @@
       video.style.height = "auto";
       video.style.display = "block";
     }
-    el.replaceWith(video);
+    el.dataset.otraVideo = abs;
+    el.style.display = "none";
+    el.insertAdjacentElement("afterend", video);
     markVideoSectionLive(video);
   }
 
