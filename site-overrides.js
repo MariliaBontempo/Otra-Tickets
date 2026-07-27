@@ -141,7 +141,15 @@
       });
   }
 
+  function isVideoUrl(value) {
+    return /\.(mp4|webm|mov)(\?|#|$)/i.test(value || "");
+  }
+
   function applyGuardedImage(el, value) {
+    if (isVideoUrl(value)) {
+      applyVideoOverride(el, value);
+      return;
+    }
     if (el.tagName === "IMG") {
       const abs = new URL(value, location.href).href;
       if (el.src !== abs) {
@@ -160,6 +168,51 @@
     if (el.style.backgroundImage !== bg) {
       el.style.backgroundImage = bg;
     }
+  }
+
+  // An override value pointing at a video file turns the slot into a real
+  // player: an <img> is swapped for a <video> (keeping id/class so selectors
+  // and layout still match), an existing <video> just gets the new source.
+  function applyVideoOverride(el, value) {
+    const abs = new URL(value, location.href).href;
+    if (el.tagName === "VIDEO") {
+      if (el.dataset.otraVideo !== abs) {
+        el.src = value;
+        el.controls = true;
+        el.dataset.otraVideo = abs;
+      }
+      markVideoSectionLive(el);
+      return;
+    }
+    if (el.dataset && el.dataset.otraVideo === abs) return;
+    const video = document.createElement("video");
+    video.className = el.className;
+    if (el.id) video.id = el.id;
+    video.src = value;
+    video.controls = true;
+    video.playsInline = true;
+    video.preload = "metadata";
+    if (el.tagName === "IMG" && el.src) video.poster = el.src;
+    video.dataset.otraVideo = abs;
+    // The event template sizes the video section's media by tag (.ev-video img)
+    // and reserves .ev-video-el for a real full-bleed player; a swapped-in
+    // <video> needs that class or it renders at its tiny intrinsic size.
+    if (el.closest(".ev-video")) {
+      video.classList.add("ev-video-el");
+    } else if (!video.className) {
+      video.style.width = "100%";
+      video.style.height = "auto";
+      video.style.display = "block";
+    }
+    el.replaceWith(video);
+    markVideoSectionLive(video);
+  }
+
+  // The event template's video section shows a decorative play overlay on top
+  // of the poster image; once a real player is in place the overlay must go.
+  function markVideoSectionLive(el) {
+    const section = el.closest && el.closest(".ev-video");
+    if (section) section.classList.add("is-live");
   }
 
   function applyDecodedImage(el, value) {

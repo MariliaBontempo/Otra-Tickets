@@ -603,8 +603,8 @@
       </div>
 
       <div class="stack hidden" id="imageEditor">
-        <label>Main image
-          <input id="imageInput" type="file" accept="image/png,image/jpeg,image/webp,image/avif" />
+        <label>Main image or video
+          <input id="imageInput" type="file" accept="image/png,image/jpeg,image/webp,image/avif,video/mp4,video/webm,video/quicktime" />
         </label>
         <div class="image-preview" id="imagePreview">
           <span>No override image</span>
@@ -1260,15 +1260,50 @@
 
   $("uploadBtn").addEventListener("click", uploadCurrentImage);
 
+  // Editors upload photos straight from a phone/camera (often 5-10MB). The
+  // site should never serve those raw, so large images are downscaled and
+  // re-encoded to WebP in the browser before upload - the visitor always gets
+  // a light file no matter what was picked. Videos skip this entirely.
+  const OPTIMIZE_MAX_DIM = 2000;
+  const OPTIMIZE_SKIP_BYTES = 600 * 1024;
+
+  async function optimizeImage(file) {
+    if (!/^image\/(png|jpeg|webp|avif)$/.test(file.type)) return file;
+    try {
+      const bitmap = await createImageBitmap(file);
+      const scale = Math.min(1, OPTIMIZE_MAX_DIM / Math.max(bitmap.width, bitmap.height));
+      if (scale === 1 && file.size <= OPTIMIZE_SKIP_BYTES) {
+        bitmap.close();
+        return file;
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+      canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+      canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      bitmap.close();
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/webp", 0.85));
+      if (!blob || blob.size >= file.size) return file;
+      const name = (file.name || "image").replace(/\.[a-z0-9]+$/i, "") + ".webp";
+      return new File([blob], name, { type: "image/webp" });
+    } catch {
+      return file;
+    }
+  }
+
   async function uploadCurrentImage() {
     if (!selected) return;
-    const file = $("imageInput").files[0];
-    if (!file) return setStatus("Choose an image first.", "error");
+    let file = $("imageInput").files[0];
+    if (!file) return setStatus("Choose an image or video first.", "error");
+    const isVideo = /^video\//.test(file.type);
+    $("uploadBtn").disabled = true;
+    if (!isVideo) {
+      setStatus("Optimizing image...");
+      file = await optimizeImage(file);
+    }
     const form = new FormData();
     form.set("id", overrideIdForPage(selected));
     form.set("file", file);
-    $("uploadBtn").disabled = true;
-    setStatus("Uploading image...");
+    setStatus(isVideo ? "Uploading video (this can take a while)..." : "Uploading image...");
     try {
       const data = await api("/admin/api/upload", {
         method: "POST",
@@ -1278,12 +1313,12 @@
       $("imageUrl").value = data.url;
       showImage(data.url);
       $("saveBtn").disabled = true;
-      setStatus("Image uploaded. Saving...");
+      setStatus("Upload complete. Saving...");
       await persistCurrentOverride();
       $("imageInput").value = "";
       closeModal();
       refreshPreview();
-      setStatus("Image uploaded and saved.", "ok");
+      setStatus("Upload complete and saved.", "ok");
     } catch (err) {
       setStatus(err.message, "error");
     } finally {
@@ -1895,7 +1930,8 @@
   function showImage(src) {
     const box = $("imagePreview");
     const img = $("imagePreviewImg");
-    if (src) {
+    // <img> can't render a video file; leave the placeholder box instead.
+    if (src && !/\.(mp4|webm|mov)(\?|#|$)/i.test(src)) {
       img.src = src;
       box.classList.add("has-image");
     } else {
