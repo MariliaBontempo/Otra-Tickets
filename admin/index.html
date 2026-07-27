@@ -421,6 +421,13 @@
   }
   .admin-only-toggle input { width: auto; margin: 0; }
   .admin-only-toggle:has(input:checked) { color: var(--accent); }
+  .upload-progress { display: flex; flex-direction: column; gap: 6px; }
+  .upload-progress.hidden { display: none; }
+  .upload-progress-bar { height: 8px; border-radius: 4px; background: rgba(255,255,255,0.12); overflow: hidden; }
+  .upload-progress-fill { height: 100%; width: 0; border-radius: 4px; background: var(--accent, #f4c518); transition: width .3s ease; }
+  .upload-progress-fill.indeterminate { width: 100% !important; animation: uploadPulse 1.2s ease-in-out infinite; }
+  @keyframes uploadPulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
+  .upload-progress-label { font-size: 12px; opacity: 0.8; }
 
   .top-status {
     color: var(--muted);
@@ -606,6 +613,10 @@
         <label>Main image or video
           <input id="imageInput" type="file" accept="image/png,image/jpeg,image/webp,image/avif,video/mp4,video/webm,video/quicktime" />
         </label>
+        <div class="upload-progress hidden" id="uploadProgress">
+          <div class="upload-progress-bar"><div class="upload-progress-fill" id="uploadProgressFill"></div></div>
+          <span class="upload-progress-label" id="uploadProgressLabel"></span>
+        </div>
         <div class="image-preview" id="imagePreview">
           <span>No override image</span>
           <img alt="" id="imagePreviewImg" />
@@ -1290,8 +1301,159 @@
     }
   }
 
+  // Videos go through the Django pipeline on otraguide.com: chunked upload of
+  // the original (any size), server-side ffmpeg optimization (max 1080p,
+  // faststart), result stored in the same R2 bucket the site already serves.
+  const PIPELINE_API = /^(127\.0\.0\.1|localhost)$/.test(location.hostname)
+    ? "http://127.0.0.1:8000/api/otra-tickets/media"
+    : "https://otraguide.com/api/otra-tickets/media";
+  const PIPELINE_CHUNK_BYTES = 25 * 1024 * 1024;
+
+  function showUploadProgress(label, fraction) {
+    const box = $("uploadProgress");
+    box.classList.remove("hidden");
+    const fill = $("uploadProgressFill");
+    if (fraction == null) {
+      fill.classList.add("indeterminate");
+      fill.style.width = "100%";
+    } else {
+      fill.classList.remove("indeterminate");
+      fill.style.width = Math.max(2, Math.round(fraction * 100)) + "%";
+    }
+    $("uploadProgressLabel").textContent = label;
+  }
+
+  function hideUploadProgress() {
+    $("uploadProgress").classList.add("hidden");
+    $("uploadProgressFill").style.width = "0";
+  }
+
+  // fetch() can't report upload progress, so chunks go up via XHR.
+  function putChunkWithProgress(path, blob, onProgress) {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("PUT", PIPELINE_API + path);
+      xhr.setRequestHeader("authorization", "Bearer " + token);
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) onProgress(event.loaded / event.total);
+      };
+      xhr.onload = () => {
+        let data = {};
+        try { data = JSON.parse(xhr.responseText); } catch {}
+        if (xhr.status >= 200 && xhr.status < 300) resolve(data);
+        else reject(new Error(data.error || `Video pipeline error (${xhr.status}).`));
+      };
+      xhr.onerror = () => reject(new Error("Could not reach the video pipeline."));
+      const form = new FormData();
+      form.set("chunk", blob);
+      xhr.send(form);
+    });
+  }
+
+  // A price edited on the page must also change the real checkout price.
+  // When a saved text override is a rates-section price cell, parse it and
+  // sync the matching Otra Guide ticket type through the admin events API.
+  const RATE_PRICE_KEY_RE = /^text:(?:main > )?#evRates > div:nth-of-type\((\d+)\) > div:nth-of-type\(2\)$/;
+
+  function linkedEventIdForPage() {
+    const raw = String(overrideIdForPage(selected) || "");
+    if (/^\d+$/.test(raw)) return raw;
+    const prod = raw.match(/^draft-prod-(\d+)$/);
+    if (prod) return prod[1];
+    const checkout = currentOverride && currentOverride.checkoutEventId;
+    if (checkout && /^\d+$/.test(String(checkout))) return String(checkout);
+    return "";
+  }
+
+  async function maybeSyncTicketPrice(field, value) {
+    const match = field && RATE_PRICE_KEY_RE.exec(field.key || "");
+    if (!match) return;
+    const priceMatch = String(value || "").replace(",", ".").match(/(\d+(?:\.\d{1,2})?)/);
+    if (!priceMatch) {
+      return setStatus("Price text saved, but no number found - checkout price NOT changed.", "error");
+    }
+    const price = Number(priceMatch[1]);
+    const eventId = linkedEventIdForPage();
+    if (!eventId) {
+      return setStatus("Price text saved, but this page has no linked event - checkout price NOT changed.", "error");
+    }
+    let rowName = "";
+    try {
+      const doc = $("previewFrame").contentDocument;
+      const cell = doc.querySelector(`#evRates > div:nth-of-type(${match[1]}) > div:nth-of-type(1)`);
+      rowName = cell ? cell.textContent.trim().replace(/\s+/g, " ").replace(/Edit text$/i, "").trim() : "";
+    } catch {}
+    setStatus("Updating checkout price...");
+    const data = await api(`/admin/api/events?id=${encodeURIComponent(eventId)}`, { headers: authHeaders() });
+    const event = data.events && data.events[0];
+    if (!event || !Array.isArray(event.tickets) || !event.tickets.length) {
+      throw new Error("No ticket types found for this event - checkout price NOT changed.");
+    }
+    const rowIndex = Number(match[1]) - 1;
+    let ticket = rowName
+      ? event.tickets.find((t) => String(t.name).trim().toLowerCase() === rowName.toLowerCase())
+      : null;
+    if (!ticket) ticket = event.tickets[rowIndex];
+    if (!ticket) throw new Error("Could not match a ticket type - checkout price NOT changed.");
+    const tickets = event.tickets.map((t) => ({ ...t, price: t.id === ticket.id ? price.toFixed(2) : t.price }));
+    const raw = String(overrideIdForPage(selected) || "");
+    await api("/admin/api/events", {
+      method: "PUT",
+      headers: authHeaders({ "content-type": "application/json" }),
+      body: JSON.stringify({
+        eventId: Number(eventId),
+        draftId: /^draft-(?!prod-)/.test(raw) ? raw : "",
+        tickets,
+      }),
+    });
+    setStatus(`Saved. Checkout price updated: ${ticket.name} -> $${price.toFixed(2)}`, "ok");
+  }
+
+  async function pipelineFetch(path, options) {
+    let resp;
+    try {
+      resp = await fetch(PIPELINE_API + path, options);
+    } catch {
+      throw new Error("Could not reach the video pipeline.");
+    }
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(data.error || `Video pipeline error (${resp.status}).`);
+    return data;
+  }
+
+  async function uploadVideoViaPipeline(file) {
+    const total = Math.max(1, Math.ceil(file.size / PIPELINE_CHUNK_BYTES));
+    const created = await pipelineFetch("/uploads/", {
+      method: "POST",
+      headers: authHeaders({ "content-type": "application/json" }),
+      body: JSON.stringify({
+        eventId: overrideIdForPage(selected),
+        totalChunks: total,
+        name: file.name || "video.mp4",
+      }),
+    });
+    for (let index = 0; index < total; index += 1) {
+      const blob = file.slice(index * PIPELINE_CHUNK_BYTES, (index + 1) * PIPELINE_CHUNK_BYTES);
+      await putChunkWithProgress(`/uploads/${created.id}/chunks/${index + 1}/`, blob, (chunkFraction) => {
+        const overall = (index + chunkFraction) / total;
+        const pct = Math.round(overall * 100);
+        showUploadProgress(`Uploading video... ${pct}%`, overall);
+        setStatus(`Uploading video... ${pct}%`);
+      });
+    }
+    showUploadProgress("Optimizing video for the web (this can take a few minutes)...", null);
+    setStatus("Optimizing video for the web (this can take a few minutes)...");
+    await pipelineFetch(`/uploads/${created.id}/complete/`, { method: "POST", headers: authHeaders() });
+    for (;;) {
+      await new Promise((resolve) => setTimeout(resolve, 4000));
+      const status = await pipelineFetch(`/uploads/${created.id}/`, { headers: authHeaders() });
+      if (status.status === "done") return status.resultUrl;
+      if (status.status === "error") throw new Error(status.error || "Video processing failed.");
+    }
+  }
+
   async function uploadCurrentImage() {
-    if (!selected) return;
+    if (!selected) return setStatus("No page selected - reload the editor and try again.", "error");
     let file = $("imageInput").files[0];
     if (!file) return setStatus("Choose an image or video first.", "error");
     const isVideo = /^video\//.test(file.type);
@@ -1299,19 +1461,25 @@
     if (!isVideo) {
       setStatus("Optimizing image...");
       file = await optimizeImage(file);
+      setStatus("Uploading image...");
     }
-    const form = new FormData();
-    form.set("id", overrideIdForPage(selected));
-    form.set("file", file);
-    setStatus(isVideo ? "Uploading video (this can take a while)..." : "Uploading image...");
     try {
-      const data = await api("/admin/api/upload", {
-        method: "POST",
-        headers: authHeaders(),
-        body: form,
-      });
-      $("imageUrl").value = data.url;
-      showImage(data.url);
+      let url;
+      if (isVideo) {
+        url = await uploadVideoViaPipeline(file);
+      } else {
+        const form = new FormData();
+        form.set("id", overrideIdForPage(selected));
+        form.set("file", file);
+        const data = await api("/admin/api/upload", {
+          method: "POST",
+          headers: authHeaders(),
+          body: form,
+        });
+        url = data.url;
+      }
+      $("imageUrl").value = url;
+      showImage(url);
       $("saveBtn").disabled = true;
       setStatus("Upload complete. Saving...");
       await persistCurrentOverride();
@@ -1322,6 +1490,7 @@
     } catch (err) {
       setStatus(err.message, "error");
     } finally {
+      hideUploadProgress();
       $("uploadBtn").disabled = false;
       $("saveBtn").disabled = false;
     }
@@ -1385,11 +1554,14 @@
     }
     $("saveBtn").disabled = true;
     setStatus("Saving...");
+    const savedField = activeField;
+    const savedValue = $("description").value;
     try {
       await persistCurrentOverride();
       closeModal();
       refreshPreview();
       setStatus("Saved.", "ok");
+      await maybeSyncTicketPrice(savedField, savedValue);
     } catch (err) {
       setStatus(err.message, "error");
     } finally {
