@@ -67,8 +67,11 @@ export async function onRequestPut(context) {
 
   try {
     for (const ticket of tickets) {
-      await otraWrite(context, accessToken, `/ticket/create/tickets/${eventId}/${ticket.id}/`, {
-        method: "PATCH",
+      const path = ticket.id
+        ? `/ticket/create/tickets/${eventId}/${ticket.id}/`
+        : `/ticket/create/tickets/${eventId}/`;
+      await otraWrite(context, accessToken, path, {
+        method: ticket.id ? "PATCH" : "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           name: ticket.name,
@@ -238,6 +241,21 @@ async function updateEventDate(context, accessToken, body) {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ start_date: newStartIso, end_date: newEndIso }),
   });
+
+  // Ticket sale windows end at the event start; moving the event without
+  // moving them leaves tickets "Currently Unavailable" (or closes sales too
+  // late). Keep every ticket sellable right up to the new start.
+  try {
+    const ticketData = await otraJson(context, accessToken, `/ticket/purchase/tickets/${eventId}/`);
+    const ticketList = (ticketData && Array.isArray(ticketData.results)) ? ticketData.results : [];
+    for (const ticket of ticketList) {
+      await otraWrite(context, accessToken, `/ticket/create/tickets/${eventId}/${ticket.id}/`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sale_end_time: newStartIso }),
+      });
+    }
+  } catch {}
   return json({ event: { id: detail.id, start_date: updated.start_date || newStartIso, end_date: updated.end_date || newEndIso } });
 }
 
@@ -280,7 +298,7 @@ async function otraWrite(context, accessToken, path, options) {
 
 function normalizeTicketInput(ticket, existingById) {
   const id = cleanInteger(ticket && ticket.id);
-  if (!id || !existingById.has(String(id))) throw new Error("invalid ticket type");
+  if (id && !existingById.has(String(id))) throw new Error("invalid ticket type");
   const name = String((ticket && ticket.name) || "").trim();
   if (!name) throw new Error("ticket name is required");
   const numericPrice = Number(ticket && ticket.price);
