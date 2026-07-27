@@ -269,7 +269,23 @@ async function updateEventDate(context, accessToken, body) {
         for (const key of page.keys || []) {
           const project = await kv.get(key.name, "json");
           if (project && String(project.otraGuideId || "") === String(eventId)) {
-            await kv.put(key.name, JSON.stringify({ ...project, startDate: newStartIso, endDate: newEndIso }));
+            const next = { ...project, startDate: newStartIso, endDate: newEndIso };
+            // The hero meta and homepage card label render the design's own
+            // date strings - rewrite any date inside them to the new day.
+            const design = next.claudeDesign;
+            if (design && Array.isArray(design.meta)) {
+              const target = new Date(newStartIso);
+              const label = target.toLocaleDateString("en-US", {
+                weekday: "short", month: "long", day: "numeric", year: "numeric",
+                timeZone: "America/Curacao",
+              });
+              const dateRe = /(?:(?:Sun|Mon|Tue|Wed|Thu|Fri|Sat)[a-z]*,?\s+)?(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4}/gi;
+              next.claudeDesign = {
+                ...design,
+                meta: design.meta.map((item) => String(item).replace(dateRe, label)),
+              };
+            }
+            await kv.put(key.name, JSON.stringify(next));
           }
         }
         cursor = page.list_complete ? undefined : page.cursor;
