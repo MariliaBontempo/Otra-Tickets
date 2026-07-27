@@ -36,6 +36,114 @@ export async function onRequestPost(context) {
     return json({ project: next });
   }
 
+  if (url.searchParams.get("action") === "clone") {
+    const kv = context.env.OVERRIDES;
+    if (!kv) return json({ error: "overrides store not configured" }, 503);
+    const id = (url.searchParams.get("id") || "").trim();
+    let source = null;
+    let sourcePageId = id;
+    if (isDraftId(id)) {
+      source = await getProject(kv, id);
+    } else if (/^\d+$/.test(id)) {
+      // Cloning from a live page entry: find the newest non-archived draft
+      // published for that Otra Guide event.
+      const projects = await listProjects(kv);
+      source = projects.find((project) => project.otraGuideId === id) || null;
+    }
+    if (!source) return json({ error: "no draft found to clone" }, 404);
+
+    const cloneId = `draft-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
+    const clone = {
+      ...source,
+      id: cloneId,
+      title: `${source.title} (clone)`,
+      status: "draft",
+      publishedAt: "",
+      archivedAt: "",
+      adminOnly: false,
+      // The clone must never point at the original's Otra Guide event or
+      // ticket types - publishing it will create its own.
+      otraGuideId: "",
+      otraGuideSlug: "",
+      ticketTypeIds: [],
+      usesExistingOtraGuideEvent: false,
+      syncError: "",
+      createdAt: new Date().toISOString(),
+    };
+    await putProject(kv, clone);
+
+    // Bring the page overrides along so the clone starts looking identical.
+    try {
+      const override =
+        (await kv.get(`event:${sourcePageId}`, "json")) ||
+        (await kv.get(`event:${source.id}`, "json")) ||
+        (await kv.get(`override:${sourcePageId}`, "json"));
+      if (override && typeof override === "object") {
+        await kv.put(`event:${cloneId}`, JSON.stringify({ ...override, id: cloneId }));
+      }
+    } catch {}
+
+    // Bind the clone to its own Otra Guide event so ticketing/checkout work:
+    // either an existing event chosen by the editor, or a fresh unpublished
+    // event copying the original's team, dates, location and ticket types.
+    let body = {};
+    try {
+      body = await context.request.json();
+    } catch {}
+    try {
+      let bound = clone;
+      const existingEventId = cleanInteger(body && body.existingEventId);
+      if (existingEventId) {
+        bound = await createDraftFromExistingEvent(context, accessToken, clone, existingEventId);
+        await putProject(kv, bound);
+      } else {
+        // Drafts don't always carry dates/location; backfill from the
+        // original's Otra Guide event before creating the clone's own event.
+        if ((!bound.startDate || !bound.endDate || !bound.location || !bound.teamId || !bound.regionId) && source.otraGuideId) {
+          const info = await otraFetch(context, accessToken, `/otra-tickets/media/event-slug/${source.otraGuideId}/`);
+          bound = {
+            ...bound,
+            startDate: bound.startDate || info.startDate || "",
+            endDate: bound.endDate || info.endDate || info.startDate || "",
+            location: bound.location || info.location || "",
+            teamId: bound.teamId || cleanInteger(info.teamId),
+            teamName: bound.teamName || (info.teamName || ""),
+            regionId: bound.regionId || cleanInteger(info.regionId),
+          };
+          await putProject(kv, bound);
+        }
+        bound = await createOtraGuideEvent(context, accessToken, bound, {});
+        await putProject(kv, bound);
+        bound = await reconcileTickets(context, accessToken, bound);
+        bound = { ...bound, syncError: "" };
+        await putProject(kv, bound);
+      }
+      return json({ project: bound }, 201);
+    } catch (error) {
+      const failed = { ...((await getProject(kv, cloneId)) || clone), syncError: error.message };
+      await putProject(kv, failed);
+      return json({ project: failed, warning: error.message }, 202);
+    }
+  }
+
+  if (url.searchParams.get("action") === "rename") {
+    const kv = context.env.OVERRIDES;
+    if (!kv) return json({ error: "overrides store not configured" }, 503);
+    const id = (url.searchParams.get("id") || "").trim();
+    if (!isDraftId(id)) return json({ error: "invalid draft id" }, 400);
+    const project = await getProject(kv, id);
+    if (!project) return json({ error: "draft not found" }, 404);
+    let body = {};
+    try {
+      body = await context.request.json();
+    } catch {}
+    const name = String((body && body.name) || "").trim().slice(0, 120);
+    if (!name) return json({ error: "name is required" }, 400);
+    const next = { ...project, title: name };
+    await putProject(kv, next);
+    return json({ project: next });
+  }
+
   if (url.searchParams.get("action") === "set-admin-only") {
     const kv = context.env.OVERRIDES;
     if (!kv) return json({ error: "overrides store not configured" }, 503);
