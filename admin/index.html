@@ -2136,8 +2136,15 @@
     if (query.length < 2) return;
     $("cloneEventResults").innerHTML = "<span class=\"muted\">Searching...</span>";
     try {
-      const data = await api("/admin/api/events?q=" + encodeURIComponent(query), { headers: authHeaders() });
-      const events = data.events || [];
+      // Events already in the page selector match instantly; the backend
+      // search fills in anything not listed there.
+      const lower = query.toLowerCase();
+      const localMatches = pages
+        .filter((page) => /^\d+$/.test(String(page.id)) && page.title.toLowerCase().includes(lower))
+        .map((page) => ({ id: page.id, title: page.title }));
+      const data = await api("/admin/api/events?q=" + encodeURIComponent(query), { headers: authHeaders() }).catch(() => ({ events: [] }));
+      const seen = new Set(localMatches.map((event) => String(event.id)));
+      const events = [...localMatches, ...(data.events || []).filter((event) => !seen.has(String(event.id)))];
       $("cloneEventResults").innerHTML = "";
       if (!events.length) {
         $("cloneEventResults").innerHTML = "<span class=\"muted\">No ticketed events found.</span>";
