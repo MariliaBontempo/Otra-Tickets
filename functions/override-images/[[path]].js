@@ -9,12 +9,24 @@ export async function onRequestGet(context) {
 
   const bucket = context.env.OVERRIDE_IMAGES;
   if (bucket) {
-    const object = await bucket.get(key);
+    // Video playback depends on Range support: browsers request
+    // "Range: bytes=0-" and stall waiting for a 206 that never came.
+    // R2 serves ranges natively.
+    const range = parseRange(context.request.headers.get("range"));
+    const object = await bucket.get(key, range ? { range } : undefined);
     if (object) {
       const headers = new Headers();
       object.writeHttpMetadata(headers);
       headers.set("etag", object.httpEtag);
+      headers.set("accept-ranges", "bytes");
       headers.set("cache-control", headers.get("cache-control") || "public, max-age=31536000, immutable");
+      if (range && object.range) {
+        const offset = object.range.offset !== undefined ? object.range.offset : object.size - object.range.suffix;
+        const length = object.range.length !== undefined ? object.range.length : object.size - offset;
+        headers.set("content-range", `bytes ${offset}-${offset + length - 1}/${object.size}`);
+        headers.set("content-length", String(length));
+        return new Response(object.body, { status: 206, headers });
+      }
       return new Response(object.body, { headers });
     }
   }
@@ -44,6 +56,19 @@ export async function onRequestGet(context) {
       "cache-control": "public, max-age=31536000, immutable",
     },
   });
+}
+
+
+// "bytes=a-b" | "bytes=a-" | "bytes=-n" -> R2 range option, or null.
+function parseRange(header) {
+  const match = /^bytes=(\d*)-(\d*)$/.exec(header || "");
+  if (!match || (match[1] === "" && match[2] === "")) return null;
+  if (match[1] === "") return { suffix: Number(match[2]) };
+  const offset = Number(match[1]);
+  if (match[2] === "") return { offset };
+  const end = Number(match[2]);
+  if (end < offset) return null;
+  return { offset, length: end - offset + 1 };
 }
 
 // Local dev only: wrangler's simulated R2/KV stores are empty, but media
