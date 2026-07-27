@@ -29,7 +29,11 @@ export async function onRequestGet(context) {
     buildDraftPages(context.env),
     buildTemplatePages(apiBase(context.env)),
   ]);
-  return json({ pages: [...drafts, ...MANUAL_PAGES, ...dynamic].filter((page) => !hiddenIds.has(String(page.id))) });
+  const liveEventIds = new Set(dynamic.map((page) => String(page.id)));
+  const visibleDrafts = drafts.filter(
+    (page) => !(page.status === "published" && page.otraGuideId && liveEventIds.has(String(page.otraGuideId)))
+  );
+  return json({ pages: [...visibleDrafts, ...MANUAL_PAGES, ...dynamic].filter((page) => !hiddenIds.has(String(page.id))) });
 }
 
 export async function onRequestPost(context) {
@@ -136,7 +140,7 @@ async function buildTemplatePages(apiUrl = API) {
     .map((ev) => ({
       id: String(ev.id),
       title: ev.title,
-      type: ev.is_perennial ? "Template tour" : "Template event",
+      type: ev.is_perennial ? "Published tour" : "Published draft",
       url: `/event.html?id=${encodeURIComponent(ev.id)}`,
     }));
 }
