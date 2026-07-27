@@ -20,7 +20,7 @@ export async function onRequestGet(context) {
   }
 
   const kv = context.env.OVERRIDES;
-  if (!kv) return new Response("Not found", { status: 404 });
+  if (!kv) return devFallbackOr404(context, key);
   if (typeof kv.getWithMetadata === "function") {
     const stored = await kv.getWithMetadata(`${KV_IMAGE_PREFIX}${key}`, "arrayBuffer");
     if (stored && stored.value && stored.metadata && stored.metadata.storage === "binary") {
@@ -33,10 +33,10 @@ export async function onRequestGet(context) {
     }
   }
   const image = await kv.get(`${KV_IMAGE_PREFIX}${key}`, "json");
-  if (!image || !image.dataUrl) return new Response("Not found", { status: 404 });
+  if (!image || !image.dataUrl) return devFallbackOr404(context, key);
 
   const match = String(image.dataUrl).match(/^data:([^;]+);base64,(.+)$/);
-  if (!match) return new Response("Not found", { status: 404 });
+  if (!match) return devFallbackOr404(context, key);
   const bytes = base64ToBytes(match[2]);
   return new Response(bytes, {
     headers: {
@@ -44,6 +44,21 @@ export async function onRequestGet(context) {
       "cache-control": "public, max-age=31536000, immutable",
     },
   });
+}
+
+// Local dev only: wrangler's simulated R2/KV stores are empty, but media
+// written by the production pipeline lives in the real bucket. Proxy those
+// requests to production so local pages can render real uploads. The
+// hostname guard means this never runs on the deployed site.
+async function devFallbackOr404(context, key) {
+  const host = new URL(context.request.url).hostname;
+  if (host !== "127.0.0.1" && host !== "localhost") return new Response("Not found", { status: 404 });
+  const headers = {};
+  const range = context.request.headers.get("range");
+  if (range) headers.range = range;
+  const upstream = await fetch(`https://otratickets.com/override-images/${key}`, { headers });
+  if (!upstream.ok && upstream.status !== 206) return new Response("Not found", { status: 404 });
+  return new Response(upstream.body, upstream);
 }
 
 function base64ToBytes(value) {
