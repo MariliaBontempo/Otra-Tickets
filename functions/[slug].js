@@ -42,7 +42,7 @@ export async function onRequestGet(context) {
   const body = injectEventHead(
     html
       .replace('data-event-id=""', `data-event-id="${escapeAttribute(id)}"`)
-      .replace('src="/site-overrides.js?v=4"', `src="/site-overrides.js?v=4" data-override-id="${escapeAttribute(id)}"`),
+      .replace('src="/site-overrides.js?v=5"', `src="/site-overrides.js?v=5" data-override-id="${escapeAttribute(id)}"`),
     event,
     context.request.url,
   );
