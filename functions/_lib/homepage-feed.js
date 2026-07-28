@@ -583,13 +583,17 @@ async function applyImageOverrides(events, env) {
 
 function homepageOverrideImage(override) {
   if (!override || typeof override !== "object") return "";
-  if (typeof override.image === "string" && override.image) return override.image;
+  // Video overrides are stored as image-type fields; a card <img> can't
+  // render an mp4, so videos never qualify as the card image.
+  const isStillImage = (value) =>
+    typeof value === "string" && value && !/\.(mp4|webm|mov)(\?|#|$)/i.test(value);
+  if (isStillImage(override.image)) return override.image;
   const fields = override.fields;
   if (!fields || typeof fields !== "object" || Array.isArray(fields)) return "";
 
   const entries = Object.entries(fields);
   const hero = entries.find(([key, field]) => {
-    if (!field || field.type !== "image" || typeof field.value !== "string" || !field.value) return false;
+    if (!field || field.type !== "image" || !isStillImage(field.value)) return false;
     return (
       key.includes("#evHeroImg") ||
       key.includes(".ev-hero-img") ||
@@ -598,7 +602,7 @@ function homepageOverrideImage(override) {
   });
   if (hero) return hero[1].value;
 
-  const firstImage = entries.find(([, field]) => field && field.type === "image" && typeof field.value === "string" && field.value);
+  const firstImage = entries.find(([, field]) => field && field.type === "image" && isStillImage(field.value));
   return firstImage ? firstImage[1].value : "";
 }
 
