@@ -112,7 +112,13 @@ export function applyFixedRows(events, rows, now = Date.now()) {
     .filter((row) => row.eventIds.length);
   const merged = [...fixed, ...layoutRows];
   const assigned = new Set(merged.flatMap((row) => row.eventIds));
-  const missing = currentEvents.map((ev) => String(ev.id)).filter((id) => !assigned.has(id));
+  // Dated events ascending (soonest first); always-running tours after. The
+  // incoming feed order is not chronological (published drafts trail by date),
+  // so without this the row could show a later event before an earlier one.
+  const missing = currentEvents
+    .filter((ev) => !assigned.has(String(ev.id)))
+    .sort(byUpcomingDate)
+    .map((ev) => String(ev.id));
   // "Upcoming Events" slots in right after This Week, above Tours & Adventures.
   if (missing.length) merged.splice(1, 0, { ...UPCOMING_ROW, eventIds: missing });
   const past = pastEventIds(events, now);
@@ -138,6 +144,16 @@ function rowTitleKey(title) {
     .replace(/&/g, "and")
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
+}
+
+// Chronological order for the Upcoming row: dated events soonest-first, with
+// perennial tours (no meaningful single date) sorted after them.
+function byUpcomingDate(a, b) {
+  const ap = a.isPerennial === true;
+  const bp = b.isPerennial === true;
+  if (ap !== bp) return ap ? 1 : -1;
+  if (ap && bp) return byTourRank(a, b);
+  return new Date(a.date || 0) - new Date(b.date || 0);
 }
 
 function thisWeekEventIds(events, now) {
