@@ -403,6 +403,19 @@ export async function buildPublishedSiteEvents(env, { includeAdminOnly = false }
       const localCard = LOCAL_CARD_INFO[id];
       const startDate = validDateValue(project.startDate);
       const endDate = validDateValue(project.endDate);
+      // The card must mirror the event detail's hero photo. A published draft's
+      // live hero is edited into its draft override (event:<draftId>), while
+      // project.image holds the Otra Guide event's stock image captured at bind
+      // time — so prefer the override hero, exactly like the detail page does.
+      let overrideImg = "";
+      try {
+        const draftOverride =
+          (await kv.get(`event:${draftId}`, "json")) ||
+          (await kv.get(`override:${draftId}`, "json"));
+        overrideImg = homepageOverrideImage(draftOverride);
+      } catch {
+        overrideImg = "";
+      }
       out.push({
         id,
         title: projectCardTitle(project),
@@ -415,6 +428,7 @@ export async function buildPublishedSiteEvents(env, { includeAdminOnly = false }
         location: "",
         dateLabel: (localCard && localCard.dateLabel) || projectDateLabel(project),
         img:
+          overrideImg ||
           (typeof project.image === "string" && project.image) ||
           (project.claudeDesign && typeof project.claudeDesign.image === "string" && project.claudeDesign.image) ||
           "",
