@@ -128,9 +128,10 @@ export function applyFixedRows(events, rows, now = Date.now()) {
 
 // Two events with the same title would otherwise slugify to the same URL, and
 // that URL could only ever open one of them (e.g. clicking the Aug 23 Sunday
-// Social card would land on the Sep 6 page). Keep the clean slug for the
-// soonest event and give later same-title events a dated suffix so every event
-// has its own shareable page.
+// Social card would land on the Sep 6 page). The OLDEST event keeps the clean
+// slug and newer same-title events get a dated suffix — so publishing a new
+// event (e.g. a clone) only ever changes the new one's URL, never the URL of an
+// event that is already live, whatever date the new one lands on.
 function assignUniqueSlugs(events) {
   const groups = new Map();
   for (const event of events) {
@@ -141,11 +142,13 @@ function assignUniqueSlugs(events) {
   }
   for (const [base, group] of groups) {
     if (group.length < 2) continue;
-    // Soonest date keeps the clean slug; ties fall back to a stable id order.
+    // Oldest event first. Otra Guide ids increase with creation time, so the
+    // pre-existing event keeps the clean slug and the newly published one (a
+    // higher id, or an unpublished draft id) takes the suffix.
     const sorted = [...group].sort((a, b) => {
-      const da = new Date(a.date || 0).getTime() || 0;
-      const db = new Date(b.date || 0).getTime() || 0;
-      if (da !== db) return da - db;
+      const ra = idRank(a);
+      const rb = idRank(b);
+      if (ra !== rb) return ra - rb;
       return String(a.id).localeCompare(String(b.id));
     });
     const used = new Set();
@@ -161,6 +164,13 @@ function assignUniqueSlugs(events) {
       event.slug = slug;
     });
   }
+}
+
+// Lower rank = created earlier. Numeric Otra Guide ids increase with creation;
+// non-numeric draft ids sort last so they never displace an established event.
+function idRank(event) {
+  const n = Number(event && event.id);
+  return Number.isFinite(n) ? n : Infinity;
 }
 
 // "Sep 6" -> "sep-6", used to disambiguate same-title event URLs by date.
