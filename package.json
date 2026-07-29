@@ -10,6 +10,7 @@
     "check:payload": "node scripts/check-payload-budget.mjs",
     "check:admin-only": "node scripts/check-admin-only.mjs",
     "check:overrides": "node scripts/check-overrides-idempotent.mjs",
+    "check:video": "node scripts/check-video-poster.mjs",
     "check:ux": "node scripts/check-ux-states.mjs"
   }
 }

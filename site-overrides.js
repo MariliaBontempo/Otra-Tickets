@@ -110,6 +110,22 @@
         applied.add(key);
         continue;
       }
+      if (type === "video" && field.value) {
+        // The video section holds the video (this field) and its poster/
+        // thumbnail (the image: field for the same slot) in SEPARATE fields, so
+        // uploading one never wipes the other and order does not matter. Prefer
+        // the uploaded poster; otherwise keep whatever the slot already shows.
+        const posterField = fields["image:" + selector];
+        const poster =
+          posterField && posterField.type === "image" && posterField.value && !isVideoUrl(posterField.value)
+            ? posterField.value
+            : el.tagName === "IMG"
+            ? el.src
+            : "";
+        applyVideoOverride(el, field.value, poster);
+        applied.add(key);
+        continue;
+      }
     }
 
     const remaining = Object.keys(fields).filter((k) => !applied.has(k));
@@ -173,7 +189,7 @@
   // An override value pointing at a video file turns the slot into a real
   // player: an <img> is swapped for a <video> (keeping id/class so selectors
   // and layout still match), an existing <video> just gets the new source.
-  function applyVideoOverride(el, value) {
+  function applyVideoOverride(el, value, poster) {
     const abs = new URL(value, location.href).href;
     if (el.tagName === "VIDEO") {
       if (el.dataset.otraVideo !== abs) {
@@ -181,6 +197,7 @@
         el.controls = true;
         el.dataset.otraVideo = abs;
       }
+      if (poster && !isVideoUrl(poster)) el.poster = poster;
       markVideoSectionLive(el);
       return;
     }
@@ -195,7 +212,8 @@
     video.controls = true;
     video.playsInline = true;
     video.preload = "metadata";
-    if (el.tagName === "IMG" && el.src) video.poster = el.src;
+    const posterSrc = poster && !isVideoUrl(poster) ? poster : el.tagName === "IMG" && el.src ? el.src : "";
+    if (posterSrc) video.poster = posterSrc;
     // The event template sizes the video section's media by tag (.ev-video img)
     // and reserves .ev-video-el for a real full-bleed player; a swapped-in
     // <video> needs that class or it renders at its tiny intrinsic size.

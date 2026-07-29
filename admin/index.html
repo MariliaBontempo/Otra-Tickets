@@ -1572,7 +1572,31 @@
       showImage(url);
       $("saveBtn").disabled = true;
       setStatus("Upload complete. Saving...");
-      await persistCurrentOverride();
+      const videoSlot = activeField && /^image:/.test(activeField.key) && /#evVideoImg\b/.test(activeField.key);
+      if (videoSlot) {
+        const selector = activeField.key.slice("image:".length);
+        const videoKey = "video:" + selector;
+        const imageKey = "image:" + selector;
+        if (isVideo) {
+          // Store the video in its own field; keep any poster image already set.
+          await persistOverrideFields((fields) => {
+            fields[videoKey] = { type: "image", value: url };
+          });
+        } else {
+          // A still image in the video slot is the poster/thumbnail. If the slot
+          // still holds a legacy video (older data stored the video here),
+          // migrate it to the video field so it isn't lost when saving the poster.
+          await persistOverrideFields((fields) => {
+            const existing = fields[imageKey];
+            if (existing && existing.type === "image" && isVideoValue(existing.value) && !fields[videoKey]) {
+              fields[videoKey] = { type: "image", value: existing.value };
+            }
+            fields[imageKey] = { type: "image", value: url };
+          });
+        }
+      } else {
+        await persistCurrentOverride();
+      }
       $("imageInput").value = "";
       closeModal();
       refreshPreview();
@@ -1681,6 +1705,31 @@
       $("saveBtn").disabled = false;
     }
   });
+
+  function isVideoValue(value) {
+    return /\.(mp4|webm|mov)(\?|#|$)/i.test(value || "");
+  }
+
+  // Write an override that only mutates the field map, preserving everything
+  // else. Used by the video section so a video and its poster live in separate
+  // fields and neither upload clobbers the other.
+  async function persistOverrideFields(mutate) {
+    const next = {
+      description: currentOverride && currentOverride.description ? currentOverride.description : "",
+      image: currentOverride && currentOverride.image ? currentOverride.image : "",
+      checkoutEventId: currentOverride && currentOverride.checkoutEventId ? currentOverride.checkoutEventId : "",
+      accentColor: currentOverride && currentOverride.accentColor ? currentOverride.accentColor : "",
+      fields: Object.assign({}, currentOverride && currentOverride.fields ? currentOverride.fields : {}),
+    };
+    mutate(next.fields);
+    const data = await api("/admin/api/overrides?id=" + encodeURIComponent(overrideIdForPage(selected)), {
+      method: "PUT",
+      headers: authHeaders({ "content-type": "application/json" }),
+      body: JSON.stringify(next),
+    });
+    fillForm(data.override);
+    return data;
+  }
 
   async function persistCurrentOverride() {
     const next = {
