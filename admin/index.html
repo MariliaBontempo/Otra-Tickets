@@ -705,6 +705,9 @@
           New Otra Guide event (copies the original's team, dates, location and tickets; stays unpublished)</label>
         <label><input type="radio" name="cloneEventMode" value="existing" />
           Use an existing Otra Guide event</label>
+        <label>Event date (new event only - defaults to the original's date)
+          <input id="cloneEventDate" type="date" />
+        </label>
         <label>Search Otra Guide events
           <input id="cloneEventSearch" type="search" placeholder="Type event name or ID" />
         </label>
@@ -2139,6 +2142,7 @@
 
   let cloneChosenEvent = null;
   let cloneSearchTimer = null;
+  let cloneSourceDate = "";
 
   function cloneSelectedPage() {
     if (!selected) return;
@@ -2149,7 +2153,19 @@
     $("cloneEventResults").innerHTML = "";
     $("cloneEventSelected").textContent = "";
     cloneChosenEvent = null;
+    cloneSourceDate = "";
+    $("cloneEventDate").value = "";
+    $("cloneEventDate").disabled = false;
     $("cloneModal").classList.remove("hidden");
+    const eventId = linkedEventIdForPage();
+    if (eventId) {
+      pipelineFetch(`/event-slug/${eventId}/`, { headers: authHeaders() })
+        .then((info) => {
+          cloneSourceDate = String(info.startDate || "").slice(0, 10);
+          if (cloneSourceDate && !$("cloneEventDate").value) $("cloneEventDate").value = cloneSourceDate;
+        })
+        .catch(() => {});
+    }
   }
 
   $("cloneEventSearch").addEventListener("input", () => {
@@ -2184,6 +2200,7 @@
         btn.addEventListener("click", () => {
           cloneChosenEvent = event;
           document.querySelector('input[name="cloneEventMode"][value="existing"]').checked = true;
+          $("cloneEventDate").disabled = true;
           $("cloneEventSelected").textContent = `Selected: ${event.title} (#${event.id})`;
         });
         $("cloneEventResults").appendChild(btn);
@@ -2195,6 +2212,11 @@
     }
   }
 
+  for (const radio of document.querySelectorAll('input[name="cloneEventMode"]')) {
+    radio.addEventListener("change", () => {
+      $("cloneEventDate").disabled = radio.value === "existing" && radio.checked;
+    });
+  }
   $("cancelCloneBtn").addEventListener("click", () => $("cloneModal").classList.add("hidden"));
   $("cloneForm").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -2218,12 +2240,26 @@
         headers: authHeaders({ "content-type": "application/json" }),
         body: JSON.stringify(mode === "existing" ? { existingEventId: Number(existingEventId) } : {}),
       });
+      const chosenDate = $("cloneEventDate").value;
+      let dateNote = "";
+      if (mode !== "existing" && data.project.otraGuideId && chosenDate && chosenDate !== cloneSourceDate) {
+        try {
+          await api("/admin/api/events", {
+            method: "PUT",
+            headers: authHeaders({ "content-type": "application/json" }),
+            body: JSON.stringify({ eventId: Number(data.project.otraGuideId), startDate: chosenDate }),
+          });
+          dateNote = ` Event moved to ${chosenDate}.`;
+        } catch (err) {
+          dateNote = ` Date NOT changed (${err.message}) - edit it on the page.`;
+        }
+      }
       $("cloneModal").classList.add("hidden");
       setStatus(
         data.warning
           ? `Cloned with sync pending: ${data.warning}`
-          : `Cloned as "${data.project.title}" (draft).`,
-        data.warning ? "error" : "ok"
+          : `Cloned as "${data.project.title}" (draft).${dateNote}`,
+        data.warning || dateNote.includes("NOT") ? "error" : "ok"
       );
       await loadPages(data.project.id);
     } catch (err) {
