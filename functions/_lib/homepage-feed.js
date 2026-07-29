@@ -74,7 +74,7 @@ export async function buildHomepageFeed(context, { includeAdminOnly = false, aut
   // published Otra Guide event also appears in the upstream public feed.
   const visibleEvents = dedupeEvents([...siteEvents, ...upstreamEvents]);
   const events = await applyImageOverrides(visibleEvents, context.env);
-  for (const event of events) event.slug = eventSlug(event.title);
+  assignUniqueSlugs(events);
   const rows = await buildRows(events, context.env);
   return { events, rows, hasSiteEvents: siteEvents.length > 0 };
 }
@@ -124,6 +124,65 @@ export function applyFixedRows(events, rows, now = Date.now()) {
   const past = pastEventIds(events, now);
   if (past.length) merged.push({ ...PAST_ROW, eventIds: past });
   return merged.filter((row) => row.eventIds.length);
+}
+
+// Two events with the same title would otherwise slugify to the same URL, and
+// that URL could only ever open one of them (e.g. clicking the Aug 23 Sunday
+// Social card would land on the Sep 6 page). The OLDEST event keeps the clean
+// slug and newer same-title events get a dated suffix — so publishing a new
+// event (e.g. a clone) only ever changes the new one's URL, never the URL of an
+// event that is already live, whatever date the new one lands on.
+function assignUniqueSlugs(events) {
+  const groups = new Map();
+  for (const event of events) {
+    const base = eventSlug(event.title);
+    event.slug = base;
+    if (!groups.has(base)) groups.set(base, []);
+    groups.get(base).push(event);
+  }
+  for (const [base, group] of groups) {
+    if (group.length < 2) continue;
+    // Oldest event first. Otra Guide ids increase with creation time, so the
+    // pre-existing event keeps the clean slug and the newly published one (a
+    // higher id, or an unpublished draft id) takes the suffix.
+    const sorted = [...group].sort((a, b) => {
+      const ra = idRank(a);
+      const rb = idRank(b);
+      if (ra !== rb) return ra - rb;
+      return String(a.id).localeCompare(String(b.id));
+    });
+    const used = new Set();
+    sorted.forEach((event, index) => {
+      let slug = base;
+      if (index > 0) {
+        const suffix = slugDateSuffix(event.date);
+        slug = suffix ? `${base}-${suffix}` : `${base}-${String(event.id).toLowerCase()}`;
+      }
+      // Guarantee uniqueness even if two share a date: fall back to the id.
+      if (used.has(slug)) slug = `${base}-${String(event.id).toLowerCase()}`;
+      used.add(slug);
+      event.slug = slug;
+    });
+  }
+}
+
+// Lower rank = created earlier. Numeric Otra Guide ids increase with creation;
+// non-numeric draft ids sort last so they never displace an established event.
+function idRank(event) {
+  const n = Number(event && event.id);
+  return Number.isFinite(n) ? n : Infinity;
+}
+
+// "Sep 6" -> "sep-6", used to disambiguate same-title event URLs by date.
+function slugDateSuffix(date) {
+  const iso = validDateValue(date);
+  if (!iso) return "";
+  const label = new Date(iso).toLocaleDateString("en-US", {
+    timeZone: HOMEPAGE_TIME_ZONE,
+    month: "short",
+    day: "numeric",
+  });
+  return eventSlug(label);
 }
 
 // Rows the server manages automatically. They are recomputed on every feed
