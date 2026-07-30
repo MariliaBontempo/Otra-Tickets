@@ -613,7 +613,7 @@
 
       <div class="stack hidden" id="imageEditor">
         <label>Main image or video
-          <input id="imageInput" type="file" accept="image/png,image/jpeg,image/webp,image/avif,video/mp4,video/webm,video/quicktime" />
+          <input id="imageInput" type="file" accept="image/png,image/jpeg,image/webp,image/avif,video/*,.mp4,.mov,.m4v,.webm,.mkv,.avi" />
         </label>
         <div class="upload-progress hidden" id="uploadProgress">
           <div class="upload-progress-bar"><div class="upload-progress-fill" id="uploadProgressFill"></div></div>
@@ -1550,7 +1550,7 @@
     if (!selected) return setStatus("No page selected - reload the editor and try again.", "error");
     let file = $("imageInput").files[0];
     if (!file) return setStatus("Choose an image or video first.", "error");
-    const isVideo = /^video\//.test(file.type);
+    const isVideo = isVideoFile(file);
     $("uploadBtn").disabled = true;
     if (!isVideo) {
       setStatus("Optimizing image...");
@@ -1576,7 +1576,17 @@
       showImage(url);
       $("saveBtn").disabled = true;
       setStatus("Upload complete. Saving...");
-      await persistCurrentOverride();
+      const videoSlot = activeField && /^image:/.test(activeField.key) && /#evVideoImg\b/.test(activeField.key);
+      if (videoSlot) {
+        const selector = activeField.key.slice("image:".length);
+        const videoKey = "video:" + selector;
+        const imageKey = "image:" + selector;
+        await persistOverrideFields((fields) => {
+          updateVideoSlotFields(fields, imageKey, videoKey, url, isVideo);
+        });
+      } else {
+        await persistCurrentOverride();
+      }
       $("imageInput").value = "";
       closeModal();
       refreshPreview();
@@ -1685,6 +1695,52 @@
       $("saveBtn").disabled = false;
     }
   });
+
+  function isVideoValue(value) {
+    return /\.(mp4|webm|mov)(\?|#|$)/i.test(value || "");
+  }
+
+  function isVideoFile(file) {
+    if (!file) return false;
+    return /^video\//i.test(file.type || "") || /\.(mp4|mov|m4v|webm|mkv|avi)$/i.test(file.name || "");
+  }
+
+  function updateVideoSlotFields(fields, imageKey, videoKey, value, isVideo) {
+    if (isVideo) {
+      // Store the video in its own field; keep any poster image already set.
+      fields[videoKey] = { type: "image", value };
+      return;
+    }
+    // A still image in the video slot is the poster/thumbnail. If the slot
+    // still holds a legacy video (older data stored the video here), migrate it
+    // to the video field so it isn't lost when saving the poster.
+    const existing = fields[imageKey];
+    if (existing && existing.type === "image" && isVideoValue(existing.value) && !fields[videoKey]) {
+      fields[videoKey] = { type: "image", value: existing.value };
+    }
+    fields[imageKey] = { type: "image", value };
+  }
+
+  // Write an override that only mutates the field map, preserving everything
+  // else. Used by the video section so a video and its poster live in separate
+  // fields and neither upload clobbers the other.
+  async function persistOverrideFields(mutate) {
+    const next = {
+      description: currentOverride && currentOverride.description ? currentOverride.description : "",
+      image: currentOverride && currentOverride.image ? currentOverride.image : "",
+      checkoutEventId: currentOverride && currentOverride.checkoutEventId ? currentOverride.checkoutEventId : "",
+      accentColor: currentOverride && currentOverride.accentColor ? currentOverride.accentColor : "",
+      fields: Object.assign({}, currentOverride && currentOverride.fields ? currentOverride.fields : {}),
+    };
+    mutate(next.fields);
+    const data = await api("/admin/api/overrides?id=" + encodeURIComponent(overrideIdForPage(selected)), {
+      method: "PUT",
+      headers: authHeaders({ "content-type": "application/json" }),
+      body: JSON.stringify(next),
+    });
+    fillForm(data.override);
+    return data;
+  }
 
   async function persistCurrentOverride() {
     const next = {
