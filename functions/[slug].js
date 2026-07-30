@@ -40,9 +40,10 @@ export async function onRequestGet(context) {
 
   const html = await assetResponse.text();
   const body = injectEventHead(
-    html
-      .replace('data-event-id=""', `data-event-id="${escapeAttribute(id)}"`)
-      .replace('src="/site-overrides.js?v=5"', `src="/site-overrides.js?v=5" data-override-id="${escapeAttribute(id)}"`),
+    injectOverrideId(
+      html.replace('data-event-id=""', `data-event-id="${escapeAttribute(id)}"`),
+      id,
+    ),
     event,
     context.request.url,
   );
@@ -51,6 +52,16 @@ export async function onRequestGet(context) {
   headers.set("cache-control", "public, max-age=60");
   headers.set("link", `</${slug}>; rel="canonical"`);
   return new Response(body, { status: assetResponse.status, headers });
+}
+
+export function injectOverrideId(html, id) {
+  return html.replace(
+    /<script\b([^>]*\bsrc=["']\/site-overrides\.js(?:\?[^"']*)?["'][^>]*)>/i,
+    (tag, attributes) => {
+      if (/\bdata-override-id\s*=/.test(attributes)) return tag;
+      return `<script${attributes} data-override-id="${escapeAttribute(String(id || ""))}">`;
+    },
+  );
 }
 
 function injectEventHead(html, event, requestUrl) {
