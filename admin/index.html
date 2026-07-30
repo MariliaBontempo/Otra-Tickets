@@ -825,6 +825,7 @@
   let currentOverride = null;
   let modalMode = "";
   let activeField = null;
+  let mediaUploadBusy = false;
   let inspectedProject = null;
   let availableTeams = [];
   let availableRegions = [];
@@ -1372,6 +1373,13 @@
     $("uploadProgressFill").style.width = "0";
   }
 
+  function setMediaUploadBusy(busy) {
+    mediaUploadBusy = !!busy;
+    ["uploadBtn", "saveBtn", "closeModalBtn", "cancelBtn", "clearImageBtn", "imageInput"].forEach((id) => {
+      $(id).disabled = mediaUploadBusy;
+    });
+  }
+
   // fetch() can't report upload progress, so chunks go up via XHR.
   function putChunkWithProgress(path, blob, onProgress) {
     return new Promise((resolve, reject) => {
@@ -1550,8 +1558,14 @@
     if (!selected) return setStatus("No page selected - reload the editor and try again.", "error");
     let file = $("imageInput").files[0];
     if (!file) return setStatus("Choose an image or video first.", "error");
+    if (mediaUploadBusy) return setStatus("This upload is already in progress. Please wait.", "error");
     const isVideo = isVideoFile(file);
-    $("uploadBtn").disabled = true;
+    setMediaUploadBusy(true);
+    if (isVideo) {
+      const sizeMb = Math.max(1, Math.round(file.size / (1024 * 1024)));
+      showUploadProgress(`Preparing ${sizeMb} MB video upload...`, 0);
+      setStatus(`Preparing ${sizeMb} MB video upload...`);
+    }
     if (!isVideo) {
       setStatus("Optimizing image...");
       file = await optimizeImage(file);
@@ -1588,15 +1602,14 @@
         await persistCurrentOverride();
       }
       $("imageInput").value = "";
-      closeModal();
+      closeModal(true);
       refreshPreview();
       setStatus("Upload complete and saved.", "ok");
     } catch (err) {
       setStatus(err.message, "error");
     } finally {
       hideUploadProgress();
-      $("uploadBtn").disabled = false;
-      $("saveBtn").disabled = false;
+      setMediaUploadBusy(false);
     }
   }
 
@@ -2500,7 +2513,11 @@
     }, 0);
   }
 
-  function closeModal() {
+  function closeModal(force) {
+    if (mediaUploadBusy && force !== true) {
+      setStatus("Upload in progress. Please wait for it to finish.", "error");
+      return;
+    }
     $("editModal").classList.add("hidden");
     modalMode = "";
     activeField = null;
