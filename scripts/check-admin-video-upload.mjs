@@ -185,12 +185,14 @@ if (optimizeImageSource) {
 const uploadCurrentImageSource = extractFunction('uploadCurrentImage');
 assert(uploadCurrentImageSource, 'uploadCurrentImage must exist in admin/index.html');
 
-async function runUploadScenario({ file, activeField, optimizedFile }) {
+async function runUploadScenario({ file, activeField, optimizedFile, holdPipeline = false }) {
   const calls = {
     statuses: [],
     optimize: [],
     imageApi: [],
     pipeline: [],
+    busy: [],
+    progress: [],
     persistCurrent: 0,
     persistFields: 0,
     showImage: [],
@@ -202,9 +204,16 @@ async function runUploadScenario({ file, activeField, optimizedFile }) {
     imageInput: { files: [file], value: 'chosen' },
     uploadBtn: { disabled: false },
     saveBtn: { disabled: false },
+    closeModalBtn: { disabled: false },
+    cancelBtn: { disabled: false },
+    clearImageBtn: { disabled: false },
     imageUrl: { value: '' },
   };
   const fields = {};
+  let resolvePipeline;
+  const pipelineGate = holdPipeline
+    ? new Promise((resolve) => { resolvePipeline = resolve; })
+    : null;
   class MockFormData {
     constructor() { this.values = new Map(); }
     set(key, value) { this.values.set(key, value); }
@@ -212,14 +221,17 @@ async function runUploadScenario({ file, activeField, optimizedFile }) {
   const sandbox = {
     selected: { id: 'draft-test' },
     activeField,
+    mediaUploadBusy: false,
     $: (id) => elements[id],
     setStatus: (text, type) => calls.statuses.push({ text, type }),
+    showUploadProgress: (text, fraction) => calls.progress.push({ text, fraction }),
     optimizeImage: async (value) => {
       calls.optimize.push(value);
       return optimizedFile || value;
     },
     uploadVideoViaPipeline: async (value) => {
       calls.pipeline.push(value);
+      if (pipelineGate) await pipelineGate;
       return '/override-images/draft-test/video.mp4';
     },
     FormData: MockFormData,
@@ -239,12 +251,20 @@ async function runUploadScenario({ file, activeField, optimizedFile }) {
     refreshPreview: () => { calls.refreshPreview += 1; },
     hideUploadProgress: () => { calls.hideProgress += 1; },
   };
+  sandbox.setMediaUploadBusy = (busy) => {
+    sandbox.mediaUploadBusy = !!busy;
+    calls.busy.push(!!busy);
+    for (const id of ['uploadBtn', 'saveBtn', 'closeModalBtn', 'cancelBtn', 'clearImageBtn', 'imageInput']) {
+      elements[id].disabled = !!busy;
+    }
+  };
   vm.runInNewContext(
     `${videoValueSource}; ${videoFileSource}; ${updateFieldsSource}; ${uploadCurrentImageSource}; this.upload = uploadCurrentImage;`,
     sandbox
   );
-  await sandbox.upload();
-  return { calls, elements, fields };
+  const uploadPromise = sandbox.upload();
+  if (!holdPipeline) await uploadPromise;
+  return { calls, elements, fields, sandbox, uploadPromise, resolvePipeline };
 }
 
 if (uploadCurrentImageSource && videoValueSource && videoFileSource && updateFieldsSource) {
@@ -292,7 +312,65 @@ if (uploadCurrentImageSource && videoValueSource && videoFileSource && updateFie
     assert(result.elements.uploadBtn.disabled === false, `${label} upload must re-enable Upload`);
     assert(result.elements.saveBtn.disabled === false, `${label} upload must re-enable Save`);
     assert(result.elements.imageInput.value === '', `${label} upload must clear the file input`);
+    assert(result.calls.busy[0] === true && result.calls.busy.at(-1) === false, `${label} upload must lock then unlock media controls`);
   }
+
+  const lockedUpload = await runUploadScenario({
+    file: video,
+    activeField: { key: 'image:#evVideoImg', type: 'image' },
+    holdPipeline: true,
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert(lockedUpload.sandbox.mediaUploadBusy === true, 'large video must lock immediately before network completion');
+  assert(lockedUpload.calls.progress[0]?.text.includes('Preparing 3 MB video upload'), 'video must show preparing progress immediately');
+  for (const id of ['uploadBtn', 'saveBtn', 'closeModalBtn', 'cancelBtn', 'clearImageBtn', 'imageInput']) {
+    assert(lockedUpload.elements[id].disabled === true, `${id} must be disabled during a video upload`);
+  }
+  await lockedUpload.sandbox.upload();
+  assert(lockedUpload.calls.pipeline.length === 1, 'a second Save must not start another pipeline upload');
+  assert(
+    lockedUpload.calls.statuses.some((entry) => entry.text.includes('already in progress')),
+    'a second Save must explain that the upload is already running'
+  );
+  lockedUpload.resolvePipeline();
+  await lockedUpload.uploadPromise;
+  assert(lockedUpload.sandbox.mediaUploadBusy === false, 'media lock must clear after upload completion');
+}
+
+const setMediaUploadBusySource = extractFunction('setMediaUploadBusy');
+const closeModalSource = extractFunction('closeModal');
+assert(setMediaUploadBusySource, 'setMediaUploadBusy must exist in admin/index.html');
+assert(closeModalSource, 'closeModal must exist in admin/index.html');
+
+if (setMediaUploadBusySource) {
+  const ids = ['uploadBtn', 'saveBtn', 'closeModalBtn', 'cancelBtn', 'clearImageBtn', 'imageInput'];
+  const elements = Object.fromEntries(ids.map((id) => [id, { disabled: false }]));
+  const sandbox = { mediaUploadBusy: false, $: (id) => elements[id] };
+  vm.runInNewContext(`${setMediaUploadBusySource}; this.setBusy = setMediaUploadBusy;`, sandbox);
+  sandbox.setBusy(true);
+  assert(sandbox.mediaUploadBusy === true, 'setMediaUploadBusy(true) must set the shared lock');
+  for (const id of ids) assert(elements[id].disabled === true, `${id} must be disabled by the real lock helper`);
+  sandbox.setBusy(false);
+  for (const id of ids) assert(elements[id].disabled === false, `${id} must be re-enabled by the real lock helper`);
+}
+
+if (closeModalSource) {
+  const modal = { hidden: false, classList: { add: () => { modal.hidden = true; } } };
+  const statuses = [];
+  const sandbox = {
+    mediaUploadBusy: true,
+    modalMode: 'image',
+    activeField: { key: 'image:#evVideoImg' },
+    $: () => modal,
+    setStatus: (text, type) => statuses.push({ text, type }),
+  };
+  vm.runInNewContext(`${closeModalSource}; this.close = closeModal;`, sandbox);
+  sandbox.close();
+  assert(modal.hidden === false, 'Cancel/backdrop must not close the modal during upload');
+  assert(statuses[0]?.text.includes('Upload in progress'), 'blocked close must explain why');
+  sandbox.close(true);
+  assert(modal.hidden === true, 'successful upload may force-close the modal');
+  assert(sandbox.modalMode === '' && sandbox.activeField === null, 'forced close must reset editor state');
 }
 
 assert(
