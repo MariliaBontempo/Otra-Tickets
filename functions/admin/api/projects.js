@@ -170,7 +170,14 @@ export async function onRequestPost(context) {
       const reconciled = project.usesExistingOtraGuideEvent
         ? project
         : await reconcileTickets(context, accessToken, project);
-      if (!project.usesExistingOtraGuideEvent || project.otraGuideSlug !== project.otraGuideId) {
+      // Publishing a draft makes it live on Otra Tickets (the KV site-event
+      // below). By default the Otra Guide event stays UNPUBLISHED, so it does
+      // not appear on the otraguide.com calendar/feed. Ticketing is unaffected:
+      // the checkout loads the event by id and lists tickets by their sale
+      // window, with no published gate anywhere in the purchase flow. Opt in
+      // with publishOtraGuide=true to also list it on Otra Guide.
+      const publishOtraGuide = url.searchParams.get("publishOtraGuide") === "true";
+      if (publishOtraGuide && (!project.usesExistingOtraGuideEvent || project.otraGuideSlug !== project.otraGuideId)) {
         await otraFetch(context, accessToken, `/events/update/${encodeURIComponent(project.otraGuideSlug)}/`, {
           method: "PATCH",
           headers: { "content-type": "application/json" },
@@ -181,6 +188,7 @@ export async function onRequestPost(context) {
         ...reconciled,
         status: "published",
         publishedAt: new Date().toISOString(),
+        otraGuidePublished: publishOtraGuide || reconciled.otraGuidePublished === true,
         syncError: "",
       };
       await putProject(kv, next);
@@ -510,6 +518,7 @@ function normalizeProject(raw, id) {
     ticketTypeIds: Array.isArray(raw.ticketTypeIds) ? raw.ticketTypeIds : [],
     usesExistingOtraGuideEvent: !!raw.usesExistingOtraGuideEvent,
     adminOnly: !!raw.adminOnly,
+    otraGuidePublished: !!raw.otraGuidePublished,
     syncError: typeof raw.syncError === "string" ? raw.syncError : "",
   };
 }
