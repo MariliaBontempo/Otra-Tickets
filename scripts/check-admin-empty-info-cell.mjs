@@ -48,6 +48,14 @@ assert(deleteLegacySource, 'deleteLegacyInfoCellFields must exist');
 assert(storeSource, 'storeInfoCellFields must exist');
 assert(markupSource, 'infoCellMarkup must exist in event.html');
 assert(
+  /\.ev-info-cell\.otra-empty-info-cell\s*\{\s*background:\s*var\(--ink\);\s*\}/.test(eventHtml),
+  'empty info cells must default to the same black background as filled grid cells'
+);
+assert(
+  !/\.ev-info-cell\.otra-empty-info-cell\s*\{[^}]*background:\s*transparent/.test(eventHtml),
+  'empty info cells must never default to a transparent accent-colour block'
+);
+assert(
   candidateSource.includes('addInfoCellFields(doc, fields, seen)'),
   'candidateElements must include info cells before normal text discovery'
 );

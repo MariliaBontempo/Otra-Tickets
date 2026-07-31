@@ -486,8 +486,8 @@ const BASE_HREF = 'https://otratickets.com/clearboat';
   gFields['text:.g-info'].value = 'otra-info-cell:{"title":"","subtitle":""}';
   await result.dispatch('otra:event-rendered');
   assert(gCell.children.length === 0, '(g) clearing title and subtitle must remove generated content');
-  assert(gCell.classList.contains('otra-empty-info-cell'), '(g) clearing both fields must restore the decorative marker');
-  assert(gCell.style.background === '', '(g) clearing both fields must expose the grid accent colour');
+  assert(gCell.classList.contains('otra-empty-info-cell'), '(g) clearing both fields must restore the empty-cell marker');
+  assert(gCell.style.background === '', '(g) clearing both fields must remove stale inline colour and use the CSS default');
   assert(gCell.style.backgroundColor === '', '(g) clearing both fields must remove a stale background colour');
   assert(gCell.style.backgroundImage === '', '(g) clearing both fields must remove a stale background image');
 }
@@ -527,8 +527,8 @@ const BASE_HREF = 'https://otratickets.com/clearboat';
       '.i-info > div:nth-of-type(2)': iSubtitle,
     },
   });
-  assert(iCell.classList.contains('otra-empty-info-cell'), '(i) two empty legacy child overrides must make the parent decorative');
-  assert(iCell.style.background === '', '(i) legacy empty overrides must expose the accent background');
+  assert(iCell.classList.contains('otra-empty-info-cell'), '(i) two empty legacy child overrides must mark the parent empty');
+  assert(iCell.style.background === '', '(i) legacy empty overrides must remove stale inline colour and use the CSS default');
 }
 
 if (failures.length) {

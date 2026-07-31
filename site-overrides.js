@@ -192,8 +192,8 @@
     el.classList.remove("otra-empty-info-cell");
     el.style.removeProperty("background-color");
     el.style.removeProperty("background-image");
-    // Force the normal information-cell surface after a decorative slot gains
-    // text, regardless of whether its colour came from a class or inline CSS.
+    // Force the normal information-cell surface after an empty slot gains
+    // text, regardless of whether an older design supplied inline CSS.
     el.style.setProperty("background", "var(--ink, #11151b)", "important");
   }
 
