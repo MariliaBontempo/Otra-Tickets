@@ -1777,14 +1777,21 @@
       fields: Object.assign({}, currentOverride && currentOverride.fields ? currentOverride.fields : {}),
     };
     if (activeField) {
-      next.fields[activeField.key] = {
-        type: activeField.type,
-        value: activeField.type === "text"
-          ? activeField.emptyInfoCell
-            ? serializeInfoCellValue($("infoCellTitle").value, $("infoCellSubtitle").value)
-            : $("description").value
-          : $("imageUrl").value,
-      };
+      const value = activeField.type === "text"
+        ? activeField.emptyInfoCell
+          ? serializeInfoCellValue($("infoCellTitle").value, $("infoCellSubtitle").value)
+          : $("description").value
+        : $("imageUrl").value;
+      if (activeField.emptyInfoCell && isEmptyInfoCellValue(value)) {
+        // Clearing both inputs means "restore the original decorative slot",
+        // not "save an empty dark content cell".
+        delete next.fields[activeField.key];
+      } else {
+        next.fields[activeField.key] = {
+          type: activeField.type,
+          value,
+        };
+      }
     } else if (modalMode === "description") {
       next.description = $("description").value;
     } else if (modalMode === "image") {
@@ -2591,6 +2598,11 @@
     } catch {
       return { title: "", subtitle: raw };
     }
+  }
+
+  function isEmptyInfoCellValue(value) {
+    const parsed = parseInfoCellValue(value);
+    return !parsed.title.trim() && !parsed.subtitle.trim();
   }
 
   function infoCellValueFromElement(cell) {

@@ -36,12 +36,14 @@ const emptySource = extractFunction('isEmptyInfoCell');
 const candidateSource = extractFunction('candidateElements');
 const serializeSource = extractFunction('serializeInfoCellValue');
 const parseSource = extractFunction('parseInfoCellValue');
+const emptyValueSource = extractFunction('isEmptyInfoCellValue');
 const markupSource = extractFunction('infoCellMarkup', eventHtml);
 
 assert(addSource, 'addEmptyInfoCellFields must exist');
 assert(emptySource, 'isEmptyInfoCell must exist');
 assert(serializeSource, 'serializeInfoCellValue must exist');
 assert(parseSource, 'parseInfoCellValue must exist');
+assert(emptyValueSource, 'isEmptyInfoCellValue must exist');
 assert(markupSource, 'infoCellMarkup must exist in event.html');
 assert(
   candidateSource.includes('addEmptyInfoCellFields(doc, fields, seen)'),
@@ -117,10 +119,10 @@ function discover(cell, savedField = null) {
   assert(result.fields.length === 0, 'an unrelated empty element must not become an info-cell editor');
 }
 
-if (serializeSource && parseSource) {
+if (serializeSource && parseSource && emptyValueSource) {
   const sandbox = { INFO_CELL_VALUE_PREFIX: 'otra-info-cell:' };
   vm.runInNewContext(
-    `${serializeSource}; ${parseSource}; this.serialize = serializeInfoCellValue; this.parse = parseInfoCellValue;`,
+    `${serializeSource}; ${parseSource}; ${emptyValueSource}; this.serialize = serializeInfoCellValue; this.parse = parseInfoCellValue; this.isEmpty = isEmptyInfoCellValue;`,
     sandbox
   );
   const encoded = sandbox.serialize(' Meeting point ', ' Curaçao Cruise Terminal ');
@@ -131,6 +133,9 @@ if (serializeSource && parseSource) {
   const legacy = sandbox.parse('Legacy subtitle only');
   assert(legacy.title === '', 'legacy single-value override must not invent a title');
   assert(legacy.subtitle === 'Legacy subtitle only', 'legacy single-value override must remain as subtitle');
+  assert(sandbox.isEmpty(sandbox.serialize('', '')) === true, 'two cleared inputs must remove the info-cell override');
+  assert(sandbox.isEmpty(sandbox.serialize('Title', '')) === false, 'a remaining title must keep the override');
+  assert(sandbox.isEmpty(sandbox.serialize('', 'Subtitle')) === false, 'a remaining subtitle must keep the override');
 }
 
 if (markupSource) {

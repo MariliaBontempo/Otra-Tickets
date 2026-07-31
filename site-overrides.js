@@ -149,6 +149,12 @@
   // into a normal value cell while leaving the rest of the grid untouched.
   function applyInfoCellText(el, value) {
     const next = parseInfoCellValue(value);
+    captureInfoCellBackground(el);
+    if (!next.title && !next.subtitle) {
+      el.innerHTML = "";
+      restoreInfoCellBackground(el);
+      return;
+    }
     let title = el.querySelector(".k[data-otra-info-title]");
     let subtitle = el.querySelector(".v[data-otra-info-subtitle]");
     const structureChanged =
@@ -180,6 +186,29 @@
     // more-specific design class. Force the normal info-cell surface so both
     // sources are replaced when the slot becomes content.
     el.style.setProperty("background", "var(--ink, #11151b)", "important");
+  }
+
+  function captureInfoCellBackground(el) {
+    if (el.dataset.otraInfoBackgroundCaptured === "1") return;
+    el.dataset.otraInfoBackgroundCaptured = "1";
+    for (const prop of ["background", "background-color", "background-image"]) {
+      const suffix = prop.replace(/-([a-z])/g, (_, char) => char.toUpperCase());
+      el.dataset["otraInfoOriginal" + suffix[0].toUpperCase() + suffix.slice(1)] =
+        el.style.getPropertyValue(prop) || "";
+      el.dataset["otraInfoOriginal" + suffix[0].toUpperCase() + suffix.slice(1) + "Priority"] =
+        el.style.getPropertyPriority(prop) || "";
+    }
+  }
+
+  function restoreInfoCellBackground(el) {
+    for (const prop of ["background", "background-color", "background-image"]) {
+      const suffix = prop.replace(/-([a-z])/g, (_, char) => char.toUpperCase());
+      const key = "otraInfoOriginal" + suffix[0].toUpperCase() + suffix.slice(1);
+      const value = el.dataset[key] || "";
+      const priority = el.dataset[key + "Priority"] || "";
+      if (value) el.style.setProperty(prop, value, priority);
+      else el.style.removeProperty(prop);
+    }
   }
 
   function parseInfoCellValue(value) {

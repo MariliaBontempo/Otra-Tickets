@@ -47,12 +47,23 @@ function makeEl(tagName, init) {
     get marginTop() { return styleState.marginTop; },
     set marginTop(v) { styleState.marginTop = v; },
     set whiteSpace(v) { styleState.whiteSpace = v; },
+    getPropertyValue(prop) {
+      if (prop === 'background') return styleState.background || '';
+      if (prop === 'background-color') return styleState.backgroundColor || '';
+      if (prop === 'background-image') return styleState.backgroundImage || '';
+      return '';
+    },
+    getPropertyPriority(prop) {
+      return styleState[prop + 'Priority'] || '';
+    },
     setProperty(prop, value, priority) {
       counts['set:' + prop] = (counts['set:' + prop] || 0) + 1;
       if (prop === 'background') {
         styleState.background = value;
-        styleState.backgroundPriority = priority || '';
       }
+      if (prop === 'background-color') styleState.backgroundColor = value;
+      if (prop === 'background-image') styleState.backgroundImage = value;
+      styleState[prop + 'Priority'] = priority || '';
     },
     removeProperty(prop) {
       counts['remove:' + prop] = (counts['remove:' + prop] || 0) + 1;
@@ -419,13 +430,14 @@ const BASE_HREF = 'https://otratickets.com/clearboat';
     backgroundImage: 'linear-gradient(#f2b544, #e89920)',
   });
 
-  const result = await runScenario({
-    fields: {
-      'text:.g-info': {
-        type: 'text',
-        value: 'otra-info-cell:{"title":"Requirements","subtitle":"Bring a valid driver’s license"}',
-      },
+  const gFields = {
+    'text:.g-info': {
+      type: 'text',
+      value: 'otra-info-cell:{"title":"Requirements","subtitle":"Bring a valid driver’s license"}',
     },
+  };
+  const result = await runScenario({
+    fields: gFields,
     selectors: {
       '.g-info': gCell,
     },
@@ -448,6 +460,16 @@ const BASE_HREF = 'https://otratickets.com/clearboat';
 
   await result.dispatch('otra:event-rendered');
   assert(gCell.children.length === 2, '(g) reapplying overrides must not duplicate generated title/subtitle');
+
+  gFields['text:.g-info'].value = 'otra-info-cell:{"title":"","subtitle":""}';
+  await result.dispatch('otra:event-rendered');
+  assert(gCell.children.length === 0, '(g) clearing title and subtitle must remove generated content');
+  assert(gCell.style.background === '#f2b544', '(g) clearing both fields must restore the original background');
+  assert(gCell.style.backgroundColor === 'rgb(242, 181, 68)', '(g) original background colour must be restored');
+  assert(
+    gCell.style.backgroundImage === 'linear-gradient(#f2b544, #e89920)',
+    '(g) original decorative background image must be restored'
+  );
 }
 
 // ---- Scenario (h): old single-value info overrides remain compatible ----
