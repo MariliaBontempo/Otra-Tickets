@@ -606,9 +606,19 @@
       </div>
 
       <div class="stack hidden" id="textEditor">
-        <label>Description
-          <textarea id="description" placeholder="Public description override"></textarea>
-        </label>
+        <div class="stack" id="regularTextEditor">
+          <label>Description
+            <textarea id="description" placeholder="Public description override"></textarea>
+          </label>
+        </div>
+        <div class="stack hidden" id="infoCellTextEditor">
+          <label>Title
+            <input id="infoCellTitle" type="text" placeholder="Example: Meeting point" />
+          </label>
+          <label>Subtitle
+            <textarea id="infoCellSubtitle" placeholder="Example: Curaçao Cruise Terminal"></textarea>
+          </label>
+        </div>
       </div>
 
       <div class="stack hidden" id="imageEditor">
@@ -819,6 +829,7 @@
 
 <script>
   const tokenKey = "otra_admin_token";
+  const INFO_CELL_VALUE_PREFIX = "otra-info-cell:";
   let token = sessionStorage.getItem(tokenKey) || "";
   let pages = [];
   let selected = null;
@@ -1694,7 +1705,9 @@
     $("saveBtn").disabled = true;
     setStatus("Saving...");
     const savedField = activeField;
-    const savedValue = $("description").value;
+    const savedValue = activeField && activeField.emptyInfoCell
+      ? serializeInfoCellValue($("infoCellTitle").value, $("infoCellSubtitle").value)
+      : $("description").value;
     try {
       await persistCurrentOverride();
       closeModal();
@@ -1766,7 +1779,11 @@
     if (activeField) {
       next.fields[activeField.key] = {
         type: activeField.type,
-        value: activeField.type === "text" ? $("description").value : $("imageUrl").value,
+        value: activeField.type === "text"
+          ? activeField.emptyInfoCell
+            ? serializeInfoCellValue($("infoCellTitle").value, $("infoCellSubtitle").value)
+            : $("description").value
+          : $("imageUrl").value,
       };
     } else if (modalMode === "description") {
       next.description = $("description").value;
@@ -2481,11 +2498,14 @@
     modalMode = activeField ? activeField.type : field;
     const isRename = modalMode === "rename";
     const isText = modalMode === "text" || modalMode === "description" || isRename;
+    const isInfoCellText = isText && !!(activeField && activeField.emptyInfoCell);
     const isImage = modalMode === "image";
     const isCheckout = modalMode === "checkout";
-    $("modalTitle").textContent = isRename ? "Rename draft" : isText ? "Edit text" : isImage ? "Edit image" : "Edit checkout";
+    $("modalTitle").textContent = isRename ? "Rename draft" : isInfoCellText ? "Edit information" : isText ? "Edit text" : isImage ? "Edit image" : "Edit checkout";
     $("modalMeta").textContent = selected.title + " - " + selected.type;
     $("textEditor").classList.toggle("hidden", !isText);
+    $("regularTextEditor").classList.toggle("hidden", !isText || isInfoCellText);
+    $("infoCellTextEditor").classList.toggle("hidden", !isInfoCellText);
     $("imageEditor").classList.toggle("hidden", !isImage);
     $("checkoutEditor").classList.toggle("hidden", !isCheckout);
 
@@ -2494,7 +2514,15 @@
     } else if (isText) {
       const saved = activeField && fieldOverrideForKey(activeField.key);
       const hasSavedText = saved && saved.type === "text" && typeof saved.value === "string";
-      $("description").value = hasSavedText ? saved.value : textValueForField(activeField);
+      if (isInfoCellText) {
+        const info = hasSavedText
+          ? parseInfoCellValue(saved.value)
+          : infoCellValueFromElement(activeField.element);
+        $("infoCellTitle").value = info.title;
+        $("infoCellSubtitle").value = info.subtitle;
+      } else {
+        $("description").value = hasSavedText ? saved.value : textValueForField(activeField);
+      }
     }
     if (isImage) {
       const saved = activeField && fieldOverrideForKey(activeField.key);
@@ -2508,7 +2536,7 @@
 
     $("editModal").classList.remove("hidden");
     setTimeout(() => {
-      const first = isText ? $("description") : isImage ? $("imageInput") : $("checkoutEventId");
+      const first = isInfoCellText ? $("infoCellTitle") : isText ? $("description") : isImage ? $("imageInput") : $("checkoutEventId");
       first.focus();
     }, 0);
   }
@@ -2540,6 +2568,39 @@
       return descriptionTextFromBody(field.element);
     }
     return field.element ? field.element.textContent.trim() : getPreviewDescription();
+  }
+
+  function serializeInfoCellValue(title, subtitle) {
+    return INFO_CELL_VALUE_PREFIX + JSON.stringify({
+      title: String(title || "").trim(),
+      subtitle: String(subtitle || "").trim(),
+    });
+  }
+
+  function parseInfoCellValue(value) {
+    const raw = String(value || "");
+    if (!raw.startsWith(INFO_CELL_VALUE_PREFIX)) {
+      return { title: "", subtitle: raw };
+    }
+    try {
+      const parsed = JSON.parse(raw.slice(INFO_CELL_VALUE_PREFIX.length));
+      return {
+        title: typeof parsed.title === "string" ? parsed.title : "",
+        subtitle: typeof parsed.subtitle === "string" ? parsed.subtitle : "",
+      };
+    } catch {
+      return { title: "", subtitle: raw };
+    }
+  }
+
+  function infoCellValueFromElement(cell) {
+    if (!cell) return { title: "", subtitle: "" };
+    const title = cell.querySelector(".k");
+    const subtitle = cell.querySelector(".v");
+    return {
+      title: title ? title.textContent.trim() : "",
+      subtitle: subtitle ? subtitle.textContent.trim() : "",
+    };
   }
 
   function descriptionTextFromBody(body) {
@@ -2725,6 +2786,11 @@
     addGroupedStoryFields(doc, fields, seen);
     addEmptyInfoCellFields(doc, fields, seen);
     main.querySelectorAll(textSelector).forEach((el) => {
+      const infoCell = el.closest(".ev-info-cell");
+      if (infoCell) {
+        const infoSelector = selectorFor(infoCell, doc);
+        if (infoSelector && seen.has("text:" + infoSelector)) return;
+      }
       const selector = selectorFor(el, doc);
       const key = selector ? "text:" + selector : "";
       if (!key || !isEditableText(el, key) || seen.has(key)) return;

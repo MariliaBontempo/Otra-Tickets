@@ -92,12 +92,20 @@ function makeEl(tagName, init) {
       return child;
     },
     querySelector(selector) {
-      if (selector === '.v[data-otra-info-text]') {
+      if (selector === '.k[data-otra-info-title]') {
+        return children.find((child) =>
+          child.classList &&
+          child.classList.contains('k') &&
+          child.dataset &&
+          child.dataset.otraInfoTitle
+        ) || null;
+      }
+      if (selector === '.v[data-otra-info-subtitle]') {
         return children.find((child) =>
           child.classList &&
           child.classList.contains('v') &&
           child.dataset &&
-          child.dataset.otraInfoText
+          child.dataset.otraInfoSubtitle
         ) || null;
       }
       return null;
@@ -413,26 +421,50 @@ const BASE_HREF = 'https://otratickets.com/clearboat';
 
   const result = await runScenario({
     fields: {
-      'text:.g-info': { type: 'text', value: 'Bring a valid driver’s license' },
+      'text:.g-info': {
+        type: 'text',
+        value: 'otra-info-cell:{"title":"Requirements","subtitle":"Bring a valid driver’s license"}',
+      },
     },
     selectors: {
       '.g-info': gCell,
     },
   });
 
-  assert(gCell.children.length === 1, '(g) empty info cell must create exactly one text element');
-  const value = gCell.children[0];
-  assert(value?.classList.contains('v'), '(g) generated info text must use the existing .v styling');
-  assert(value?.dataset.otraInfoText === '1', '(g) generated info text must be identifiable on reapply');
-  assert(value?.textContent === 'Bring a valid driver’s license', '(g) generated info text must contain the override');
-  assert(value?.style.marginTop === '0', '(g) value-only info text must not retain the label gap');
+  assert(gCell.children.length === 2, '(g) empty info cell must create title and subtitle elements');
+  const title = gCell.children[0];
+  const subtitle = gCell.children[1];
+  assert(title?.classList.contains('k'), '(g) generated title must use the existing .k styling');
+  assert(title?.dataset.otraInfoTitle === '1', '(g) generated title must be identifiable on reapply');
+  assert(title?.textContent === 'Requirements', '(g) generated title must contain the title override');
+  assert(subtitle?.classList.contains('v'), '(g) generated subtitle must use the existing .v styling');
+  assert(subtitle?.dataset.otraInfoSubtitle === '1', '(g) generated subtitle must be identifiable on reapply');
+  assert(subtitle?.textContent === 'Bring a valid driver’s license', '(g) generated subtitle must contain the subtitle override');
+  assert(subtitle?.style.marginTop === '', '(g) title + subtitle must retain the standard .v spacing');
   assert(gCell.counts['remove:background-color'] === 1, '(g) decorative background colour must be removed');
   assert(gCell.counts['remove:background-image'] === 1, '(g) decorative background image must be removed');
   assert(gCell.style.background === 'var(--ink, #11151b)', '(g) info cell must receive the normal grid background');
   assert(gCell.counts['set:background'] === 1, '(g) normal background must override decorative design classes');
 
   await result.dispatch('otra:event-rendered');
-  assert(gCell.children.length === 1, '(g) reapplying overrides must not duplicate the generated text element');
+  assert(gCell.children.length === 2, '(g) reapplying overrides must not duplicate generated title/subtitle');
+}
+
+// ---- Scenario (h): old single-value info overrides remain compatible ----
+{
+  const hCell = makeEl('div', { className: 'ev-info-cell' });
+  await runScenario({
+    fields: {
+      'text:.h-info': { type: 'text', value: 'Legacy value-only information' },
+    },
+    selectors: {
+      '.h-info': hCell,
+    },
+  });
+  assert(hCell.children.length === 1, '(h) legacy value must create one subtitle element');
+  assert(hCell.children[0]?.classList.contains('v'), '(h) legacy value must retain .v styling');
+  assert(hCell.children[0]?.textContent === 'Legacy value-only information', '(h) legacy value text must be preserved');
+  assert(hCell.children[0]?.style.marginTop === '0', '(h) value-only legacy text must not have a title gap');
 }
 
 if (failures.length) {

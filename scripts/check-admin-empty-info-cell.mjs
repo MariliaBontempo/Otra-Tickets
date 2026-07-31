@@ -33,9 +33,13 @@ function extractFunction(name) {
 const addSource = extractFunction('addEmptyInfoCellFields');
 const emptySource = extractFunction('isEmptyInfoCell');
 const candidateSource = extractFunction('candidateElements');
+const serializeSource = extractFunction('serializeInfoCellValue');
+const parseSource = extractFunction('parseInfoCellValue');
 
 assert(addSource, 'addEmptyInfoCellFields must exist');
 assert(emptySource, 'isEmptyInfoCell must exist');
+assert(serializeSource, 'serializeInfoCellValue must exist');
+assert(parseSource, 'parseInfoCellValue must exist');
 assert(
   candidateSource.includes('addEmptyInfoCellFields(doc, fields, seen)'),
   'candidateElements must include empty info cells before normal text discovery'
@@ -108,6 +112,22 @@ function discover(cell, savedField = null) {
   };
   const result = discover(fake);
   assert(result.fields.length === 0, 'an unrelated empty element must not become an info-cell editor');
+}
+
+if (serializeSource && parseSource) {
+  const sandbox = { INFO_CELL_VALUE_PREFIX: 'otra-info-cell:' };
+  vm.runInNewContext(
+    `${serializeSource}; ${parseSource}; this.serialize = serializeInfoCellValue; this.parse = parseInfoCellValue;`,
+    sandbox
+  );
+  const encoded = sandbox.serialize(' Meeting point ', ' Curaçao Cruise Terminal ');
+  const decoded = sandbox.parse(encoded);
+  assert(decoded.title === 'Meeting point', 'info-cell title must round-trip through storage');
+  assert(decoded.subtitle === 'Curaçao Cruise Terminal', 'info-cell subtitle must round-trip through storage');
+
+  const legacy = sandbox.parse('Legacy subtitle only');
+  assert(legacy.title === '', 'legacy single-value override must not invent a title');
+  assert(legacy.subtitle === 'Legacy subtitle only', 'legacy single-value override must remain as subtitle');
 }
 
 if (failures.length) {

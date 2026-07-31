@@ -1,4 +1,5 @@
 (function () {
+  const INFO_CELL_VALUE_PREFIX = "otra-info-cell:";
   const id = inferOverrideId();
   if (!id) return;
 
@@ -147,23 +148,54 @@
   // inline background and no .k/.v children. A text override turns that block
   // into a normal value cell while leaving the rest of the grid untouched.
   function applyInfoCellText(el, value) {
-    const next = String(value || "");
-    let text = el.querySelector(".v[data-otra-info-text]");
-    if (!text) {
+    const next = parseInfoCellValue(value);
+    let title = el.querySelector(".k[data-otra-info-title]");
+    let subtitle = el.querySelector(".v[data-otra-info-subtitle]");
+    const structureChanged =
+      Boolean(title) !== Boolean(next.title) ||
+      Boolean(subtitle) !== Boolean(next.subtitle);
+    if ((!title && !subtitle) || structureChanged) {
       el.innerHTML = "";
-      text = document.createElement("div");
-      text.className = "v";
-      text.dataset.otraInfoText = "1";
-      text.style.marginTop = "0";
-      el.appendChild(text);
+      title = null;
+      subtitle = null;
+      if (next.title) {
+        title = document.createElement("div");
+        title.className = "k";
+        title.dataset.otraInfoTitle = "1";
+        el.appendChild(title);
+      }
+      if (next.subtitle) {
+        subtitle = document.createElement("div");
+        subtitle.className = "v";
+        subtitle.dataset.otraInfoSubtitle = "1";
+        if (!next.title) subtitle.style.marginTop = "0";
+        el.appendChild(subtitle);
+      }
     }
-    if (text.textContent !== next) text.textContent = next;
+    if (title && title.textContent !== next.title) title.textContent = next.title;
+    if (subtitle && subtitle.textContent !== next.subtitle) subtitle.textContent = next.subtitle;
     el.style.removeProperty("background-color");
     el.style.removeProperty("background-image");
     // The decorative colour may come from either an inline declaration or a
     // more-specific design class. Force the normal info-cell surface so both
     // sources are replaced when the slot becomes content.
     el.style.setProperty("background", "var(--ink, #11151b)", "important");
+  }
+
+  function parseInfoCellValue(value) {
+    const raw = String(value || "");
+    if (!raw.startsWith(INFO_CELL_VALUE_PREFIX)) {
+      return { title: "", subtitle: raw };
+    }
+    try {
+      const parsed = JSON.parse(raw.slice(INFO_CELL_VALUE_PREFIX.length));
+      return {
+        title: typeof parsed.title === "string" ? parsed.title : "",
+        subtitle: typeof parsed.subtitle === "string" ? parsed.subtitle : "",
+      };
+    } catch {
+      return { title: "", subtitle: raw };
+    }
   }
 
   function isDescriptionBody(el) {
