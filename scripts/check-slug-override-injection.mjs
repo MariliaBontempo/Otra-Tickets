@@ -12,6 +12,7 @@ function assert(condition, message) {
 for (const src of [
   '/site-overrides.js?v=5',
   '/site-overrides.js?v=6',
+  '/site-overrides.js?v=7',
   '/site-overrides.js?v=999',
   '/site-overrides.js',
 ]) {
@@ -24,7 +25,7 @@ for (const src of [
 }
 
 const numeric = injectOverrideId(
-  '<script src="/site-overrides.js?v=6"></script>',
+  '<script src="/site-overrides.js?v=7"></script>',
   '6832',
 );
 assert(
@@ -32,7 +33,7 @@ assert(
   'numeric event ids must be injected',
 );
 
-const existing = '<script src="/site-overrides.js?v=6" data-override-id="7456"></script>';
+const existing = '<script src="/site-overrides.js?v=7" data-override-id="7456"></script>';
 assert(
   injectOverrideId(existing, '9999') === existing,
   'an existing override id must not be duplicated or replaced',
@@ -45,7 +46,7 @@ assert(
 );
 
 const escaped = injectOverrideId(
-  '<script src="/site-overrides.js?v=6"></script>',
+  '<script src="/site-overrides.js?v=7"></script>',
   'draft-a"<b',
 );
 assert(

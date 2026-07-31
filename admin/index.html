@@ -2723,6 +2723,7 @@
     const fields = [];
     const seen = new Set();
     addGroupedStoryFields(doc, fields, seen);
+    addEmptyInfoCellFields(doc, fields, seen);
     main.querySelectorAll(textSelector).forEach((el) => {
       const selector = selectorFor(el, doc);
       const key = selector ? "text:" + selector : "";
@@ -2738,6 +2739,39 @@
       fields.push({ type: "image", key: "image:" + selector, element: el });
     });
     return fields;
+  }
+
+  // Some designs use a completely empty info cell as a decorative colour
+  // block. Its missing .k/.v children used to leave the cell with no pencil,
+  // so an editor could never turn that slot back into content. Treat the
+  // whole cell as one text field and keep doing so after its override renders.
+  function addEmptyInfoCellFields(doc, fields, seen) {
+    const main = doc.querySelector("main") || doc.body;
+    main.querySelectorAll(".ev-info-cell").forEach((cell) => {
+      const selector = selectorFor(cell, doc);
+      const key = selector ? "text:" + selector : "";
+      if (!key || seen.has(key)) return;
+      const saved = fieldOverrideForKey(key);
+      const hasSavedText = saved && saved.type === "text";
+      if (!isEmptyInfoCell(cell) && !hasSavedText) return;
+      seen.add(key);
+      fields.push({
+        type: "text",
+        key,
+        element: cell,
+        host: cell,
+        emptyInfoCell: true,
+      });
+    });
+  }
+
+  function isEmptyInfoCell(el) {
+    return !!(
+      el &&
+      el.classList &&
+      el.classList.contains("ev-info-cell") &&
+      !el.textContent.trim()
+    );
   }
 
   function addGroupedStoryFields(doc, fields, seen) {

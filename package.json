@@ -10,6 +10,7 @@
     "gen:variants": "node scripts/gen-image-variants.mjs",
     "check:payload": "node scripts/check-payload-budget.mjs",
     "check:admin-only": "node scripts/check-admin-only.mjs",
+    "check:admin-info-cell": "node scripts/check-admin-empty-info-cell.mjs",
     "check:admin-video": "node scripts/check-admin-video-upload.mjs",
     "check:overrides": "node scripts/check-overrides-idempotent.mjs",
     "check:video": "node scripts/check-video-poster.mjs",

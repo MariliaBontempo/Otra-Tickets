@@ -19,32 +19,86 @@ async function flush() {
 function makeEl(tagName, init) {
   init = init || {};
   const counts = {};
+  const children = [];
   const state = {
     textContent: init.textContent || '',
     src: init.src || '',
     poster: init.poster || '',
+    className: init.className || '',
+    innerHTML: '',
   };
-  const styleState = { backgroundImage: init.backgroundImage || '', whiteSpace: '' };
+  const styleState = {
+    background: init.background || '',
+    backgroundColor: init.backgroundColor || '',
+    backgroundImage: init.backgroundImage || '',
+    marginTop: '',
+    whiteSpace: '',
+  };
   const style = {
+    get background() { return styleState.background; },
+    set background(v) { styleState.background = v; },
+    get backgroundColor() { return styleState.backgroundColor; },
+    set backgroundColor(v) { styleState.backgroundColor = v; },
     get backgroundImage() { return styleState.backgroundImage; },
     set backgroundImage(v) {
       counts.backgroundImage = (counts.backgroundImage || 0) + 1;
       styleState.backgroundImage = v;
     },
-    set whiteSpace(v) { styleState.whiteSpace = v; }
+    get marginTop() { return styleState.marginTop; },
+    set marginTop(v) { styleState.marginTop = v; },
+    set whiteSpace(v) { styleState.whiteSpace = v; },
+    removeProperty(prop) {
+      counts['remove:' + prop] = (counts['remove:' + prop] || 0) + 1;
+      if (prop === 'background') styleState.background = '';
+      if (prop === 'background-color') styleState.backgroundColor = '';
+      if (prop === 'background-image') styleState.backgroundImage = '';
+    },
   };
-  return {
+  const el = {
     tagName: tagName.toUpperCase(),
     get textContent() { return state.textContent; },
     set textContent(v) { counts.textContent = (counts.textContent || 0) + 1; state.textContent = v; },
+    get className() { return state.className; },
+    set className(v) { state.className = v; },
+    classList: {
+      contains(name) { return state.className.split(/\s+/).includes(name); },
+      add(name) {
+        if (!this.contains(name)) state.className = (state.className + ' ' + name).trim();
+      },
+    },
+    dataset: {},
+    get innerHTML() { return state.innerHTML; },
+    set innerHTML(v) {
+      counts.innerHTML = (counts.innerHTML || 0) + 1;
+      state.innerHTML = v;
+      if (v === '') children.splice(0);
+    },
     get src() { return state.src; },
     set src(v) { counts.src = (counts.src || 0) + 1; state.src = v; },
     get poster() { return state.poster; },
     set poster(v) { counts.poster = (counts.poster || 0) + 1; state.poster = v; },
     style,
+    children,
+    appendChild(child) {
+      counts.appendChild = (counts.appendChild || 0) + 1;
+      children.push(child);
+      return child;
+    },
+    querySelector(selector) {
+      if (selector === '.v[data-otra-info-text]') {
+        return children.find((child) =>
+          child.classList &&
+          child.classList.contains('v') &&
+          child.dataset &&
+          child.dataset.otraInfoText
+        ) || null;
+      }
+      return null;
+    },
     remove() { counts.removed = (counts.removed || 0) + 1; },
     counts,
   };
+  return el;
 }
 
 async function runScenario(opts) {
@@ -81,7 +135,7 @@ async function runScenario(opts) {
         (listeners[type] || (listeners[type] = [])).push(fn);
       },
       createElement(tag) {
-        return { tagName: tag.toUpperCase(), textContent: '', innerHTML: '', appendChild: function() {} };
+        return makeEl(tag, {});
       }
     },
     location: {
@@ -339,6 +393,38 @@ const BASE_HREF = 'https://otratickets.com/clearboat';
     fTitle.textContent === 'Edited Preview Title',
     '(f) dynamic render event: expected edited title after reapply, got ' + fTitle.textContent
   );
+}
+
+// ---- Scenario (g): an empty decorative info cell becomes editable content ----
+{
+  const gCell = makeEl('div', {
+    className: 'ev-info-cell',
+    background: '#f2b544',
+    backgroundColor: 'rgb(242, 181, 68)',
+    backgroundImage: 'linear-gradient(#f2b544, #e89920)',
+  });
+
+  const result = await runScenario({
+    fields: {
+      'text:.g-info': { type: 'text', value: 'Bring a valid driver’s license' },
+    },
+    selectors: {
+      '.g-info': gCell,
+    },
+  });
+
+  assert(gCell.children.length === 1, '(g) empty info cell must create exactly one text element');
+  const value = gCell.children[0];
+  assert(value?.classList.contains('v'), '(g) generated info text must use the existing .v styling');
+  assert(value?.dataset.otraInfoText === '1', '(g) generated info text must be identifiable on reapply');
+  assert(value?.textContent === 'Bring a valid driver’s license', '(g) generated info text must contain the override');
+  assert(value?.style.marginTop === '0', '(g) value-only info text must not retain the label gap');
+  assert(gCell.counts['remove:background'] === 1, '(g) decorative background shorthand must be removed');
+  assert(gCell.counts['remove:background-color'] === 1, '(g) decorative background colour must be removed');
+  assert(gCell.counts['remove:background-image'] === 1, '(g) decorative background image must be removed');
+
+  await result.dispatch('otra:event-rendered');
+  assert(gCell.children.length === 1, '(g) reapplying overrides must not duplicate the generated text element');
 }
 
 if (failures.length) {

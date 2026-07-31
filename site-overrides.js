@@ -93,6 +93,11 @@
       }
       if (type === "text" && field.type === "text") {
         const value = typeof field.value === "string" ? field.value : "";
+        if (isInfoCell(el)) {
+          applyInfoCellText(el, value);
+          applied.add(key);
+          continue;
+        }
         if (isDescriptionBody(el)) {
           applyDescriptionBody(el, value);
           applied.add(key);
@@ -132,6 +137,30 @@
     if (remaining.length > 0 && attempt < 30) {
       setTimeout(() => applyFieldOverrides(fields, attempt + 1, applied), 250);
     }
+  }
+
+  function isInfoCell(el) {
+    return !!(el && el.classList && el.classList.contains("ev-info-cell"));
+  }
+
+  // Empty info cells may be authored as decorative colour blocks with an
+  // inline background and no .k/.v children. A text override turns that block
+  // into a normal value cell while leaving the rest of the grid untouched.
+  function applyInfoCellText(el, value) {
+    const next = String(value || "");
+    let text = el.querySelector(".v[data-otra-info-text]");
+    if (!text) {
+      el.innerHTML = "";
+      text = document.createElement("div");
+      text.className = "v";
+      text.dataset.otraInfoText = "1";
+      text.style.marginTop = "0";
+      el.appendChild(text);
+    }
+    if (text.textContent !== next) text.textContent = next;
+    el.style.removeProperty("background");
+    el.style.removeProperty("background-color");
+    el.style.removeProperty("background-image");
   }
 
   function isDescriptionBody(el) {
