@@ -521,6 +521,7 @@ main.detail { padding: 0; padding-top: var(--header-h); } /* hero starts below t
 /* ---- PRACTICAL INFO ---- */
 .ev-info-grid { margin-top: 48px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; background: var(--rnb-soft); border: 2px solid var(--rnb-soft); }
 .ev-info-cell { background: var(--ink); padding: 30px 30px 34px; }
+.ev-info-cell.otra-empty-info-cell { background: transparent; }
 .ev-info-cell .k { font-size: 12px; font-weight: 600; letter-spacing: 0.22em; text-transform: uppercase; color: var(--fog); }
 .ev-info-cell .v { margin-top: 12px; font-size: 18px; line-height: 1.45; color: var(--silver-text); }
 
@@ -726,6 +727,7 @@ main.detail { padding: 0; padding-top: var(--header-h); } /* hero starts below t
 @media (max-width: 980px) {
   .ev-story, .ev-book-lower { grid-template-columns: 1fr; }
   .ev-info-grid, .ev-rates { grid-template-columns: 1fr 1fr; }
+  .ev-info-cell.otra-empty-info-cell:empty { display: none; }
   .ev-summary { position: static; }
   .ev-day { min-height: 96px; padding: 9px 7px 11px; }
   .ev-slot { padding: 7px 8px; font-size: 13px; gap: 7px; }
@@ -1347,9 +1349,7 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
       if (cells.length) {
         if (design.practicalTitle) $("evInfoSection").querySelector(".ev-h2").textContent = design.practicalTitle;
         const grid = $("evInfoGrid");
-        grid.innerHTML = cells
-          .map(([k, v]) => '<div class="ev-info-cell"><div class="k">' + esc(k) + '</div><div class="v">' + esc(v) + "</div></div>")
-          .join("");
+        grid.innerHTML = infoCellMarkup(cells);
         $("evInfoSection").hidden = false;
       }
 
@@ -1414,6 +1414,16 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
           .split(/\n{2,}|\n(?=[•\-])/)
           .map((s) => s.replace(/\s+/g, " ").trim())
           .filter(Boolean);
+      }
+
+      function infoCellMarkup(cells) {
+        const items = Array.isArray(cells) ? cells : [];
+        const content = items
+          .map(([k, v]) => '<div class="ev-info-cell"><div class="k">' + esc(k) + '</div><div class="v">' + esc(v) + "</div></div>")
+          .join("");
+        if (!items.length) return content;
+        const missing = (3 - (items.length % 3)) % 3;
+        return content + '<div class="ev-info-cell otra-empty-info-cell"></div>'.repeat(missing);
       }
 
       function esc(s) {
@@ -1502,6 +1512,6 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
       }
     })();
   </script>
-  <script src="/site-overrides.js?v=6"></script>
+  <script src="/site-overrides.js?v=7"></script>
 </body>
 </html>

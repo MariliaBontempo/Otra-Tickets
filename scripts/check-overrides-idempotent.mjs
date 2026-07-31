@@ -19,32 +19,101 @@ async function flush() {
 function makeEl(tagName, init) {
   init = init || {};
   const counts = {};
+  const children = [];
   const state = {
     textContent: init.textContent || '',
     src: init.src || '',
     poster: init.poster || '',
+    className: init.className || '',
+    innerHTML: '',
   };
-  const styleState = { backgroundImage: init.backgroundImage || '', whiteSpace: '' };
+  const styleState = {
+    background: init.background || '',
+    backgroundColor: init.backgroundColor || '',
+    backgroundImage: init.backgroundImage || '',
+    marginTop: '',
+    whiteSpace: '',
+  };
   const style = {
+    get background() { return styleState.background; },
+    set background(v) { styleState.background = v; },
+    get backgroundColor() { return styleState.backgroundColor; },
+    set backgroundColor(v) { styleState.backgroundColor = v; },
     get backgroundImage() { return styleState.backgroundImage; },
     set backgroundImage(v) {
       counts.backgroundImage = (counts.backgroundImage || 0) + 1;
       styleState.backgroundImage = v;
     },
-    set whiteSpace(v) { styleState.whiteSpace = v; }
+    get marginTop() { return styleState.marginTop; },
+    set marginTop(v) { styleState.marginTop = v; },
+    set whiteSpace(v) { styleState.whiteSpace = v; },
+    setProperty(prop, value, priority) {
+      counts['set:' + prop] = (counts['set:' + prop] || 0) + 1;
+      if (prop === 'background') {
+        styleState.background = value;
+        styleState.backgroundPriority = priority || '';
+      }
+    },
+    removeProperty(prop) {
+      counts['remove:' + prop] = (counts['remove:' + prop] || 0) + 1;
+      if (prop === 'background') styleState.background = '';
+      if (prop === 'background-color') styleState.backgroundColor = '';
+      if (prop === 'background-image') styleState.backgroundImage = '';
+    },
   };
-  return {
+  const el = {
     tagName: tagName.toUpperCase(),
     get textContent() { return state.textContent; },
     set textContent(v) { counts.textContent = (counts.textContent || 0) + 1; state.textContent = v; },
+    get className() { return state.className; },
+    set className(v) { state.className = v; },
+    classList: {
+      contains(name) { return state.className.split(/\s+/).includes(name); },
+      add(name) {
+        if (!this.contains(name)) state.className = (state.className + ' ' + name).trim();
+      },
+    },
+    dataset: {},
+    get innerHTML() { return state.innerHTML; },
+    set innerHTML(v) {
+      counts.innerHTML = (counts.innerHTML || 0) + 1;
+      state.innerHTML = v;
+      if (v === '') children.splice(0);
+    },
     get src() { return state.src; },
     set src(v) { counts.src = (counts.src || 0) + 1; state.src = v; },
     get poster() { return state.poster; },
     set poster(v) { counts.poster = (counts.poster || 0) + 1; state.poster = v; },
     style,
+    children,
+    appendChild(child) {
+      counts.appendChild = (counts.appendChild || 0) + 1;
+      children.push(child);
+      return child;
+    },
+    querySelector(selector) {
+      if (selector === '.k[data-otra-info-title]') {
+        return children.find((child) =>
+          child.classList &&
+          child.classList.contains('k') &&
+          child.dataset &&
+          child.dataset.otraInfoTitle
+        ) || null;
+      }
+      if (selector === '.v[data-otra-info-subtitle]') {
+        return children.find((child) =>
+          child.classList &&
+          child.classList.contains('v') &&
+          child.dataset &&
+          child.dataset.otraInfoSubtitle
+        ) || null;
+      }
+      return null;
+    },
     remove() { counts.removed = (counts.removed || 0) + 1; },
     counts,
   };
+  return el;
 }
 
 async function runScenario(opts) {
@@ -81,7 +150,7 @@ async function runScenario(opts) {
         (listeners[type] || (listeners[type] = [])).push(fn);
       },
       createElement(tag) {
-        return { tagName: tag.toUpperCase(), textContent: '', innerHTML: '', appendChild: function() {} };
+        return makeEl(tag, {});
       }
     },
     location: {
@@ -339,6 +408,63 @@ const BASE_HREF = 'https://otratickets.com/clearboat';
     fTitle.textContent === 'Edited Preview Title',
     '(f) dynamic render event: expected edited title after reapply, got ' + fTitle.textContent
   );
+}
+
+// ---- Scenario (g): an empty decorative info cell becomes editable content ----
+{
+  const gCell = makeEl('div', {
+    className: 'ev-info-cell',
+    background: '#f2b544',
+    backgroundColor: 'rgb(242, 181, 68)',
+    backgroundImage: 'linear-gradient(#f2b544, #e89920)',
+  });
+
+  const result = await runScenario({
+    fields: {
+      'text:.g-info': {
+        type: 'text',
+        value: 'otra-info-cell:{"title":"Requirements","subtitle":"Bring a valid driver’s license"}',
+      },
+    },
+    selectors: {
+      '.g-info': gCell,
+    },
+  });
+
+  assert(gCell.children.length === 2, '(g) empty info cell must create title and subtitle elements');
+  const title = gCell.children[0];
+  const subtitle = gCell.children[1];
+  assert(title?.classList.contains('k'), '(g) generated title must use the existing .k styling');
+  assert(title?.dataset.otraInfoTitle === '1', '(g) generated title must be identifiable on reapply');
+  assert(title?.textContent === 'Requirements', '(g) generated title must contain the title override');
+  assert(subtitle?.classList.contains('v'), '(g) generated subtitle must use the existing .v styling');
+  assert(subtitle?.dataset.otraInfoSubtitle === '1', '(g) generated subtitle must be identifiable on reapply');
+  assert(subtitle?.textContent === 'Bring a valid driver’s license', '(g) generated subtitle must contain the subtitle override');
+  assert(subtitle?.style.marginTop === '', '(g) title + subtitle must retain the standard .v spacing');
+  assert(gCell.counts['remove:background-color'] === 1, '(g) decorative background colour must be removed');
+  assert(gCell.counts['remove:background-image'] === 1, '(g) decorative background image must be removed');
+  assert(gCell.style.background === 'var(--ink, #11151b)', '(g) info cell must receive the normal grid background');
+  assert(gCell.counts['set:background'] === 1, '(g) normal background must override decorative design classes');
+
+  await result.dispatch('otra:event-rendered');
+  assert(gCell.children.length === 2, '(g) reapplying overrides must not duplicate generated title/subtitle');
+}
+
+// ---- Scenario (h): old single-value info overrides remain compatible ----
+{
+  const hCell = makeEl('div', { className: 'ev-info-cell' });
+  await runScenario({
+    fields: {
+      'text:.h-info': { type: 'text', value: 'Legacy value-only information' },
+    },
+    selectors: {
+      '.h-info': hCell,
+    },
+  });
+  assert(hCell.children.length === 1, '(h) legacy value must create one subtitle element');
+  assert(hCell.children[0]?.classList.contains('v'), '(h) legacy value must retain .v styling');
+  assert(hCell.children[0]?.textContent === 'Legacy value-only information', '(h) legacy value text must be preserved');
+  assert(hCell.children[0]?.style.marginTop === '0', '(h) value-only legacy text must not have a title gap');
 }
 
 if (failures.length) {
