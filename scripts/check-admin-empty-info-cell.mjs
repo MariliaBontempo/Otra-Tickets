@@ -31,32 +31,48 @@ function extractFunction(name, source = html) {
   return '';
 }
 
-const addSource = extractFunction('addEmptyInfoCellFields');
-const emptySource = extractFunction('isEmptyInfoCell');
+const addSource = extractFunction('addInfoCellFields');
 const candidateSource = extractFunction('candidateElements');
 const serializeSource = extractFunction('serializeInfoCellValue');
 const parseSource = extractFunction('parseInfoCellValue');
 const emptyValueSource = extractFunction('isEmptyInfoCellValue');
+const deleteLegacySource = extractFunction('deleteLegacyInfoCellFields');
+const storeSource = extractFunction('storeInfoCellFields');
 const markupSource = extractFunction('infoCellMarkup', eventHtml);
 
-assert(addSource, 'addEmptyInfoCellFields must exist');
-assert(emptySource, 'isEmptyInfoCell must exist');
+assert(addSource, 'addInfoCellFields must exist');
 assert(serializeSource, 'serializeInfoCellValue must exist');
 assert(parseSource, 'parseInfoCellValue must exist');
 assert(emptyValueSource, 'isEmptyInfoCellValue must exist');
+assert(deleteLegacySource, 'deleteLegacyInfoCellFields must exist');
+assert(storeSource, 'storeInfoCellFields must exist');
 assert(markupSource, 'infoCellMarkup must exist in event.html');
 assert(
-  candidateSource.includes('addEmptyInfoCellFields(doc, fields, seen)'),
-  'candidateElements must include empty info cells before normal text discovery'
+  candidateSource.includes('addInfoCellFields(doc, fields, seen)'),
+  'candidateElements must include info cells before normal text discovery'
 );
 
-function makeCell(text = '') {
+function makePart(className, text = '') {
   return {
     textContent: text,
+    classList: { contains: (name) => name === className },
+  };
+}
+
+function makeCell(titleText = '', subtitleText = '') {
+  const title = titleText !== null ? makePart('k', titleText) : null;
+  const subtitle = subtitleText !== null ? makePart('v', subtitleText) : null;
+  return {
+    textContent: [titleText, subtitleText].filter(Boolean).join(' '),
     classList: {
       contains(name) {
         return name === 'ev-info-cell';
       },
+    },
+    querySelector(selector) {
+      if (selector === '.k') return title;
+      if (selector === '.v') return subtitle;
+      return null;
     },
   };
 }
@@ -66,7 +82,7 @@ function discover(cell, savedField = null) {
   const seen = new Set();
   const main = {
     querySelectorAll(selector) {
-      return selector === '.ev-info-cell' ? [cell] : [];
+      return selector === '.ev-info-cell' && cell.classList.contains('ev-info-cell') ? [cell] : [];
     },
   };
   const doc = {
@@ -78,9 +94,20 @@ function discover(cell, savedField = null) {
   const sandbox = {
     selectorFor: () => 'main > section:nth-of-type(2) > div:nth-of-type(3)',
     fieldOverrideForKey: () => savedField,
+    parseInfoCellValue(value) {
+      const prefix = 'otra-info-cell:';
+      if (!String(value).startsWith(prefix)) return { title: '', subtitle: String(value || '') };
+      return JSON.parse(String(value).slice(prefix.length));
+    },
+    infoCellValueFromElement(cellEl) {
+      return {
+        title: cellEl.querySelector('.k')?.textContent.trim() || '',
+        subtitle: cellEl.querySelector('.v')?.textContent.trim() || '',
+      };
+    },
   };
   vm.runInNewContext(
-    `${emptySource}; ${addSource}; this.run = addEmptyInfoCellFields;`,
+    `${addSource}; this.run = addInfoCellFields;`,
     sandbox
   );
   sandbox.run(doc, fields, seen);
@@ -88,7 +115,7 @@ function discover(cell, savedField = null) {
 }
 
 {
-  const result = discover(makeCell(''));
+  const result = discover(makeCell(null, null));
   assert(result.fields.length === 1, 'an empty info cell must produce one editable field');
   assert(result.fields[0]?.type === 'text', 'the empty info cell field must open the text editor');
   assert(
@@ -97,23 +124,33 @@ function discover(cell, savedField = null) {
   );
   assert(result.fields[0]?.host === result.fields[0]?.element, 'the pencil must be hosted by the visible cell');
   assert(result.fields[0]?.emptyInfoCell === true, 'the field must retain its empty-cell marker');
+  assert(result.fields[0]?.storageKey === result.fields[0]?.key, 'the decorative pencil must store under the whole-cell key');
 }
 
 {
-  const result = discover(makeCell('Existing information'));
-  assert(result.fields.length === 0, 'a normal filled info cell must keep using its existing .k/.v editors');
+  const result = discover(makeCell('Meeting point', 'Cruise Terminal'));
+  assert(result.fields.length === 2, 'a filled info cell must expose separate title and subtitle pencils');
+  assert(result.fields[0]?.infoCellPart === 'title', 'the first pencil must edit only the title');
+  assert(result.fields[1]?.infoCellPart === 'subtitle', 'the second pencil must edit only the subtitle');
+  assert(result.fields[0]?.storageKey === result.fields[1]?.storageKey, 'both pencils must persist one coherent cell value');
+  assert(result.fields[0]?.key.endsWith('::title'), 'the title pencil must have a unique preview key');
+  assert(result.fields[1]?.key.endsWith('::subtitle'), 'the subtitle pencil must have a unique preview key');
 }
 
 {
-  const saved = { type: 'text', value: 'Added through the admin' };
-  const result = discover(makeCell('Added through the admin'), saved);
-  assert(result.fields.length === 1, 'a saved whole-cell override must remain editable after rendering');
+  const saved = {
+    type: 'text',
+    value: 'otra-info-cell:{"title":"Added title","subtitle":"Added subtitle"}',
+  };
+  const result = discover(makeCell('Added title', 'Added subtitle'), saved);
+  assert(result.fields.length === 2, 'a saved composite override must retain both independent pencils');
 }
 
 {
   const fake = {
     textContent: '',
     classList: { contains: () => false },
+    querySelector: () => null,
   };
   const result = discover(fake);
   assert(result.fields.length === 0, 'an unrelated empty element must not become an info-cell editor');
@@ -136,6 +173,34 @@ if (serializeSource && parseSource && emptyValueSource) {
   assert(sandbox.isEmpty(sandbox.serialize('', '')) === true, 'two cleared inputs must remove the info-cell override');
   assert(sandbox.isEmpty(sandbox.serialize('Title', '')) === false, 'a remaining title must keep the override');
   assert(sandbox.isEmpty(sandbox.serialize('', 'Subtitle')) === false, 'a remaining subtitle must keep the override');
+}
+
+if (serializeSource && deleteLegacySource && storeSource) {
+  const sandbox = { INFO_CELL_VALUE_PREFIX: 'otra-info-cell:' };
+  vm.runInNewContext(
+    `${serializeSource}; ${deleteLegacySource}; ${storeSource}; this.store = storeInfoCellFields;`,
+    sandbox
+  );
+  const key = 'text:#evInfoGrid > div:nth-of-type(11)';
+  const fields = {
+    [`${key} > div:nth-of-type(1)`]: { type: 'text', value: '' },
+    [`${key} > div:nth-of-type(2)`]: { type: 'text', value: '' },
+    'text:#evTitle': { type: 'text', value: 'Keep me' },
+  };
+  sandbox.store(fields, key, { title: '', subtitle: '' });
+  assert(!fields[`${key} > div:nth-of-type(1)`], 'saving a cell must remove its legacy title override');
+  assert(!fields[`${key} > div:nth-of-type(2)`], 'saving a cell must remove its legacy subtitle override');
+  assert(fields['text:#evTitle']?.value === 'Keep me', 'saving a cell must preserve unrelated overrides');
+  assert(
+    fields[key]?.value === 'otra-info-cell:{"title":"","subtitle":""}',
+    'clearing both parts must store an explicit empty marker so template text cannot reappear'
+  );
+
+  sandbox.store(fields, key, { title: 'Meeting point', subtitle: 'Cruise Terminal' });
+  assert(
+    fields[key]?.value === 'otra-info-cell:{"title":"Meeting point","subtitle":"Cruise Terminal"}',
+    'title and subtitle pencils must persist one coherent composite value'
+  );
 }
 
 if (markupSource) {

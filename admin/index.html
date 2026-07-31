@@ -1777,17 +1777,27 @@
       fields: Object.assign({}, currentOverride && currentOverride.fields ? currentOverride.fields : {}),
     };
     if (activeField) {
-      const value = activeField.type === "text"
-        ? activeField.emptyInfoCell
-          ? serializeInfoCellValue($("infoCellTitle").value, $("infoCellSubtitle").value)
-          : $("description").value
-        : $("imageUrl").value;
-      if (activeField.emptyInfoCell && isEmptyInfoCellValue(value)) {
-        // Clearing both inputs means "restore the original decorative slot",
-        // not "save an empty dark content cell".
-        delete next.fields[activeField.key];
+      const storageKey = activeField.storageKey || activeField.key;
+      if (activeField.emptyInfoCell || activeField.infoCellPart) {
+        const saved = fieldOverrideForKey(storageKey);
+        const info = saved && saved.type === "text"
+          ? parseInfoCellValue(saved.value)
+          : infoCellValueFromElement(activeField.infoCell || activeField.element);
+        if (activeField.emptyInfoCell) {
+          info.title = $("infoCellTitle").value.trim();
+          info.subtitle = $("infoCellSubtitle").value.trim();
+        } else {
+          info[activeField.infoCellPart] = $("description").value.trim();
+        }
+        // Keep an explicit empty composite value. Deleting it would reveal
+        // the template's original text (for example the dynamically-added
+        // Tickets cell) instead of restoring the decorative colour block.
+        storeInfoCellFields(next.fields, storageKey, info);
       } else {
-        next.fields[activeField.key] = {
+        const value = activeField.type === "text"
+          ? $("description").value
+          : $("imageUrl").value;
+        next.fields[storageKey] = {
           type: activeField.type,
           value,
         };
@@ -1807,6 +1817,28 @@
     });
     fillForm(data.override);
     return data;
+  }
+
+  function deleteLegacyInfoCellFields(fields, storageKey) {
+    if (!fields || !storageKey || !storageKey.startsWith("text:")) return;
+    const selector = storageKey.slice("text:".length);
+    Object.keys(fields).forEach((key) => {
+      if (key === storageKey || !key.startsWith("text:" + selector)) return;
+      const tail = key.slice(("text:" + selector).length);
+      if (
+        /^\s*>\s*div:nth-of-type\([12]\)\s*$/.test(tail) ||
+        /^\s+[>.]?\s*\.?[kv]\s*$/.test(tail)
+      ) {
+        delete fields[key];
+      }
+    });
+  }
+
+  function storeInfoCellFields(fields, storageKey, info) {
+    deleteLegacyInfoCellFields(fields, storageKey);
+    const value = serializeInfoCellValue(info.title, info.subtitle);
+    fields[storageKey] = { type: "text", value };
+    return value;
   }
 
   async function boot() {
@@ -2519,14 +2551,19 @@
     if (isRename) {
       $("description").value = selected.title;
     } else if (isText) {
-      const saved = activeField && fieldOverrideForKey(activeField.key);
+      const saved = activeField && fieldOverrideForKey(activeField.storageKey || activeField.key);
       const hasSavedText = saved && saved.type === "text" && typeof saved.value === "string";
       if (isInfoCellText) {
         const info = hasSavedText
           ? parseInfoCellValue(saved.value)
-          : infoCellValueFromElement(activeField.element);
+          : infoCellValueFromElement(activeField.infoCell || activeField.element);
         $("infoCellTitle").value = info.title;
         $("infoCellSubtitle").value = info.subtitle;
+      } else if (activeField && activeField.infoCellPart) {
+        const info = hasSavedText
+          ? parseInfoCellValue(saved.value)
+          : infoCellValueFromElement(activeField.infoCell);
+        $("description").value = info[activeField.infoCellPart];
       } else {
         $("description").value = hasSavedText ? saved.value : textValueForField(activeField);
       }
@@ -2796,7 +2833,7 @@
     const fields = [];
     const seen = new Set();
     addGroupedStoryFields(doc, fields, seen);
-    addEmptyInfoCellFields(doc, fields, seen);
+    addInfoCellFields(doc, fields, seen);
     main.querySelectorAll(textSelector).forEach((el) => {
       const infoCell = el.closest(".ev-info-cell");
       if (infoCell) {
@@ -2819,27 +2856,56 @@
     return fields;
   }
 
-  // Some designs use a completely empty info cell as a decorative colour
-  // block. Its missing .k/.v children used to leave the cell with no pencil,
-  // so an editor could never turn that slot back into content. Treat the
-  // whole cell as one text field and keep doing so after its override renders.
-  function addEmptyInfoCellFields(doc, fields, seen) {
+  // Info cells are one coherent stored value but expose the familiar two
+  // independent pencils when filled. Decorative cells expose one pencil that
+  // opens the combined Title + Subtitle editor.
+  function addInfoCellFields(doc, fields, seen) {
     const main = doc.querySelector("main") || doc.body;
     main.querySelectorAll(".ev-info-cell").forEach((cell) => {
       const selector = selectorFor(cell, doc);
-      const key = selector ? "text:" + selector : "";
-      if (!key || seen.has(key)) return;
-      const saved = fieldOverrideForKey(key);
-      const hasSavedText = saved && saved.type === "text";
-      if (!isEmptyInfoCell(cell) && !hasSavedText) return;
-      seen.add(key);
-      fields.push({
-        type: "text",
-        key,
-        element: cell,
-        host: cell,
-        emptyInfoCell: true,
-      });
+      const storageKey = selector ? "text:" + selector : "";
+      if (!storageKey || seen.has(storageKey)) return;
+      seen.add(storageKey);
+      const saved = fieldOverrideForKey(storageKey);
+      const info = saved && saved.type === "text"
+        ? parseInfoCellValue(saved.value)
+        : infoCellValueFromElement(cell);
+      if (!info.title.trim() && !info.subtitle.trim()) {
+        fields.push({
+          type: "text",
+          key: storageKey,
+          storageKey,
+          element: cell,
+          infoCell: cell,
+          host: cell,
+          emptyInfoCell: true,
+        });
+        return;
+      }
+      const title = cell.querySelector(".k");
+      const subtitle = cell.querySelector(".v");
+      if (title) {
+        fields.push({
+          type: "text",
+          key: storageKey + "::title",
+          storageKey,
+          infoCellPart: "title",
+          infoCell: cell,
+          element: title,
+          host: title,
+        });
+      }
+      if (subtitle) {
+        fields.push({
+          type: "text",
+          key: storageKey + "::subtitle",
+          storageKey,
+          infoCellPart: "subtitle",
+          infoCell: cell,
+          element: subtitle,
+          host: subtitle,
+        });
+      }
     });
   }
 
