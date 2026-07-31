@@ -158,9 +158,12 @@
       el.appendChild(text);
     }
     if (text.textContent !== next) text.textContent = next;
-    el.style.removeProperty("background");
     el.style.removeProperty("background-color");
     el.style.removeProperty("background-image");
+    // The decorative colour may come from either an inline declaration or a
+    // more-specific design class. Force the normal info-cell surface so both
+    // sources are replaced when the slot becomes content.
+    el.style.setProperty("background", "var(--ink, #11151b)", "important");
   }
 
   function isDescriptionBody(el) {

@@ -47,6 +47,13 @@ function makeEl(tagName, init) {
     get marginTop() { return styleState.marginTop; },
     set marginTop(v) { styleState.marginTop = v; },
     set whiteSpace(v) { styleState.whiteSpace = v; },
+    setProperty(prop, value, priority) {
+      counts['set:' + prop] = (counts['set:' + prop] || 0) + 1;
+      if (prop === 'background') {
+        styleState.background = value;
+        styleState.backgroundPriority = priority || '';
+      }
+    },
     removeProperty(prop) {
       counts['remove:' + prop] = (counts['remove:' + prop] || 0) + 1;
       if (prop === 'background') styleState.background = '';
@@ -419,9 +426,10 @@ const BASE_HREF = 'https://otratickets.com/clearboat';
   assert(value?.dataset.otraInfoText === '1', '(g) generated info text must be identifiable on reapply');
   assert(value?.textContent === 'Bring a valid driver’s license', '(g) generated info text must contain the override');
   assert(value?.style.marginTop === '0', '(g) value-only info text must not retain the label gap');
-  assert(gCell.counts['remove:background'] === 1, '(g) decorative background shorthand must be removed');
   assert(gCell.counts['remove:background-color'] === 1, '(g) decorative background colour must be removed');
   assert(gCell.counts['remove:background-image'] === 1, '(g) decorative background image must be removed');
+  assert(gCell.style.background === 'var(--ink, #11151b)', '(g) info cell must receive the normal grid background');
+  assert(gCell.counts['set:background'] === 1, '(g) normal background must override decorative design classes');
 
   await result.dispatch('otra:event-rendered');
   assert(gCell.children.length === 1, '(g) reapplying overrides must not duplicate the generated text element');
