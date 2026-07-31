@@ -108,6 +108,8 @@
           el.textContent = value;
           if (value.includes("\n")) el.style.whiteSpace = "pre-line";
         }
+        const infoCell = el.closest && el.closest(".ev-info-cell");
+        if (infoCell) syncInfoCellDecorativeState(infoCell);
         applied.add(key);
         continue;
       }
@@ -149,36 +151,49 @@
   // into a normal value cell while leaving the rest of the grid untouched.
   function applyInfoCellText(el, value) {
     const next = parseInfoCellValue(value);
+    if (!next.title && !next.subtitle) {
+      el.innerHTML = "";
+      syncInfoCellDecorativeState(el);
+      return;
+    }
     let title = el.querySelector(".k[data-otra-info-title]");
     let subtitle = el.querySelector(".v[data-otra-info-subtitle]");
-    const structureChanged =
-      Boolean(title) !== Boolean(next.title) ||
-      Boolean(subtitle) !== Boolean(next.subtitle);
-    if ((!title && !subtitle) || structureChanged) {
+    if (!title || !subtitle) {
       el.innerHTML = "";
-      title = null;
-      subtitle = null;
-      if (next.title) {
-        title = document.createElement("div");
-        title.className = "k";
-        title.dataset.otraInfoTitle = "1";
-        el.appendChild(title);
-      }
-      if (next.subtitle) {
-        subtitle = document.createElement("div");
-        subtitle.className = "v";
-        subtitle.dataset.otraInfoSubtitle = "1";
-        if (!next.title) subtitle.style.marginTop = "0";
-        el.appendChild(subtitle);
-      }
+      title = document.createElement("div");
+      title.className = "k";
+      title.dataset.otraInfoTitle = "1";
+      el.appendChild(title);
+      subtitle = document.createElement("div");
+      subtitle.className = "v";
+      subtitle.dataset.otraInfoSubtitle = "1";
+      el.appendChild(subtitle);
     }
     if (title && title.textContent !== next.title) title.textContent = next.title;
     if (subtitle && subtitle.textContent !== next.subtitle) subtitle.textContent = next.subtitle;
+    syncInfoCellDecorativeState(el);
+  }
+
+  function syncInfoCellDecorativeState(el) {
+    if (!isInfoCell(el)) return;
+    const title = el.querySelector(".k");
+    const subtitle = el.querySelector(".v");
+    const hasText = Boolean(
+      (title && title.textContent.trim()) ||
+      (subtitle && subtitle.textContent.trim())
+    );
+    if (!hasText) {
+      el.classList.add("otra-empty-info-cell");
+      el.style.removeProperty("background");
+      el.style.removeProperty("background-color");
+      el.style.removeProperty("background-image");
+      return;
+    }
+    el.classList.remove("otra-empty-info-cell");
     el.style.removeProperty("background-color");
     el.style.removeProperty("background-image");
-    // The decorative colour may come from either an inline declaration or a
-    // more-specific design class. Force the normal info-cell surface so both
-    // sources are replaced when the slot becomes content.
+    // Force the normal information-cell surface after a decorative slot gains
+    // text, regardless of whether its colour came from a class or inline CSS.
     el.style.setProperty("background", "var(--ink, #11151b)", "important");
   }
 
