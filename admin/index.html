@@ -719,6 +719,9 @@
           New Otra Guide event (copies the original's team, dates, location and tickets; stays unpublished)</label>
         <label><input type="radio" name="cloneEventMode" value="existing" />
           Use an existing Otra Guide event</label>
+        <label>Event title
+          <input id="cloneEventTitle" type="text" maxlength="120" required />
+        </label>
         <label>Event date (new event only - defaults to the original's date)
           <input id="cloneEventDate" type="date" />
         </label>
@@ -1490,15 +1493,20 @@
     return false;
   }
 
-  const MONTHS = ["january","february","march","april","may","june","july","august","september","october","november","december"];
-
   function parseDateText(value) {
+    const monthNumbers = {
+      january: 1, jan: 1, february: 2, feb: 2, march: 3, mar: 3,
+      april: 4, apr: 4, may: 5, june: 6, jun: 6, july: 7, jul: 7,
+      august: 8, aug: 8, september: 9, sept: 9, sep: 9,
+      october: 10, oct: 10, november: 11, nov: 11, december: 12, dec: 12,
+    };
     const text = String(value || "").toLowerCase();
     const iso = text.match(/(\d{4})-(\d{2})-(\d{2})/);
     if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
-    const named = text.match(new RegExp(`(${MONTHS.join("|")})\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:,)?\\s+(\\d{4})`));
+    const names = Object.keys(monthNumbers).sort((a, b) => b.length - a.length);
+    const named = text.match(new RegExp(`(${names.join("|")})\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:,)?\\s+(\\d{4})`));
     if (!named) return "";
-    const month = String(MONTHS.indexOf(named[1]) + 1).padStart(2, "0");
+    const month = String(monthNumbers[named[1]]).padStart(2, "0");
     return `${named[3]}-${month}-${String(named[2]).padStart(2, "0")}`;
   }
 
@@ -1513,10 +1521,15 @@
       return setStatus("Date text saved, but this page has no linked event - event date NOT changed.", "error");
     }
     setStatus("Updating event date...");
+    const raw = String(overrideIdForPage(selected) || "");
     const data = await api("/admin/api/events", {
       method: "PUT",
       headers: authHeaders({ "content-type": "application/json" }),
-      body: JSON.stringify({ eventId: Number(eventId), startDate: day }),
+      body: JSON.stringify({
+        eventId: Number(eventId),
+        draftId: /^draft-(?!prod-)/.test(raw) ? raw : "",
+        startDate: day,
+      }),
     });
     const start = data.event && data.event.start_date ? String(data.event.start_date).slice(0, 10) : day;
     setStatus(`Saved. Event date updated to ${start} (checkout calendar included).`, "ok");
@@ -2276,6 +2289,10 @@
   let cloneSearchTimer = null;
   let cloneSourceDate = "";
 
+  function cleanCloneTitle(value) {
+    return String(value || "").replace(/(?:\s*\(clone\))+\s*$/i, "").trim();
+  }
+
   function cloneSelectedPage() {
     if (!selected) return;
     $("cloneMeta").textContent = selected.title + " - " + selected.type;
@@ -2286,6 +2303,7 @@
     $("cloneEventSelected").textContent = "";
     cloneChosenEvent = null;
     cloneSourceDate = "";
+    $("cloneEventTitle").value = cleanCloneTitle(selected.title);
     $("cloneEventDate").value = "";
     $("cloneEventDate").disabled = false;
     $("cloneModal").classList.remove("hidden");
@@ -2363,6 +2381,12 @@
       return;
     }
     const existingEventId = cloneChosenEvent ? String(cloneChosenEvent.id) : "";
+    const cloneTitle = $("cloneEventTitle").value.trim();
+    if (!cloneTitle) {
+      $("cloneStatus").textContent = "Event title is required.";
+      $("cloneStatus").className = "status error";
+      return;
+    }
     const btn = $("confirmCloneBtn");
     btn.disabled = true;
     cloneBusy = true;
@@ -2376,7 +2400,9 @@
       const data = await api("/admin/api/projects?" + params.toString(), {
         method: "POST",
         headers: authHeaders({ "content-type": "application/json" }),
-        body: JSON.stringify(mode === "existing" ? { existingEventId: Number(existingEventId) } : {}),
+        body: JSON.stringify(mode === "existing"
+          ? { existingEventId: Number(existingEventId), title: cloneTitle }
+          : { title: cloneTitle }),
       });
       const chosenDate = $("cloneEventDate").value;
       let dateNote = "";
@@ -2385,7 +2411,11 @@
           await api("/admin/api/events", {
             method: "PUT",
             headers: authHeaders({ "content-type": "application/json" }),
-            body: JSON.stringify({ eventId: Number(data.project.otraGuideId), startDate: chosenDate }),
+            body: JSON.stringify({
+              eventId: Number(data.project.otraGuideId),
+              draftId: data.project.id,
+              startDate: chosenDate,
+            }),
           });
           dateNote = ` Event moved to ${chosenDate}.`;
         } catch (err) {

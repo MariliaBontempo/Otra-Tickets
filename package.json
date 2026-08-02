@@ -12,6 +12,7 @@
     "check:admin-only": "node scripts/check-admin-only.mjs",
     "check:admin-info-cell": "node scripts/check-admin-empty-info-cell.mjs",
     "check:admin-video": "node scripts/check-admin-video-upload.mjs",
+    "check:clone-sync": "node scripts/check-clone-date-card-sync.mjs",
     "check:overrides": "node scripts/check-overrides-idempotent.mjs",
     "check:video": "node scripts/check-video-poster.mjs",
     "check:ux": "node scripts/check-ux-states.mjs"

@@ -203,6 +203,7 @@ async function hydrateEvent(context, accessToken, eventId) {
 
 async function updateEventDate(context, accessToken, body) {
   const eventId = cleanInteger(body && body.eventId);
+  const draftId = String((body && body.draftId) || "").trim();
   const startDate = String((body && body.startDate) || "").trim();
   if (!eventId) return json({ error: "event id is required" }, 400);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate)) return json({ error: "startDate must be YYYY-MM-DD" }, 400);
@@ -263,38 +264,56 @@ async function updateEventDate(context, accessToken, body) {
   try {
     const kv = context.env.OVERRIDES;
     if (kv) {
-      let cursor;
-      do {
-        const page = await kv.list({ prefix: "site-event:", cursor });
-        for (const key of page.keys || []) {
-          const project = await kv.get(key.name, "json");
-          if (project && String(project.otraGuideId || "") === String(eventId)) {
-            const next = { ...project, startDate: newStartIso, endDate: newEndIso };
-            // The hero meta and homepage card label render the design's own
-            // date strings - rewrite any date inside them to the new day.
-            const design = next.claudeDesign;
-            if (design && Array.isArray(design.meta)) {
-              const target = new Date(newStartIso);
-              const label = target.toLocaleDateString("en-US", {
-                weekday: "short", month: "long", day: "numeric", year: "numeric",
-                timeZone: "America/Curacao",
-              });
-              const dateRe = /(?:(?:Sun|Mon|Tue|Wed|Thu|Fri|Sat)[a-z]*,?\s+)?(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4}/gi;
-              next.claudeDesign = {
-                ...design,
-                meta: design.meta.map((item) => String(item).replace(dateRe, label)),
-              };
-            }
-            await kv.put(key.name, JSON.stringify(next));
-          }
-        }
-        cursor = page.list_complete ? undefined : page.cursor;
-      } while (cursor);
+      await syncSiteEventDates(kv, { draftId, eventId, newStartIso, newEndIso });
     }
     const origin = new URL(context.request.url).origin;
     context.waitUntil(fetch(`${origin}/api/homepage-events?fresh=1`));
   } catch {}
   return json({ event: { id: detail.id, start_date: updated.start_date || newStartIso, end_date: updated.end_date || newEndIso } });
+}
+
+const PROJECT_DATE_RE = /(?:(?:Sun|Mon|Tue|Wed|Thu|Fri|Sat)[a-z]*,?\s+)?(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s+\d{4})?/gi;
+
+export function rewriteProjectDate(project, newStartIso, newEndIso) {
+  const next = { ...project, startDate: newStartIso, endDate: newEndIso };
+  const design = next.claudeDesign;
+  if (!design || !Array.isArray(design.meta)) return next;
+  const target = new Date(newStartIso);
+  const label = target.toLocaleDateString("en-US", {
+    weekday: "short", month: "long", day: "numeric", year: "numeric",
+    timeZone: "America/Curacao",
+  });
+  next.claudeDesign = {
+    ...design,
+    meta: design.meta.map((item) => String(item).replace(PROJECT_DATE_RE, label)),
+  };
+  return next;
+}
+
+export async function syncSiteEventDates(kv, { draftId, eventId, newStartIso, newEndIso }) {
+  const touched = new Set();
+  const updateKey = async (key) => {
+    if (!key || touched.has(key)) return;
+    const project = await kv.get(key, "json");
+    if (!project) return;
+    if (String(project.otraGuideId || "") !== String(eventId)) return;
+    await kv.put(key, JSON.stringify(rewriteProjectDate(project, newStartIso, newEndIso)));
+    touched.add(key);
+  };
+
+  // KV list() is eventually consistent. The clone response already gives us
+  // the exact new draft id, so update that key directly before scanning for
+  // any older copies bound to the same event.
+  if (/^draft-[a-zA-Z0-9-]+$/.test(String(draftId || ""))) {
+    await updateKey(`site-event:${draftId}`);
+  }
+  let cursor;
+  do {
+    const page = await kv.list({ prefix: "site-event:", cursor });
+    for (const key of page.keys || []) await updateKey(key.name);
+    cursor = page.list_complete ? undefined : page.cursor;
+  } while (cursor);
+  return touched.size;
 }
 
 async function otraJson(context, accessToken, path) {
