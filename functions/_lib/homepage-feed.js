@@ -745,7 +745,9 @@ function projectCardTitle(project) {
   return title || displayTitle || "Claude Design Event";
 }
 
-function projectDateLabel(project) {
+const CARD_DATE_RE = /(?:(?:Sun|Mon|Tue|Wed|Thu|Fri|Sat)[a-z]*,?\s+)?(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s+\d{4})?/gi;
+
+export function projectDateLabel(project) {
   const design = project.claudeDesign && typeof project.claudeDesign === "object" ? project.claudeDesign : {};
   const meta = Array.isArray(design.meta) ? design.meta : [];
   const rateNames = Array.isArray(design.rates)
@@ -756,8 +758,25 @@ function projectDateLabel(project) {
     .filter(Boolean)
     .filter((item) => !isTicketMetadata(item, rateNames));
 
-  // If a dated design has no schedule metadata, let the browser format the
-  // event start date. "Flexible dates" is only accurate for perennial events.
+  const actualDate = validDateValue(project.startDate);
+  if (actualDate) {
+    const label = new Date(actualDate).toLocaleDateString("en-US", {
+      weekday: "short", month: "long", day: "numeric",
+      timeZone: HOMEPAGE_TIME_ZONE,
+    });
+    let replaced = false;
+    const synchronized = schedule.map((item) => {
+      CARD_DATE_RE.lastIndex = 0;
+      if (!CARD_DATE_RE.test(item)) return item;
+      replaced = true;
+      CARD_DATE_RE.lastIndex = 0;
+      return item.replace(CARD_DATE_RE, label);
+    });
+    if (!replaced) synchronized.unshift(label);
+    return synchronized.join(" · ");
+  }
+  // "Flexible dates" is only accurate for perennial events. A dated event
+  // with no start date retains its authored schedule as a last-resort label.
   return schedule.length ? schedule.join(" · ") : (project.isPerennial ? "Flexible dates" : "");
 }
 

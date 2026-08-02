@@ -52,11 +52,16 @@ export async function onRequestPost(context) {
     }
     if (!source) return json({ error: "no draft found to clone" }, 404);
 
+    let body = {};
+    try {
+      body = await context.request.json();
+    } catch {}
+
     const cloneId = `draft-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
     const clone = {
       ...source,
       id: cloneId,
-      title: `${source.title} (clone)`,
+      title: cloneProjectTitle(source.title, body && body.title),
       status: "draft",
       publishedAt: "",
       archivedAt: "",
@@ -86,10 +91,6 @@ export async function onRequestPost(context) {
     // Bind the clone to its own Otra Guide event so ticketing/checkout work:
     // either an existing event chosen by the editor, or a fresh unpublished
     // event copying the original's team, dates, location and ticket types.
-    let body = {};
-    try {
-      body = await context.request.json();
-    } catch {}
     try {
       let bound = clone;
       const existingEventId = cleanInteger(body && body.existingEventId);
@@ -305,6 +306,12 @@ export async function onRequestPost(context) {
     await putProject(kv, failed);
     return json({ project: failed, warning: error.message }, 202);
   }
+}
+
+export function cloneProjectTitle(sourceTitle, requestedTitle) {
+  const requested = String(requestedTitle || "").trim().slice(0, 120);
+  if (requested) return requested;
+  return `${String(sourceTitle || "Claude Design Event").trim()} (clone)`;
 }
 
 async function createDraftFromExistingEvent(context, accessToken, project, eventId) {
