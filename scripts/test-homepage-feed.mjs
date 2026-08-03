@@ -26,8 +26,16 @@ const rows = applyFixedRows([
     isPerennial: false,
     dateLabel: "Two daily departures · About 1 hour",
   },
+  {
+    id: 4,
+    title: "Past perennial event with ticket types",
+    date: "2026-07-04T18:00:00-04:00",
+    endDate: "2026-07-05T02:00:00-04:00",
+    isPerennial: true,
+    hasTicketTypes: true,
+  },
 ], [], now);
 
 const past = rows.find((row) => row.id === "past-events");
 
-assert.deepEqual(past?.eventIds, ["1"]);
+assert.deepEqual(past?.eventIds, ["4", "1"]);
