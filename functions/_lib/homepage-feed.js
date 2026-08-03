@@ -485,7 +485,10 @@ export async function buildPublishedSiteEvents(env, { includeAdminOnly = false }
         date: startDate,
         endDate,
         isPerennial: project.isPerennial === true,
-        hasTicketTypes: Array.isArray(project.rates) && project.rates.length > 0,
+        hasTicketTypes:
+          (Array.isArray(project.ticketTypeIds) && project.ticketTypeIds.length > 0) ||
+          (Array.isArray(project.claudeDesign && project.claudeDesign.rates) &&
+            project.claudeDesign.rates.length > 0),
         venue: (localCard && localCard.venue) || projectVenue(project),
         // KV drafts carry no Otra Guide location; dedupe backfills it from the
         // matching upstream event so the card location still comes from there.
