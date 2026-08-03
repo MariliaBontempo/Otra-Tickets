@@ -31,6 +31,17 @@ globalThis.fetch = async (input) => {
           { id: 296, name: 'General Admission', price: '15.00', quantity: 500, currency: 'USD', isActive: false },
           { id: 298, name: 'VIP Table for 4', price: '450.00', quantity: 20, currency: 'USD', isActive: false },
         ],
+      }, {
+        id: 9001,
+        title: 'Direct payment - private charter',
+        slug: 'payment-abc12345',
+        startDate: '2026-07-04T18:00:00-04:00',
+        endDate: '2026-07-04T20:00:00-04:00',
+        isPast: true,
+        isTicketed: true,
+        tickets: [
+          { id: 999, name: 'Private charter payment', price: '500.00', quantity: 1, currency: 'USD' },
+        ],
       }],
     });
   }
@@ -47,6 +58,7 @@ try {
   const payload = await response.json();
   assert(response.status === 200, 'search proxy must succeed');
   assert(payload.events?.length === 1, 'past ticketed event must remain in search results');
+  assert(payload.events?.[0]?.id === 7275, 'payment-link invoice events must be removed from search results');
   assert(payload.events?.[0]?.isPast === true, 'past marker must survive proxy normalization');
   assert(payload.events?.[0]?.tickets?.length === 2, 'expired ticket types must remain selectable');
   assert(payload.events?.[0]?.tickets?.[0]?.id === 296, 'original ticket type ids must be preserved');

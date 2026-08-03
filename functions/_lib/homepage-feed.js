@@ -257,7 +257,11 @@ function tourEventIds(events) {
 
 function pastEventIds(events, now) {
   return events
-    .filter((ev) => !isRecurringHomepageEvent(ev) && !isCurrentOrFutureEvent(ev, now))
+    .filter(
+      (ev) =>
+        !isCurrentOrFutureEvent(ev, now) &&
+        (!isRecurringHomepageEvent(ev) || ev.hasTicketTypes === true)
+    )
     .sort((a, b) => pastSortTime(b) - pastSortTime(a))
     .map((ev) => String(ev.id));
 }
@@ -481,6 +485,7 @@ export async function buildPublishedSiteEvents(env, { includeAdminOnly = false }
         date: startDate,
         endDate,
         isPerennial: project.isPerennial === true,
+        hasTicketTypes: Array.isArray(project.rates) && project.rates.length > 0,
         venue: (localCard && localCard.venue) || projectVenue(project),
         // KV drafts carry no Otra Guide location; dedupe backfills it from the
         // matching upstream event so the card location still comes from there.
@@ -592,6 +597,10 @@ async function buildEvents(authToken = "", env = null) {
     date: ev.is_perennial ? null : ev.start_date,
     endDate: ev.end_date || ev.start_date || null,
     isPerennial: !!ev.is_perennial,
+    // Reaching this map means the purchase endpoint confirmed at least one
+    // ticket type. Keep that fact so an expired perennial ticketed event can
+    // appear in Past Events instead of being mistaken for an ongoing tour.
+    hasTicketTypes: true,
     venue: cardVenue(ev),
     // Real Otra Guide event location (empty when unset) — wins over a curated
     // venue during dedupe so the location always reflects the event.
@@ -629,6 +638,7 @@ function dedupeEvents(events) {
     }
     const loc = String(kept.location || event.location || "").trim();
     if (loc) kept.venue = loc;
+    if (event.hasTicketTypes === true) kept.hasTicketTypes = true;
   }
   return [...byId.values()];
 }

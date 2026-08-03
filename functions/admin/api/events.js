@@ -102,7 +102,7 @@ async function searchEvents(context, accessToken, query, region) {
 
   if (/^\d+$/.test(query)) ids.add(Number(query));
   const addCandidate = (event) => {
-    if (event && event.id && matchesQuery(event, query)) ids.add(Number(event.id));
+    if (event && event.id && !isPaymentLinkEvent(event) && matchesQuery(event, query)) ids.add(Number(event.id));
   };
 
   const nonPerennialParams = new URLSearchParams({
@@ -184,6 +184,7 @@ async function hydrateEvent(context, accessToken, eventId) {
     otraJson(context, accessToken, `/ticket/purchase/tickets/${eventId}/`),
   ]);
   if (!detail || !detail.id) return null;
+  if (isPaymentLinkEvent(detail)) return null;
 
   const tickets = (ticketData && Array.isArray(ticketData.results) ? ticketData.results : []).map((ticket) => ({
     id: ticket.id,
@@ -227,6 +228,7 @@ async function fetchAdminTicketedEvents(context, accessToken, params) {
 
 function normalizeAdminEvent(event) {
   if (!event || !event.id) return null;
+  if (isPaymentLinkEvent(event)) return null;
   return {
     id: event.id,
     title: event.title || `Event ${event.id}`,
@@ -256,6 +258,10 @@ function normalizeAdminEvent(event) {
       saleEndDate: ticket.saleEndDate || "",
     })),
   };
+}
+
+function isPaymentLinkEvent(event) {
+  return String((event && event.slug) || "").toLowerCase().startsWith("payment-");
 }
 
 function isPastEvent(value) {
