@@ -19,7 +19,16 @@ const CATEGORY_ID = 339;
 // We Love R&B is the headliner: it always leads the homepage row.
 const FEATURED_ID = 7275;
 // Event ids to keep off the homepage even if they pass the ticket filter.
-const EXCLUDED_IDS = new Set([7012]); // Sinusta Tours & Transfers
+const EXCLUDED_IDS = new Set([
+  7012, // Sinusta Tours & Transfers
+  7464, // Archived legacy Iguana Ride Curaçao drafts
+  7465,
+  7466,
+]);
+
+export function isHomepageEventExcluded(id) {
+  return EXCLUDED_IDS.has(Number(id));
+}
 const LOCAL_MAIN_IMAGES = {
   "7275": "uploads/We Love R&B July 4th TJ-5.webp",
   "6113": "uploads/Clearboat Hero.webp",
@@ -566,7 +575,7 @@ async function buildEvents(authToken = "", env = null) {
   // (is_ticketed true) and the perennial top-shelf cards (whose is_ticketed is
   // forced false by the serializer, so the flag can't be trusted for them).
   const candidates = [...byId.values()]
-    .filter((ev) => !EXCLUDED_IDS.has(ev.id) && (ev.is_ticketed || ev.is_perennial))
+    .filter((ev) => !isHomepageEventExcluded(ev.id) && (ev.is_ticketed || ev.is_perennial))
     .slice(0, MAX_TICKET_CHECKS);
 
   // Confirm each candidate actually has ticket types configured.
