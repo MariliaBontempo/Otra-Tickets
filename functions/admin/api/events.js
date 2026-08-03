@@ -91,6 +91,13 @@ export async function onRequestPut(context) {
 }
 
 async function searchEvents(context, accessToken, query, region) {
+  const adminParams = new URLSearchParams({ q: query });
+  if (region) adminParams.set("region", region);
+  const adminResults = await fetchAdminTicketedEvents(context, accessToken, adminParams);
+  if (adminResults) {
+    return adminResults.filter((event) => matchesQuery(event, query)).slice(0, PAGE_SIZE);
+  }
+
   const ids = new Set();
 
   if (/^\d+$/.test(query)) ids.add(Number(query));
@@ -165,6 +172,13 @@ async function scanCategoryFeed(context, accessToken, query, region) {
 }
 
 async function hydrateEvent(context, accessToken, eventId) {
+  const adminResults = await fetchAdminTicketedEvents(
+    context,
+    accessToken,
+    new URLSearchParams({ id: String(eventId) })
+  );
+  if (adminResults && adminResults.length) return normalizeAdminEvent(adminResults[0]);
+
   const [detail, ticketData] = await Promise.all([
     otraJson(context, accessToken, `/events/details/${eventId}/`),
     otraJson(context, accessToken, `/ticket/purchase/tickets/${eventId}/`),
@@ -196,8 +210,57 @@ async function hydrateEvent(context, accessToken, eventId) {
     teamId: detail.team && detail.team.id ? detail.team.id : null,
     teamName: detail.team && detail.team.name ? detail.team.name : "",
     regionId: detail.team && detail.team.region ? detail.team.region : null,
+    isPast: isPastEvent(detail.end_date || detail.start_date),
     tickets,
   };
+}
+
+async function fetchAdminTicketedEvents(context, accessToken, params) {
+  const data = await otraJson(
+    context,
+    accessToken,
+    `/events/admin-ticketed-search/?${params.toString()}`
+  );
+  if (!data || !Array.isArray(data.events)) return null;
+  return data.events.map(normalizeAdminEvent).filter(Boolean);
+}
+
+function normalizeAdminEvent(event) {
+  if (!event || !event.id) return null;
+  return {
+    id: event.id,
+    title: event.title || `Event ${event.id}`,
+    description: event.description || "",
+    slug: event.slug || "",
+    startDate: event.startDate || "",
+    endDate: event.endDate || "",
+    location: event.location || "",
+    isPerennial: !!event.isPerennial,
+    isTicketed: !!event.isTicketed,
+    published: typeof event.published === "boolean" ? event.published : null,
+    image: event.image || "",
+    teamId: cleanInteger(event.teamId),
+    teamName: event.teamName || "",
+    regionId: cleanInteger(event.regionId),
+    isPast: typeof event.isPast === "boolean" ? event.isPast : isPastEvent(event.endDate || event.startDate),
+    tickets: (Array.isArray(event.tickets) ? event.tickets : []).map((ticket) => ({
+      id: ticket.id,
+      name: ticket.name || "Ticket",
+      description: ticket.description || "",
+      price: ticket.price || "0.00",
+      quantity: Number.isSafeInteger(Number(ticket.quantity)) && Number(ticket.quantity) > 0 ? Number(ticket.quantity) : 500,
+      remainingQuantity: Number.isSafeInteger(Number(ticket.remainingQuantity)) ? Number(ticket.remainingQuantity) : null,
+      currency: ticket.currency || "USD",
+      isActive: ticket.isActive !== false,
+      saleStartDate: ticket.saleStartDate || "",
+      saleEndDate: ticket.saleEndDate || "",
+    })),
+  };
+}
+
+function isPastEvent(value) {
+  const date = new Date(value || "");
+  return Number.isFinite(date.getTime()) && date.getTime() < Date.now();
 }
 
 
