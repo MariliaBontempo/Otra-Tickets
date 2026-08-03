@@ -1140,10 +1140,11 @@
       availableExistingEvents = data.events || [];
       $("existingEventSelect").innerHTML = availableExistingEvents.length
         ? '<option value="">Choose an event</option>' + availableExistingEvents.map((event) => {
-            const when = event.startDate ? " · " + formatShortDate(event.startDate) : "";
-            const tickets = Array.isArray(event.tickets) ? ` · ${event.tickets.length} tickets` : "";
-            return `<option value="${esc(event.id)}">${esc(event.title)}${esc(when)}${esc(tickets)}</option>`;
-          }).join("")
+          const when = event.startDate ? " · " + formatShortDate(event.startDate) : "";
+          const tickets = Array.isArray(event.tickets) ? ` · ${event.tickets.length} tickets` : "";
+          const past = event.isPast ? " — Past event" : "";
+          return `<option value="${esc(event.id)}">${esc(event.title)}${esc(past)}${esc(when)}${esc(tickets)}</option>`;
+        }).join("")
         : '<option value="">No matching events</option>';
     } catch (err) {
       availableExistingEvents = [];
@@ -1160,6 +1161,7 @@
       $("existingEventMeta").textContent = [
         `Otra Guide ID ${selectedExistingEvent.id}`,
         typeof selectedExistingEvent.published === "boolean" ? (selectedExistingEvent.published ? "published" : "unpublished") : "",
+        selectedExistingEvent.isPast ? "Past event" : "",
         selectedExistingEvent.teamName || "",
         ticketCount ? `${ticketCount} ticket types` : "no ticket types",
       ].filter(Boolean).join(" · ");
@@ -2346,7 +2348,7 @@
         const btn = document.createElement("button");
         btn.type = "button";
         btn.className = "btn ghost";
-        btn.textContent = `${event.title} (#${event.id})`;
+        btn.textContent = `${event.title}${event.isPast ? " — Past event" : ""} (#${event.id})`;
         btn.addEventListener("click", () => {
           cloneChosenEvent = event;
           document.querySelector('input[name="cloneEventMode"][value="existing"]').checked = true;

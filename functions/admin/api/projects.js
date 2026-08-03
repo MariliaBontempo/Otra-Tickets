@@ -323,7 +323,9 @@ async function createDraftFromExistingEvent(context, accessToken, project, event
     name: ticket.name || "Ticket",
     description: ticket.description || "",
     price: ticket.price || "0.00",
-    currency: normalizeCurrency((ticket.base_currency && ticket.base_currency.code) || ticket.base_currency),
+    currency: normalizeCurrency(
+      (ticket.base_currency && ticket.base_currency.code) || ticket.base_currency || ticket.currency
+    ),
   }));
   if (!rates.length) throw new Error("selected Otra Guide event has no ticket types");
 
@@ -429,8 +431,16 @@ async function reconcileTickets(context, accessToken, project) {
 }
 
 async function fetchEventTickets(context, accessToken, eventId) {
-  const data = await otraFetch(context, accessToken, `/ticket/purchase/tickets/${eventId}/`);
-  return Array.isArray(data && data.results) ? data.results : [];
+  try {
+    const adminData = await otraFetch(context, accessToken, `/events/admin-ticketed-search/?id=${eventId}`);
+    const event = Array.isArray(adminData && adminData.events) ? adminData.events[0] : null;
+    if (event && Array.isArray(event.tickets)) return event.tickets;
+  } catch {
+    // Backward-compatible during a staggered deploy: use the purchase endpoint
+    // until the admin search endpoint is available on Otra Guide.
+  }
+  const purchaseData = await otraFetch(context, accessToken, `/ticket/purchase/tickets/${eventId}/`);
+  return Array.isArray(purchaseData && purchaseData.results) ? purchaseData.results : [];
 }
 
 async function otraFetch(context, accessToken, path, options = {}) {
