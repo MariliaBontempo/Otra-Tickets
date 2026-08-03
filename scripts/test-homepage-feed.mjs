@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { applyFixedRows, isHomepageEventExcluded } from "../functions/_lib/homepage-feed.js";
+import { applyFixedRows, filterHomepageEvents, isHomepageEventExcluded } from "../functions/_lib/homepage-feed.js";
 
 const now = new Date("2026-07-18T12:00:00-04:00").getTime();
 
@@ -44,3 +44,7 @@ assert.equal(isHomepageEventExcluded(7464), true);
 assert.equal(isHomepageEventExcluded("7465"), true);
 assert.equal(isHomepageEventExcluded(7466), true);
 assert.equal(isHomepageEventExcluded(6832), false);
+assert.deepEqual(
+  filterHomepageEvents([{ id: 7464 }, { id: "7465" }, { id: 7466 }, { id: 6832 }]),
+  [{ id: 6832 }]
+);

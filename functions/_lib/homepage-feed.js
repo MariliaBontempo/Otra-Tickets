@@ -29,6 +29,10 @@ const EXCLUDED_IDS = new Set([
 export function isHomepageEventExcluded(id) {
   return EXCLUDED_IDS.has(Number(id));
 }
+
+export function filterHomepageEvents(events) {
+  return (Array.isArray(events) ? events : []).filter((event) => !isHomepageEventExcluded(event && event.id));
+}
 const LOCAL_MAIN_IMAGES = {
   "7275": "uploads/We Love R&B July 4th TJ-5.webp",
   "6113": "uploads/Clearboat Hero.webp",
@@ -81,7 +85,10 @@ export async function buildHomepageFeed(context, { includeAdminOnly = false, aut
   }
   // Site events come first so their curated title/image win when the same
   // published Otra Guide event also appears in the upstream public feed.
-  const visibleEvents = dedupeEvents([...siteEvents, ...upstreamEvents]);
+  // Apply explicit exclusions after combining both sources. Filtering only
+  // the upstream candidates is insufficient when an archived/legacy event
+  // also has a site-event KV copy.
+  const visibleEvents = filterHomepageEvents(dedupeEvents([...siteEvents, ...upstreamEvents]));
   const events = await applyImageOverrides(visibleEvents, context.env);
   assignUniqueSlugs(events);
   const rows = await buildRows(events, context.env);
