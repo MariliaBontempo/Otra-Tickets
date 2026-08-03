@@ -11,6 +11,7 @@ const PROJECTS = {
     status: "published",
     startDate: "2999-01-01T10:00:00.000Z",
     endDate: "2999-01-01T14:00:00.000Z",
+    claudeDesign: { rates: [{ name: "General Admission", price: "25.00" }] },
   },
   "site-event:draft-admin-only": {
     id: "draft-admin-only",
@@ -46,6 +47,10 @@ function assert(condition, message) {
 const publicEvents = await buildPublishedSiteEvents({ OVERRIDES: kvStub });
 const publicIds = publicEvents.map((event) => event.id);
 assert(publicIds.includes("draft-public"), "public feed must include the published public event");
+assert(
+  publicEvents.find((event) => event.id === "draft-public")?.hasTicketTypes === true,
+  "published drafts must preserve ticket types stored in claudeDesign.rates"
+);
 assert(!publicIds.includes("draft-admin-only"), "public feed must NOT include an adminOnly event");
 assert(!publicIds.includes("draft-unpublished"), "public feed must NOT include an unpublished draft");
 
