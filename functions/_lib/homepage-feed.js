@@ -466,7 +466,12 @@ export async function buildPublishedSiteEvents(env, { includeAdminOnly = false }
       } catch {
         project = null;
       }
-      if (!project || typeof project !== "object" || project.status !== "published") continue;
+      if (
+        !project ||
+        typeof project !== "object" ||
+        project.status !== "published" ||
+        Boolean(project.archivedAt)
+      ) continue;
       // Admin-only site events never reach the public feed (which is edge
       // cached); only the staff preview endpoint opts in to seeing them.
       if (project.adminOnly === true && !includeAdminOnly) continue;

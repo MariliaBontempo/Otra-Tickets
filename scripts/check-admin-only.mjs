@@ -26,6 +26,14 @@ const PROJECTS = {
     title: "Unpublished Event",
     status: "draft",
   },
+  "site-event:draft-archived": {
+    id: "draft-archived",
+    title: "Archived Published Event",
+    status: "published",
+    archivedAt: "2026-08-03T17:00:00.000Z",
+    startDate: "2026-07-01T10:00:00.000Z",
+    endDate: "2026-07-01T14:00:00.000Z",
+  },
 };
 
 const kvStub = {
@@ -53,12 +61,14 @@ assert(
 );
 assert(!publicIds.includes("draft-admin-only"), "public feed must NOT include an adminOnly event");
 assert(!publicIds.includes("draft-unpublished"), "public feed must NOT include an unpublished draft");
+assert(!publicIds.includes("draft-archived"), "public feed must NOT include an archived published draft");
 
 const adminEvents = await buildPublishedSiteEvents({ OVERRIDES: kvStub }, { includeAdminOnly: true });
 const adminIds = adminEvents.map((event) => event.id);
 assert(adminIds.includes("draft-public"), "admin preview must include the published public event");
 assert(adminIds.includes("draft-admin-only"), "admin preview must include the adminOnly event");
 assert(!adminIds.includes("draft-unpublished"), "admin preview must NOT include an unpublished draft");
+assert(!adminIds.includes("draft-archived"), "admin preview must NOT include an archived published draft");
 
 if (failures.length) {
   console.error("check-admin-only FAILED:");
