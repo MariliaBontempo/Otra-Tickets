@@ -45,6 +45,7 @@ export async function onRequestGet(context) {
           id: eventId,
           title: page.title,
           type: "Published draft",
+          startDate: page.startDate || "",
           url: `/event.html?id=${encodeURIComponent(eventId)}`,
         });
       }
@@ -107,6 +108,7 @@ async function buildDraftPages(env) {
         adminOnly: project.adminOnly === true,
         otraGuideId: project.otraGuideId ? String(project.otraGuideId) : "",
         syncError: typeof project.syncError === "string" ? project.syncError : "",
+        startDate: typeof project.startDate === "string" ? project.startDate : "",
         // Preview the exact Otra Tickets draft selected in the admin. Using
         // otraGuideId here is ambiguous when multiple drafts target the same
         // event and can load an older project's design/assets.
@@ -164,6 +166,7 @@ async function buildTemplatePages(apiUrl = API) {
       id: String(ev.id),
       title: ev.title,
       type: ev.is_perennial ? "Published tour" : "Published draft",
+      startDate: typeof ev.start_date === "string" ? ev.start_date : "",
       url: `/event.html?id=${encodeURIComponent(ev.id)}`,
     }));
 }
