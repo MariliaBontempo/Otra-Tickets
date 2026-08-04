@@ -1297,6 +1297,24 @@
     return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
   }
 
+  function pageTitleKey(page) {
+    return String(page && page.title || "").trim().toLocaleLowerCase();
+  }
+
+  function countPageTitles(items) {
+    return (items || []).reduce((counts, page) => {
+      const key = pageTitleKey(page);
+      if (key) counts.set(key, (counts.get(key) || 0) + 1);
+      return counts;
+    }, new Map());
+  }
+
+  function pageOptionLabel(page, titleCounts) {
+    const duplicate = (titleCounts.get(pageTitleKey(page)) || 0) > 1;
+    const when = duplicate && page.startDate ? formatShortDate(page.startDate) : "";
+    return `${page.title}${when ? " · " + when : ""} - ${page.type}`;
+  }
+
   $("pageSelect").addEventListener("change", () => selectPage($("pageSelect").value));
   $("adminOnlyToggle").addEventListener("change", setAdminOnly);
   $("editCheckoutBtn").addEventListener("click", openCheckoutModal);
@@ -1869,8 +1887,9 @@
     try {
       const data = await api("/admin/api/pages", { headers: authHeaders() });
       pages = data.pages || [];
+      const titleCounts = countPageTitles(pages);
       $("pageSelect").innerHTML = pages
-        .map((page) => `<option value="${esc(page.id)}">${esc(page.title)} - ${esc(page.type)}</option>`)
+        .map((page) => `<option value="${esc(page.id)}">${esc(pageOptionLabel(page, titleCounts))}</option>`)
         .join("");
       const initial = preferredId && pages.some((page) => page.id === preferredId) ? preferredId : pages[0] && pages[0].id;
       if (initial) await selectPage(initial);
