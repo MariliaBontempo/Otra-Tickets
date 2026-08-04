@@ -56,6 +56,10 @@ assert(
   'empty info cells must never default to a transparent accent-colour block'
 );
 assert(
+  /\.ev-info-cell \.v\s*\{[^}]*white-space:\s*pre-line/.test(eventHtml),
+  'info-cell subtitles must visually preserve line breaks entered in the admin'
+);
+assert(
   candidateSource.includes('addInfoCellFields(doc, fields, seen)'),
   'candidateElements must include info cells before normal text discovery'
 );
@@ -237,6 +241,12 @@ if (markupSource) {
     'a complete grid row must not gain placeholder cells'
   );
   assert(sandbox.render([]) === '', 'an empty info section must not render an entire placeholder row');
+
+  const multiline = sandbox.render([['Tickets', 'Early Bird $20 · limited\nDay Of $30']]);
+  assert(
+    multiline.includes('Early Bird $20 · limited\nDay Of $30'),
+    'info-cell markup must preserve the authored newline for CSS to render'
+  );
 }
 
 if (failures.length) {
