@@ -57,11 +57,26 @@ const indexRaw = read(join(contractRoot, 'index.html'));
 const eventRaw = read(join(contractRoot, 'event.html'));
 const overridesRaw = read(join(contractRoot, 'site-overrides.js'));
 const clearboatRaw = read(join(contractRoot, 'clearboat.html'));
+const rnbRaw = read(join(contractRoot, 'rnb.html'));
 
 if (!indexRaw) fail('index.html', 'file missing');
 if (!eventRaw) fail('event.html', 'file missing');
 if (!overridesRaw) fail('site-overrides.js', 'file missing');
 if (!clearboatRaw) fail('clearboat.html', 'file missing');
+if (!rnbRaw) fail('rnb.html', 'file missing');
+
+// Event detail pages intentionally expose only the primary booking action in
+// the title block. The story follows directly below, so a secondary "Read
+// more" button must not be reintroduced by static or generic templates.
+for (const [file, raw] of [
+  ['event.html', eventRaw],
+  ['clearboat.html', clearboatRaw],
+  ['rnb.html', rnbRaw],
+]) {
+  if (raw && /<a[^>]+href=["']#story["'][^>]*>\s*Read more\s*<\/a>/i.test(raw)) {
+    fail(file, 'event detail title block must not include a Read more button');
+  }
+}
 
 // --- index.html copy contract (full file, apostrophes normalized) ---
 if (indexRaw) {

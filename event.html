@@ -1265,9 +1265,7 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
       // so the "Get tickets" CTA always shows. hasTickets only drives the rate
       // cards / "From $X", which need ticket data we may not have here.
       const hasTickets = Array.isArray(ev.tickets) && ev.tickets.length > 0;
-      actions.innerHTML =
-        '<a class="btn-metal" href="#book">Get tickets →</a>' +
-        '<a class="btn-ghost" href="#story">Read more</a>';
+      actions.innerHTML = '<a class="btn-metal" href="#book">Get tickets →</a>';
 
       // ----- STORY (description) -----
       let paras = paragraphs(ev.description);
