@@ -382,6 +382,16 @@
     border-radius: var(--radius);
   }
   .checkout-ticket-list { display: grid; gap: 12px; }
+  .checkout-date-card {
+    display: grid;
+    gap: 12px;
+    padding: 14px;
+    background: #0b0d11;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+  }
+  .checkout-date-card strong { display: block; margin-bottom: 4px; }
+  .checkout-date-card .muted { font-size: 13px; }
   .checkout-ticket {
     display: grid;
     gap: 12px;
@@ -693,7 +703,25 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
         </button>
       </div>
-      <p>Edit the ticket names, descriptions, prices, currencies, and total quantities used by the Otra Guide checkout.</p>
+      <p>Edit the event date, ticket names, descriptions, prices, currencies, and total quantities used by the Otra Guide checkout.</p>
+      <section class="checkout-date-card">
+        <div class="row split">
+          <div>
+            <strong>Event date</strong>
+            <span class="muted" id="checkoutDateSummary">Loading event date...</span>
+          </div>
+          <button class="btn ghost hidden" id="editCheckoutDateBtn" type="button">Edit date</button>
+        </div>
+        <div class="form-grid hidden" id="checkoutDateEditor">
+          <label>New event date
+            <input id="checkoutEventDate" type="date" />
+          </label>
+          <div class="row" style="align-items: end;">
+            <button class="btn ghost" id="cancelCheckoutDateBtn" type="button">Cancel</button>
+            <button class="btn primary" id="saveCheckoutDateBtn" type="button">Update date</button>
+          </div>
+        </div>
+      </section>
       <div class="checkout-ticket-list" id="checkoutTickets"></div>
       <div class="row">
         <button class="btn ghost" id="addTicketTypeBtn" type="button">+ Add ticket type</button>
@@ -1315,6 +1343,16 @@
     return `${page.title}${when ? " · " + when : ""} - ${page.type}`;
   }
 
+  function renderPageSelectOptions(preferredId) {
+    const titleCounts = countPageTitles(pages);
+    $("pageSelect").innerHTML = pages
+      .map((page) => `<option value="${esc(page.id)}">${esc(pageOptionLabel(page, titleCounts))}</option>`)
+      .join("");
+    if (preferredId && pages.some((page) => String(page.id) === String(preferredId))) {
+      $("pageSelect").value = String(preferredId);
+    }
+  }
+
   $("pageSelect").addEventListener("change", () => selectPage($("pageSelect").value));
   $("adminOnlyToggle").addEventListener("change", setAdminOnly);
   $("editCheckoutBtn").addEventListener("click", openCheckoutModal);
@@ -1347,6 +1385,9 @@
     if (e.target === $("checkoutModal")) closeCheckoutModal();
   });
   $("checkoutForm").addEventListener("submit", saveCheckout);
+  $("editCheckoutDateBtn").addEventListener("click", openCheckoutDateEditor);
+  $("cancelCheckoutDateBtn").addEventListener("click", closeCheckoutDateEditor);
+  $("saveCheckoutDateBtn").addEventListener("click", saveCheckoutDate);
 
   $("uploadBtn").addEventListener("click", uploadCurrentImage);
 
@@ -1887,11 +1928,8 @@
     try {
       const data = await api("/admin/api/pages", { headers: authHeaders() });
       pages = data.pages || [];
-      const titleCounts = countPageTitles(pages);
-      $("pageSelect").innerHTML = pages
-        .map((page) => `<option value="${esc(page.id)}">${esc(pageOptionLabel(page, titleCounts))}</option>`)
-        .join("");
       const initial = preferredId && pages.some((page) => page.id === preferredId) ? preferredId : pages[0] && pages[0].id;
+      renderPageSelectOptions(initial);
       if (initial) await selectPage(initial);
       else {
         selected = null;
@@ -2188,12 +2226,16 @@
     $("checkoutStatus").textContent = "Loading checkout...";
     $("checkoutStatus").className = "status";
     $("saveCheckoutBtn").disabled = true;
+    $("checkoutDateSummary").textContent = "Loading event date...";
+    $("editCheckoutDateBtn").classList.add("hidden");
+    closeCheckoutDateEditor();
     $("checkoutModal").classList.remove("hidden");
     try {
       const data = await api(`/admin/api/events?id=${encodeURIComponent(eventId)}`, { headers: authHeaders() });
       checkoutEvent = data.events && data.events[0] ? data.events[0] : null;
       if (!checkoutEvent) throw new Error("Event not found on Otra Guide.");
       renderCheckoutTickets(checkoutEvent.tickets || []);
+      renderCheckoutDate(checkoutEvent);
       $("checkoutStatus").textContent = "";
       $("saveCheckoutBtn").disabled = false;
     } catch (err) {
@@ -2204,7 +2246,94 @@
 
   function closeCheckoutModal() {
     $("checkoutModal").classList.add("hidden");
+    closeCheckoutDateEditor();
     checkoutEvent = null;
+  }
+
+  function checkoutDateState(event) {
+    const startDate = String(event && event.startDate || "");
+    const day = /^\d{4}-\d{2}-\d{2}/.test(startDate) ? startDate.slice(0, 10) : "";
+    const recurring = !!(event && (event.isPerennial || event.isRecurring));
+    return {
+      day,
+      editable: !!day && !recurring,
+      summary: recurring
+        ? "Recurring event — manage its schedule in the tickets dashboard."
+        : day
+        ? formatShortDate(startDate)
+        : "No valid event date is available.",
+    };
+  }
+
+  function renderCheckoutDate(event) {
+    const state = checkoutDateState(event);
+    $("checkoutDateSummary").textContent = state.summary;
+    $("checkoutEventDate").value = state.day;
+    $("editCheckoutDateBtn").classList.toggle("hidden", !state.editable);
+    if (!state.editable) closeCheckoutDateEditor();
+  }
+
+  function openCheckoutDateEditor() {
+    const state = checkoutDateState(checkoutEvent);
+    if (!state.editable) return;
+    $("checkoutEventDate").value = state.day;
+    $("checkoutDateEditor").classList.remove("hidden");
+    $("editCheckoutDateBtn").classList.add("hidden");
+    $("checkoutEventDate").focus();
+  }
+
+  function closeCheckoutDateEditor() {
+    $("checkoutDateEditor").classList.add("hidden");
+    if (checkoutEvent && checkoutDateState(checkoutEvent).editable) {
+      $("editCheckoutDateBtn").classList.remove("hidden");
+    }
+  }
+
+  async function saveCheckoutDate() {
+    const eventId = eventIdForPage(selected);
+    const day = $("checkoutEventDate").value;
+    if (!eventId || !checkoutEvent || !/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+      $("checkoutStatus").textContent = "Choose a valid event date.";
+      $("checkoutStatus").className = "status error";
+      return;
+    }
+    const raw = String(overrideIdForPage(selected) || "");
+    const button = $("saveCheckoutDateBtn");
+    button.disabled = true;
+    $("cancelCheckoutDateBtn").disabled = true;
+    $("saveCheckoutBtn").disabled = true;
+    $("checkoutStatus").textContent = "Updating event date and checkout calendar...";
+    $("checkoutStatus").className = "status";
+    try {
+      const data = await api("/admin/api/events", {
+        method: "PUT",
+        headers: authHeaders({ "content-type": "application/json" }),
+        body: JSON.stringify({
+          eventId: Number(eventId),
+          draftId: /^draft-(?!prod-)/.test(raw) ? raw : "",
+          startDate: day,
+        }),
+      });
+      const startDate = data.event && data.event.start_date ? data.event.start_date : day;
+      const endDate = data.event && data.event.end_date ? data.event.end_date : checkoutEvent.endDate;
+      checkoutEvent = { ...checkoutEvent, startDate, endDate };
+      if (selected) selected.startDate = startDate;
+      renderPageSelectOptions(selected && selected.id);
+      renderCheckoutDate(checkoutEvent);
+      closeCheckoutDateEditor();
+      refreshPreview();
+      $("checkoutStatus").textContent = `Event date updated to ${formatShortDate(startDate)}. Checkout calendar and ticket sale windows were updated too.`;
+      $("checkoutStatus").className = "status ok";
+      setStatus(`Event date updated to ${formatShortDate(startDate)}.`, "ok");
+    } catch (err) {
+      $("checkoutStatus").textContent = err.message;
+      $("checkoutStatus").className = "status error";
+      setStatus(err.message, "error");
+    } finally {
+      button.disabled = false;
+      $("cancelCheckoutDateBtn").disabled = false;
+      $("saveCheckoutBtn").disabled = false;
+    }
   }
 
   function renderCheckoutTickets(tickets) {
