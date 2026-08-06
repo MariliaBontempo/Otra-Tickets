@@ -64,6 +64,10 @@ const UPSTREAM_TTL = 300;
 // KV key for the last-known-good homepage feed snapshot (OVERRIDES namespace).
 const SNAPSHOT_KEY = "__homepage_feed_snapshot__";
 const HOMEPAGE_TIME_ZONE = "America/Curacao";
+// Internal-only marker. Symbols are omitted from the JSON response, while
+// allowing dedupeEvents to distinguish a deliberately edited hero from the
+// stale image captured when a draft was first linked to Otra Guide.
+const HAS_HERO_OVERRIDE = Symbol("hasHeroOverride");
 
 // Build the full { events, rows } homepage payload.
 //   includeAdminOnly — include KV site events flagged adminOnly (staff preview)
@@ -500,6 +504,16 @@ export async function buildPublishedSiteEvents(env, { includeAdminOnly = false }
       } catch {
         overrideImg = "";
       }
+      // Perennial events are not reliably present in the category feed, so
+      // there may be no upstream duplicate for dedupeEvents to refresh from.
+      // Read their current detail hero directly; this is the same source used
+      // by the event page and prevents a bind-time project image becoming
+      // permanently stale. An explicit Tickets hero edit still wins.
+      let currentDetailImg = "";
+      if (!overrideImg && project.isPerennial === true && /^\d+$/.test(id)) {
+        const detail = await fetchJson(`${apiBase(env)}/events/details/${id}/`);
+        currentDetailImg = eventCardImage(detail);
+      }
       out.push({
         id,
         title: projectCardTitle(project),
@@ -517,9 +531,11 @@ export async function buildPublishedSiteEvents(env, { includeAdminOnly = false }
         dateLabel: (localCard && localCard.dateLabel) || projectDateLabel(project),
         img:
           overrideImg ||
+          currentDetailImg ||
           (typeof project.image === "string" && project.image) ||
           (project.claudeDesign && typeof project.claudeDesign.image === "string" && project.claudeDesign.image) ||
           "",
+        [HAS_HERO_OVERRIDE]: Boolean(overrideImg),
       });
     }
     cursor = page.list_complete ? undefined : page.cursor;
@@ -630,10 +646,22 @@ async function buildEvents(authToken = "", env = null) {
     // venue during dedupe so the location always reflects the event.
     location: eventLocation(ev),
     dateLabel: cardDateLabel(ev),
-    // Homepage cards render at roughly 400px wide. Prefer the 800px variant
-    // for retina displays instead of downloading the 1600px event hero.
-    img: LOCAL_MAIN_IMAGES[String(ev.id)] || ev.half_web_image_url || ev.card_image_url || ev.full_web_image_url,
+    // Otra Guide's half/card fields can refer to other gallery positions, not
+    // merely smaller variants of full_web_image_url. Detail pages use the full
+    // field as their first/hero photo, so cards must use that same source.
+    img: eventCardImage(ev),
   }));
+}
+
+export function eventCardImage(ev) {
+  if (!ev || typeof ev !== "object") return "";
+  return (
+    LOCAL_MAIN_IMAGES[String(ev.id)] ||
+    ev.full_web_image_url ||
+    ev.half_web_image_url ||
+    ev.card_image_url ||
+    ""
+  );
 }
 
 function isCurrentOrFutureEvent(event, now = Date.now()) {
@@ -646,7 +674,7 @@ function isCurrentOrFutureEvent(event, now = Date.now()) {
   return dateKeyInTimeZone(boundary, HOMEPAGE_TIME_ZONE) >= today;
 }
 
-function dedupeEvents(events) {
+export function dedupeEvents(events) {
   // Site events come first so their curated title/image win. But the location
   // must come from the Otra Guide event: when a real event location exists on
   // either copy (e.g. the upstream feed duplicate of a published draft), it
@@ -663,6 +691,11 @@ function dedupeEvents(events) {
     const loc = String(kept.location || event.location || "").trim();
     if (loc) kept.venue = loc;
     if (event.hasTicketTypes === true) kept.hasTicketTypes = true;
+    // A published draft's project.image is only a snapshot taken when it was
+    // bound to Otra Guide and can point at an older/gallery photo. Unless the
+    // hero was deliberately edited on the Tickets page, use the current first
+    // (full) image from the matching Otra Guide event, exactly as detail does.
+    if (!kept[HAS_HERO_OVERRIDE] && event.img) kept.img = event.img;
   }
   return [...byId.values()];
 }
@@ -710,23 +743,28 @@ function homepageOverrideImage(override) {
   // render an mp4, so videos never qualify as the card image.
   const isStillImage = (value) =>
     typeof value === "string" && value && !/\.(mp4|webm|mov)(\?|#|$)/i.test(value);
-  if (isStillImage(override.image)) return override.image;
   const fields = override.fields;
-  if (!fields || typeof fields !== "object" || Array.isArray(fields)) return "";
+  if (fields && typeof fields === "object" && !Array.isArray(fields)) {
+    const hero = Object.entries(fields).find(([key, field]) => {
+      if (!field || field.type !== "image" || !isStillImage(field.value)) return false;
+      return (
+        key.includes("#evHeroImg") ||
+        key.includes(".ev-hero-img") ||
+        /^image:main > section:nth-of-type\(1\) > img$/.test(key)
+      );
+    });
+    // The detail renderer applies field overrides after the legacy top-level
+    // image, so an explicit hero field is the photo visitors actually see.
+    if (hero) return hero[1].value;
+  }
 
-  const entries = Object.entries(fields);
-  const hero = entries.find(([key, field]) => {
-    if (!field || field.type !== "image" || !isStillImage(field.value)) return false;
-    return (
-      key.includes("#evHeroImg") ||
-      key.includes(".ev-hero-img") ||
-      /^image:main > section:nth-of-type\(1\) > img$/.test(key)
-    );
-  });
-  if (hero) return hero[1].value;
+  // Older events stored one global image instead of per-slot fields. It still
+  // controls the detail hero when no explicit hero override exists.
+  if (isStillImage(override.image)) return override.image;
 
-  const firstImage = entries.find(([, field]) => field && field.type === "image" && isStillImage(field.value));
-  return firstImage ? firstImage[1].value : "";
+  // Never fall back to an arbitrary image field: its first entry can be the
+  // story, video poster, band, or third gallery photo rather than the hero.
+  return "";
 }
 
 // The card location comes from the Otra Guide event itself (Event.location).
