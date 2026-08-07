@@ -139,7 +139,11 @@
   .brand strong { font-size: 15px; text-transform: uppercase; letter-spacing: 0.08em; }
   .brand span { color: var(--muted); font-size: 13px; }
 
-  .workspace { min-height: 0; }
+  /* Grid children default to min-width:auto, so a long page title would
+     stretch the select past the viewport on small screens. */
+  #pageSelect { min-width: 0; }
+
+  .workspace { min-height: 0; display: grid; }
 
   .hub-main {
     display: grid;
@@ -303,11 +307,15 @@
 
   .preview {
     min-width: 0;
+    min-height: 0;
     background: #050608;
   }
+  /* The preview fills whatever height the topbar leaves over, so it stays
+     correct when the toolbar wraps onto extra lines on small screens. */
   iframe {
     width: 100%;
-    height: calc(100vh - 71px);
+    height: 100%;
+    min-height: 320px;
     border: 0;
     display: block;
     background: #000;
@@ -452,9 +460,20 @@
   @media (max-width: 980px) {
     .topbar { grid-template-columns: 1fr; }
     .hub-actions { grid-template-columns: 1fr; }
-    iframe { height: calc(100vh - 155px); }
     .top-status { white-space: normal; }
     .form-grid, .ticket-quantity, .checkout-ticket-head { grid-template-columns: 1fr; }
+    /* The action row holds up to 7 controls; without wrapping they run off
+       the right edge and Publish/Sign out become unreachable. */
+    .topbar .row.split { flex-wrap: wrap; justify-content: flex-start; }
+    .topbar .top-status { flex: 1 1 100%; }
+    .color-bar { flex-wrap: wrap; }
+  }
+
+  @media (max-width: 640px) {
+    .topbar { padding: 10px 12px; gap: 10px; }
+    .color-bar { padding: 8px 12px; }
+    .hub-main, .add-main, .homepage-main { width: calc(100% - 24px); }
+    .modal-backdrop { padding: 12px; }
   }
 </style>
 </head>

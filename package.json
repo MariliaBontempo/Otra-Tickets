@@ -15,6 +15,7 @@
     "check:admin-past-events": "node scripts/check-admin-past-event-search.mjs",
     "check:admin-info-cell": "node scripts/check-admin-empty-info-cell.mjs",
     "check:admin-video": "node scripts/check-admin-video-upload.mjs",
+    "check:admin-responsive": "node scripts/check-admin-responsive.mjs",
     "check:clone-sync": "node scripts/check-clone-date-card-sync.mjs",
     "check:homepage-hero": "node scripts/check-homepage-hero-image.mjs",
     "check:overrides": "node scripts/check-overrides-idempotent.mjs",
