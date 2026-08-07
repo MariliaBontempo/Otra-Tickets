@@ -185,15 +185,28 @@ export async function onRequestPost(context) {
           body: JSON.stringify({ published: true }),
         });
       }
+      // Mirror the ticket page's photos (hero + gallery, up to 5) onto the
+      // Otra Guide event, so its listing carries the full photo set and not
+      // just the image the event was created with. Never for drafts bound to
+      // a pre-existing Otra Guide event - those may have a curated gallery
+      // this admin doesn't own. A photo failure must not block going live.
+      let photoWarning = "";
+      if (!project.usesExistingOtraGuideEvent) {
+        try {
+          await syncEventPhotos(context, accessToken, project);
+        } catch (error) {
+          photoWarning = `photo sync failed: ${error.message}`;
+        }
+      }
       const next = {
         ...reconciled,
         status: "published",
         publishedAt: new Date().toISOString(),
         otraGuidePublished: publishOtraGuide || reconciled.otraGuidePublished === true,
-        syncError: "",
+        syncError: photoWarning,
       };
       await putProject(kv, next);
-      return json({ project: next });
+      return json(photoWarning ? { project: next, warning: photoWarning } : { project: next });
     } catch (error) {
       const latest = (await getProject(kv, id)) || project;
       const failed = { ...latest, syncError: error.message };
@@ -305,6 +318,103 @@ export async function onRequestPost(context) {
     const failed = { ...latest, syncError: error.message };
     await putProject(kv, failed);
     return json({ project: failed, warning: error.message }, 202);
+  }
+}
+
+const MAX_SYNC_PHOTOS = 5;
+const MAX_SYNC_PHOTO_BYTES = 8 * 1024 * 1024;
+
+// The photos the ticket page actually shows, hero first: explicit override
+// fields (editor uploads) take precedence, then the design's own gallery
+// fills the remaining slots. Videos never qualify.
+export function collectProjectPhotoUrls(override, project) {
+  const urls = [];
+  const seen = new Set();
+  const isStill = (value) =>
+    typeof value === "string" && value.trim() && !/\.(mp4|webm|mov)(\?|#|$)/i.test(value.trim());
+  const push = (value) => {
+    if (!isStill(value)) return;
+    const url = value.trim();
+    if (!seen.has(url)) {
+      seen.add(url);
+      urls.push(url);
+    }
+  };
+
+  const fields =
+    override && override.fields && typeof override.fields === "object" && !Array.isArray(override.fields)
+      ? Object.entries(override.fields).filter(([, field]) => field && field.type === "image" && isStill(field.value))
+      : [];
+  const hero = fields.find(
+    ([key]) =>
+      key.includes("#evHeroImg") ||
+      key.includes(".ev-hero-img") ||
+      /^image:main > section:nth-of-type\(1\) > img$/.test(key)
+  );
+  if (hero) push(hero[1].value);
+  if (override) push(override.image);
+  push(project && project.image);
+  for (const [, field] of fields) push(field.value);
+  const design = project && project.claudeDesign;
+  for (const url of design && Array.isArray(design.galleryImages) ? design.galleryImages : []) push(url);
+  return urls.slice(0, MAX_SYNC_PHOTOS);
+}
+
+async function syncEventPhotos(context, accessToken, project) {
+  const kv = context.env.OVERRIDES;
+  const override = kv
+    ? (await kv.get(`event:${project.id}`, "json")) || (await kv.get(`override:${project.id}`, "json"))
+    : null;
+  const urls = collectProjectPhotoUrls(override, project);
+  const files = [];
+  for (const url of urls) {
+    const file = await fetchProjectPhoto(context, url);
+    if (file) files.push(file);
+  }
+  if (!files.length) return 0;
+  const form = new FormData();
+  form.set("image", files[0]);
+  for (const file of files.slice(1)) form.append("gallery_images", file);
+  await otraFetch(context, accessToken, `/otra-tickets/media/event-images/${project.otraGuideId}/`, {
+    method: "POST",
+    body: form,
+  });
+  return files.length;
+}
+
+// Load one page photo as a File: straight from R2 when it's an override
+// image, otherwise through this site's own serving routes (which also cover
+// the KV fallback storage and static /uploads assets).
+async function fetchProjectPhoto(context, url) {
+  try {
+    let buffer = null;
+    let type = "";
+    const overrideKey = url.startsWith("/override-images/") ? url.slice("/override-images/".length) : "";
+    const bucket = context.env.OVERRIDE_IMAGES;
+    if (overrideKey && bucket) {
+      const object = await bucket.get(overrideKey);
+      if (object) {
+        buffer = await object.arrayBuffer();
+        type = (object.httpMetadata && object.httpMetadata.contentType) || "";
+      }
+    }
+    if (!buffer && /^\//.test(url)) {
+      const response = await fetch(new URL(url, context.request.url));
+      if (response.ok) {
+        buffer = await response.arrayBuffer();
+        type = response.headers.get("content-type") || "";
+      }
+    }
+    if (!buffer || !buffer.byteLength || buffer.byteLength > MAX_SYNC_PHOTO_BYTES) return null;
+    const base = url.split("#")[0].split("?")[0];
+    const name = safeFileName(base.slice(base.lastIndexOf("/") + 1) || "photo.jpg");
+    if (!type || type === "application/octet-stream") {
+      type = contentTypeFor(name.slice(name.lastIndexOf(".") + 1).toLowerCase());
+    }
+    if (!/^image\//.test(type)) return null;
+    return new File([buffer], name, { type });
+  } catch {
+    return null;
   }
 }
 

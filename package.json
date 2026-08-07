@@ -18,6 +18,7 @@
     "check:clone-sync": "node scripts/check-clone-date-card-sync.mjs",
     "check:homepage-hero": "node scripts/check-homepage-hero-image.mjs",
     "check:overrides": "node scripts/check-overrides-idempotent.mjs",
+    "check:publish-photos": "node scripts/check-publish-photo-sync.mjs",
     "check:video": "node scripts/check-video-poster.mjs",
     "check:ux": "node scripts/check-ux-states.mjs"
   }
