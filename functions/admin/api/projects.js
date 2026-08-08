@@ -360,11 +360,31 @@ export function collectProjectPhotoUrls(override, project) {
   return urls.slice(0, MAX_SYNC_PHOTOS);
 }
 
-async function syncEventPhotos(context, accessToken, project) {
+// Re-sync a published project's photos after an override edit. The editor
+// saves overrides under either the draft id or the Otra Guide event id, so
+// the lookup accepts both. No-op for manual pages, unpublished drafts, and
+// drafts bound to pre-existing Otra Guide events.
+export async function resyncPublishedProjectPhotos(context, accessToken, overrideId, override) {
   const kv = context.env.OVERRIDES;
-  const override = kv
-    ? (await kv.get(`event:${project.id}`, "json")) || (await kv.get(`override:${project.id}`, "json"))
-    : null;
+  if (!kv) return { synced: false };
+  const projects = await listProjects(kv);
+  const project = projects.find(
+    (item) => item.id === overrideId || (item.otraGuideId && String(item.otraGuideId) === String(overrideId))
+  );
+  if (!project || project.status !== "published" || project.usesExistingOtraGuideEvent || !project.otraGuideId) {
+    return { synced: false };
+  }
+  const count = await syncEventPhotos(context, accessToken, project, override);
+  return { synced: count > 0, count };
+}
+
+async function syncEventPhotos(context, accessToken, project, overrideDoc = null) {
+  const kv = context.env.OVERRIDES;
+  const override =
+    overrideDoc ||
+    (kv
+      ? (await kv.get(`event:${project.id}`, "json")) || (await kv.get(`override:${project.id}`, "json"))
+      : null);
   const urls = collectProjectPhotoUrls(override, project);
   const files = [];
   for (const url of urls) {

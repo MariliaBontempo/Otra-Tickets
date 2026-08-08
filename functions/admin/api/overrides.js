@@ -4,6 +4,7 @@
 // main event description/image plus arbitrary page fields.
 
 import { requireStaff, json } from "./_auth.js";
+import { resyncPublishedProjectPhotos } from "./projects.js";
 
 const KEY = (id) => `event:${id}`;
 const LEGACY_KEY = (id) => `override:${id}`;
@@ -63,8 +64,35 @@ export async function onRequestPut(context) {
     fields,
     updatedAt: new Date().toISOString(),
   };
+  const previous = await readOverride(kv, id);
   await kv.put(KEY(id), JSON.stringify(override));
-  return json({ override });
+
+  // A photo edit on an already-published event must reach Otra Guide too -
+  // publish-time sync alone would leave its gallery stuck at the photos from
+  // publish day. Text-only edits skip the round trip, and a sync failure
+  // never fails the save (the editor sees a warning instead).
+  let photoSyncWarning = "";
+  if (photoSignature(previous) !== photoSignature(override)) {
+    const accessToken = (context.request.headers.get("authorization") || "").replace(/^Bearer /, "");
+    try {
+      await resyncPublishedProjectPhotos(context, accessToken, id, override);
+    } catch (error) {
+      photoSyncWarning = `photo sync failed: ${error.message}`;
+    }
+  }
+  return json(photoSyncWarning ? { override, warning: photoSyncWarning } : { override });
+}
+
+// The photo set Otra Guide cares about: the legacy top-level image plus every
+// image-type field, keyed by slot. Order-insensitive within a slot.
+function photoSignature(override) {
+  if (!override || typeof override !== "object") return "";
+  const fields = override.fields && typeof override.fields === "object" ? override.fields : {};
+  const parts = Object.entries(fields)
+    .filter(([, field]) => field && field.type === "image")
+    .map(([key, field]) => `${key}=${field.value || ""}`)
+    .sort();
+  return `${override.image || ""}|${parts.join("|")}`;
 }
 
 async function readOverride(kv, id) {
