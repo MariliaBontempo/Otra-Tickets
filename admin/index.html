@@ -454,6 +454,11 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
+
+  /* The action row must be allowed to wrap at every width: between 981px and
+     ~1300px the full toolbar is wider than the viewport and Publish/Sign out
+     slid off the right edge. */
+  .topbar .row.split { flex-wrap: wrap; }
   .top-status.error { color: var(--danger); }
   .top-status.ok { color: var(--ok); }
 
@@ -2887,12 +2892,15 @@
     }
 
     ensurePreviewStyles(doc);
+    watchPreviewResizes(doc);
     const fields = candidateElements(doc);
     fields.forEach((field) => {
       const host = editHost(field.element, field);
       if (!host || host.querySelector(`:scope > [data-otra-admin-edit="${cssAttr(field.key)}"]`)) return;
       host.classList.add("otra-admin-edit-host");
       const btn = makePreviewButton(doc, field);
+      btn.__otraField = field;
+      btn.__otraHost = host;
       positionPreviewButton(btn, field, host);
       host.appendChild(btn);
     });
@@ -3207,6 +3215,33 @@
     btn.style.left = left + "px";
     btn.style.top = top + "px";
     btn.style.right = "auto";
+  }
+
+  // Pencil positions are pixel values computed against the layout at injection
+  // time. When the preview reflows (narrower window, rotated phone) the stale
+  // coordinates pin buttons where the old layout was, forcing the page wider
+  // than its viewport - the preview stops looking responsive. Recompute them
+  // from scratch whenever the iframe resizes.
+  function repositionPreviewButtons(doc) {
+    const buttons = [...doc.querySelectorAll("[data-otra-admin-edit], [data-otra-admin-remove]")];
+    for (const btn of buttons) {
+      btn.style.top = "";
+      btn.style.left = "";
+      btn.style.right = "";
+      if (btn.__otraField) positionPreviewButton(btn, btn.__otraField, btn.__otraHost);
+    }
+    avoidPreviewButtonOverlaps(doc);
+  }
+
+  function watchPreviewResizes(doc) {
+    const win = doc.defaultView;
+    if (!win || win.__otraResizeHooked) return;
+    win.__otraResizeHooked = true;
+    let timer = 0;
+    win.addEventListener("resize", () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => repositionPreviewButtons(doc), 150);
+    });
   }
 
   function avoidPreviewButtonOverlaps(doc) {

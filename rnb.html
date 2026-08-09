@@ -418,7 +418,8 @@ main { padding-top: calc(var(--header-h) + 22px); padding-bottom: 80px; }
 /* ---- Row arrows ---- */
 .arrow {
   position: absolute; top: 0; bottom: 14px;
-  width: clamp(20px, 4vw, 56px);
+  /* never narrower than the 30px icon, or it spills past the page edge */
+  width: clamp(34px, 4vw, 56px);
   display: grid; place-items: center;
   background: none; border: none; cursor: pointer;
   color: var(--silver-text);
@@ -536,7 +537,8 @@ main.detail { padding: 0; padding-top: var(--header-h); } /* hero starts below t
 .ev-info-grid { margin-top: 48px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; background: var(--rnb-soft); border: 2px solid var(--rnb-soft); }
 .ev-info-cell { background: var(--ink); padding: 30px 30px 34px; }
 .ev-info-cell .k { font-size: 12px; font-weight: 600; letter-spacing: 0.22em; text-transform: uppercase; color: var(--fog-2); }
-.ev-info-cell .v { margin-top: 12px; font-size: 18px; line-height: 1.45; color: var(--silver-text); }
+/* long unbreakable values (emails, URLs) must wrap or the info grid outgrows narrow phones */
+.ev-info-cell .v { margin-top: 12px; font-size: 18px; line-height: 1.45; color: var(--silver-text); overflow-wrap: anywhere; }
 
 /* ---- RATES ---- */
 .ev-rates { margin-top: 48px; display: grid; grid-template-columns: repeat(auto-fit, minmax(208px, 1fr)); gap: 18px; }
@@ -741,6 +743,13 @@ main.detail { padding: 0; padding-top: var(--header-h); } /* hero starts below t
   .ev-slot { padding: 7px 8px; font-size: 13px; gap: 7px; }
   .ev-day .dnum { font-size: 16px; }
 }
+/* On very narrow phones the 52px floor makes a single long title word (e.g.
+   "CLEARBOAT") wider than the viewport; scale the floor down and, as a last
+   resort for pathological titles, allow an in-word break instead of hscroll. */
+@media (max-width: 380px) {
+  .ev-titleblock h1 { font-size: clamp(40px, 13.5vw, 52px); overflow-wrap: anywhere; }
+}
+
 @media (max-width: 620px) {
   .ev-info-grid, .ev-rates, .ev-gallery { grid-template-columns: 1fr; }
   .ev-cal-head .mo { font-size: 22px; }
