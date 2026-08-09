@@ -430,7 +430,8 @@ main { padding-top: calc(var(--header-h) + 22px); padding-bottom: 80px; }
 /* ---- Row arrows ---- */
 .arrow {
   position: absolute; top: 0; bottom: 14px;
-  width: clamp(20px, 4vw, 56px);
+  /* never narrower than the 30px icon, or it spills past the page edge */
+  width: clamp(34px, 4vw, 56px);
   display: grid; place-items: center;
   background: none; border: none; cursor: pointer;
   color: var(--silver-text);

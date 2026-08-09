@@ -139,7 +139,11 @@
   .brand strong { font-size: 15px; text-transform: uppercase; letter-spacing: 0.08em; }
   .brand span { color: var(--muted); font-size: 13px; }
 
-  .workspace { min-height: 0; }
+  /* Grid children default to min-width:auto, so a long page title would
+     stretch the select past the viewport on small screens. */
+  #pageSelect { min-width: 0; }
+
+  .workspace { min-height: 0; display: grid; }
 
   .hub-main {
     display: grid;
@@ -303,11 +307,15 @@
 
   .preview {
     min-width: 0;
+    min-height: 0;
     background: #050608;
   }
+  /* The preview fills whatever height the topbar leaves over, so it stays
+     correct when the toolbar wraps onto extra lines on small screens. */
   iframe {
     width: 100%;
-    height: calc(100vh - 71px);
+    height: 100%;
+    min-height: 320px;
     border: 0;
     display: block;
     background: #000;
@@ -446,15 +454,31 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
+
+  /* The action row must be allowed to wrap at every width: between 981px and
+     ~1300px the full toolbar is wider than the viewport and Publish/Sign out
+     slid off the right edge. */
+  .topbar .row.split { flex-wrap: wrap; }
   .top-status.error { color: var(--danger); }
   .top-status.ok { color: var(--ok); }
 
   @media (max-width: 980px) {
     .topbar { grid-template-columns: 1fr; }
     .hub-actions { grid-template-columns: 1fr; }
-    iframe { height: calc(100vh - 155px); }
     .top-status { white-space: normal; }
     .form-grid, .ticket-quantity, .checkout-ticket-head { grid-template-columns: 1fr; }
+    /* The action row holds up to 7 controls; without wrapping they run off
+       the right edge and Publish/Sign out become unreachable. */
+    .topbar .row.split { flex-wrap: wrap; justify-content: flex-start; }
+    .topbar .top-status { flex: 1 1 100%; }
+    .color-bar { flex-wrap: wrap; }
+  }
+
+  @media (max-width: 640px) {
+    .topbar { padding: 10px 12px; gap: 10px; }
+    .color-bar { padding: 8px 12px; }
+    .hub-main, .add-main, .homepage-main { width: calc(100% - 24px); }
+    .modal-backdrop { padding: 12px; }
   }
 </style>
 </head>
@@ -2868,12 +2892,15 @@
     }
 
     ensurePreviewStyles(doc);
+    watchPreviewResizes(doc);
     const fields = candidateElements(doc);
     fields.forEach((field) => {
       const host = editHost(field.element, field);
       if (!host || host.querySelector(`:scope > [data-otra-admin-edit="${cssAttr(field.key)}"]`)) return;
       host.classList.add("otra-admin-edit-host");
       const btn = makePreviewButton(doc, field);
+      btn.__otraField = field;
+      btn.__otraHost = host;
       positionPreviewButton(btn, field, host);
       host.appendChild(btn);
     });
@@ -3188,6 +3215,33 @@
     btn.style.left = left + "px";
     btn.style.top = top + "px";
     btn.style.right = "auto";
+  }
+
+  // Pencil positions are pixel values computed against the layout at injection
+  // time. When the preview reflows (narrower window, rotated phone) the stale
+  // coordinates pin buttons where the old layout was, forcing the page wider
+  // than its viewport - the preview stops looking responsive. Recompute them
+  // from scratch whenever the iframe resizes.
+  function repositionPreviewButtons(doc) {
+    const buttons = [...doc.querySelectorAll("[data-otra-admin-edit], [data-otra-admin-remove]")];
+    for (const btn of buttons) {
+      btn.style.top = "";
+      btn.style.left = "";
+      btn.style.right = "";
+      if (btn.__otraField) positionPreviewButton(btn, btn.__otraField, btn.__otraHost);
+    }
+    avoidPreviewButtonOverlaps(doc);
+  }
+
+  function watchPreviewResizes(doc) {
+    const win = doc.defaultView;
+    if (!win || win.__otraResizeHooked) return;
+    win.__otraResizeHooked = true;
+    let timer = 0;
+    win.addEventListener("resize", () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => repositionPreviewButtons(doc), 150);
+    });
   }
 
   function avoidPreviewButtonOverlaps(doc) {
