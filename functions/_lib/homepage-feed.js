@@ -8,6 +8,7 @@
 // into a publicly cached response.
 
 import { eventSlug } from "./event-slug.js";
+import { readHiddenPageIds } from "./hidden-pages.js";
 
 const API = "https://otraguide.com/api";
 
@@ -75,11 +76,12 @@ const HAS_HERO_OVERRIDE = Symbol("hasHeroOverride");
 //                      returns staff_only events; cached under a separate key
 export async function buildHomepageFeed(context, { includeAdminOnly = false, authToken = "", forceFresh = false } = {}) {
   const now = Date.now();
-  let [siteEvents, upstreamEvents] = await Promise.all([
+  let [siteEvents, upstreamEvents, hiddenIds] = await Promise.all([
     buildPublishedSiteEvents(context.env, { includeAdminOnly }),
     authToken
       ? getUpstreamEvents(context, now, forceFresh, authToken, ADMIN_UPSTREAM_CACHE_PATH)
       : getUpstreamEvents(context, now, forceFresh),
+    readHiddenPageIds(context.env),
   ]);
   // An expired/invalid staff token makes every authed upstream call 401 and
   // the build comes back empty; the public upstream cache is a better answer
@@ -91,8 +93,12 @@ export async function buildHomepageFeed(context, { includeAdminOnly = false, aut
   // published Otra Guide event also appears in the upstream public feed.
   // Apply explicit exclusions after combining both sources. Filtering only
   // the upstream candidates is insufficient when an archived/legacy event
-  // also has a site-event KV copy.
-  const visibleEvents = filterHomepageEvents(dedupeEvents([...siteEvents, ...upstreamEvents]));
+  // also has a site-event KV copy. Events archived from the admin (the
+  // hidden-pages set) are dropped the same way, whichever source they
+  // arrived from.
+  const visibleEvents = filterHomepageEvents(dedupeEvents([...siteEvents, ...upstreamEvents])).filter(
+    (event) => !hiddenIds.has(String(event && event.id))
+  );
   const events = await applyImageOverrides(visibleEvents, context.env);
   assignUniqueSlugs(events);
   const rows = await buildRows(events, context.env);

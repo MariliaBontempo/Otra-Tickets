@@ -4,6 +4,7 @@
 // then ticketed Otra Guide events that open through event.html?id=<id>.
 
 import { apiBase, requireStaff } from "./_auth.js";
+import { HIDDEN_PAGES_KEY, readHiddenPageIds } from "../../_lib/hidden-pages.js";
 
 const API = "https://otraguide.com/api";
 const CATEGORY_ID = 339;
@@ -13,7 +14,6 @@ const PAGE_SIZE = 20;
 const MAX_PAGES = 4;
 const MAX_TICKET_CHECKS = 40;
 const UPSTREAM_TTL = 300;
-const HIDDEN_PAGES_KEY = "admin:hidden-pages";
 
 const MANUAL_PAGES = [
   { id: "7275", title: "We Love R&B", type: "Manual page", url: "/rnb.html" },
@@ -119,17 +119,6 @@ async function buildDraftPages(env) {
   } while (cursor);
 
   return drafts.sort((a, b) => String(b.id).localeCompare(String(a.id)));
-}
-
-async function readHiddenPageIds(env) {
-  const kv = env && env.OVERRIDES;
-  if (!kv) return new Set();
-  try {
-    const ids = await kv.get(HIDDEN_PAGES_KEY, "json");
-    return new Set(Array.isArray(ids) ? ids.map(String) : []);
-  } catch {
-    return new Set();
-  }
 }
 
 async function buildTemplatePages(apiUrl = API) {

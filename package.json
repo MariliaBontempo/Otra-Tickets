@@ -10,6 +10,7 @@
     "gen:variants": "node scripts/gen-image-variants.mjs",
     "check:payload": "node scripts/check-payload-budget.mjs",
     "check:admin-only": "node scripts/check-admin-only.mjs",
+    "check:archived-hidden": "node scripts/check-archived-hidden-feed.mjs",
     "check:admin-checkout-date": "node scripts/check-admin-checkout-date.mjs",
     "check:admin-duplicate-dates": "node scripts/check-admin-duplicate-event-dates.mjs",
     "check:admin-past-events": "node scripts/check-admin-past-event-search.mjs",
