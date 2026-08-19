@@ -328,6 +328,18 @@ async function readSnapshot(env) {
   }
 }
 
+// Insurance only. The background rebuild fires on every snapshot-served
+// request, so a live site refreshes this constantly. If rebuilds fail for this
+// long the feed is better off paying for a foreground build than serving a
+// day-old layout forever.
+const SNAPSHOT_MAX_AGE_MS = 6 * 60 * 60 * 1000;
+
+function isSnapshotUsable(snapshot) {
+  const generatedAt = Number(snapshot && snapshot.generatedAt) || 0;
+  if (!generatedAt) return true; // pre-dates the stamp; trust it and let the rebuild restamp
+  return Date.now() - generatedAt < SNAPSHOT_MAX_AGE_MS;
+}
+
 // Write the last-known-good snapshot to KV. Skipped when events is empty
 // (never overwrite a good snapshot with a failed/empty build).
 async function writeSnapshot(env, { events, rows, hasSiteEvents }) {
@@ -338,11 +350,21 @@ async function writeSnapshot(env, { events, rows, hasSiteEvents }) {
   );
 }
 
-// Public homepage feed with a three-tier latency strategy:
-//   edge hit  -> serve instantly via existing SWR (feedSource: "edge")
-//   KV hit    -> serve snapshot instantly, rebuild in background (feedSource: "kv-stale")
-//   cold      -> foreground build, snapshot-write in background (feedSource: "origin")
-// forceFresh skips both fast paths and always rebuilds from origin.
+// Public homepage feed with a two-tier latency strategy:
+//   KV hit -> serve snapshot instantly, rebuild in background (feedSource: "kv-stale")
+//   cold   -> foreground build, snapshot-write in background (feedSource: "origin")
+// forceFresh skips the fast path and always rebuilds from origin.
+//
+// There used to be a third tier checked ahead of the snapshot: if a probe key
+// was present in caches.default it reported feedSource "edge". It never served
+// that cached entry though — it only confirmed the key existed and then awaited
+// a full rebuild anyway, so it was a slow path wearing a fast path's name. A
+// rebuild costs 2N+ sequential KV reads (site-event list + per-event image
+// overrides) plus live otraguide.com fetches whenever the upstream cache has
+// lapsed. Production sampling on 2026-08-19 found that tier answering nearly
+// every request at ~1.0s with spikes to 4.75s / 9.15s / 16.32s, while the
+// snapshot it was shadowing answered in 0.39s. The probe is gone; the upstream
+// cache still accelerates rebuilds from inside getUpstreamEvents.
 // The fixed rows (This Week / Tours & Adventures) are applied on the way out,
 // after every cache/snapshot path, so they always reflect the current date.
 export async function getPublicHomepageFeed(context, options = {}) {
@@ -357,23 +379,27 @@ async function getPublicHomepageFeedRaw(context, { forceFresh = false } = {}) {
     return { ...result, feedSource: "origin" };
   }
 
-  const probeKey = new Request(new URL("/api/homepage-upstream-events", context.request.url));
-  const edgeHit = await caches.default.match(probeKey);
+  // Two reads, in parallel, instead of a rebuild. The archived-page set is read
+  // alongside the snapshot because a snapshot is a point-in-time copy: without
+  // this, archiving an event from the admin would be undone the moment the feed
+  // served from KV. Archive stays instant; everything else is one rebuild behind.
+  const [snapshot, hiddenIds] = await Promise.all([
+    readSnapshot(context.env),
+    readHiddenPageIds(context.env),
+  ]);
 
-  if (edgeHit) {
-    const result = await buildHomepageFeed(context, {});
-    return { ...result, feedSource: "edge" };
-  }
-
-  const snapshot = await readSnapshot(context.env);
-
-  if (snapshot) {
+  if (snapshot && isSnapshotUsable(snapshot)) {
     context.waitUntil(
       buildHomepageFeed(context, {}).then((fresh) => writeSnapshot(context.env, fresh))
     );
+    const events = snapshot.events.filter(
+      (event) => !hiddenIds.has(String(event && event.id))
+    );
     return {
-      events: snapshot.events,
-      rows: snapshot.rows,
+      events,
+      // Reuse the layout normaliser so a row can never advertise an event that
+      // is no longer in the payload, and empty rows drop out.
+      rows: normalizeRows(snapshot.rows, new Set(events.map((event) => String(event.id)))),
       hasSiteEvents: snapshot.hasSiteEvents,
       feedSource: "kv-stale",
     };

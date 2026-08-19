@@ -24,6 +24,7 @@
     "check:video": "node scripts/check-video-poster.mjs",
     "check:ux": "node scripts/check-ux-states.mjs",
     "check:publish-photos-edit": "node scripts/check-published-photo-edit-sync.mjs",
-    "check:events-retired": "node scripts/check-events-retired.mjs"
+    "check:events-retired": "node scripts/check-events-retired.mjs",
+    "check:feed-fast-path": "node scripts/check-feed-fast-path.mjs"
   }
 }
