@@ -88,7 +88,6 @@ if (llms && !/Otra Tickets/.test(llms)) {
 
 const pages = [
   { rel: "index.html", canonical: "https://otratickets.com/" },
-  { rel: "events.html", canonical: "https://otratickets.com/events" },
   { rel: "clearboat.html", canonical: "https://otratickets.com/clearboat" },
   { rel: "rnb.html", canonical: "https://otratickets.com/rnb" },
 ];

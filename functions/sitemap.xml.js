@@ -8,7 +8,6 @@ const SPECIAL_EVENT_PATHS = {
 
 const STATIC_URLS = [
   { path: "/", changefreq: "daily", priority: "1.0" },
-  { path: "/events", changefreq: "daily", priority: "0.9" },
   { path: "/clearboat", changefreq: "weekly", priority: "0.8" },
   { path: "/rnb", changefreq: "weekly", priority: "0.8" },
 ];

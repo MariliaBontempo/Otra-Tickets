@@ -5,9 +5,17 @@ const STATIC_PATHS = new Set([
   "admin",
   "clearboat",
   "event",
-  "events",
   "index",
   "rnb",
+]);
+
+// Retired pages: paths that used to serve an asset and now permanently redirect.
+// /events was a browse page built from a hardcoded demo array rather than the
+// live feed, so it showed expired placeholder events behind dead links. The
+// homepage already renders the same category rows from /api/homepage-events.
+const RETIRED_PATHS = new Map([
+  ["events", "/"],
+  ["events.html", "/"],
 ]);
 
 const SPECIAL_EVENT_ASSETS = {
@@ -19,6 +27,8 @@ const SITE_NAME = "Otra Tickets";
 
 export async function onRequestGet(context) {
   const slug = String(context.params.slug || "").toLowerCase();
+  const retiredTarget = RETIRED_PATHS.get(slug);
+  if (retiredTarget) return permanentRedirect(retiredTarget);
   if (!isEventSlug(slug) || STATIC_PATHS.has(slug)) {
     return context.env.ASSETS.fetch(context.request);
   }
@@ -186,6 +196,13 @@ function prune(value) {
     return out;
   }
   return value === undefined || value === null || value === "" ? undefined : value;
+}
+
+function permanentRedirect(location) {
+  return new Response(null, {
+    status: 301,
+    headers: { location, "cache-control": "public, max-age=3600" },
+  });
 }
 
 function notFound() {

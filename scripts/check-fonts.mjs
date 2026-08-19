@@ -3,7 +3,7 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const PAGES = ["index.html", "events.html", "clearboat.html"];
+const PAGES = ["index.html", "clearboat.html", "rnb.html"];
 const WEIGHTS = [400, 500, 600, 700, 800, 900];
 const MAX_BYTES = 40960;
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// Oracle: derives home ATF and /events first-row image sets from source,
-// sums the smallest responsive variant a mobile browser would pick,
-// and asserts the page sets are within budget.
+// Oracle: derives the home ATF image set from source, sums the smallest
+// responsive variant a mobile browser would pick, and asserts the set is
+// within budget.
 // 1 MB = 1,000,000 bytes (decimal). PASS is strictly bytes < budget.
 
 import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs';
@@ -9,8 +9,7 @@ import { basename, dirname, extname, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import process from 'node:process';
 
-const HOME_BUDGET   = 1500000; // 1 MB = 1,000,000 bytes (decimal). PASS is strictly bytes < budget.
-const EVENTS_BUDGET = 1000000; // 1 MB = 1,000,000 bytes (decimal). PASS is strictly bytes < budget.
+const HOME_BUDGET = 1500000; // 1 MB = 1,000,000 bytes (decimal). PASS is strictly bytes < budget.
 
 const REPO_ROOT = resolve(new URL('.', import.meta.url).pathname, '..');
 const VARIANTS_DIR = join(REPO_ROOT, 'uploads', 'variants');
@@ -69,30 +68,6 @@ function parseHomeSources() {
   return refs;
 }
 
-function parseEventsSources() {
-  const html = readFileSync(join(REPO_ROOT, 'events.html'), 'utf8');
-
-  // Extract the featured array block: const featured = [ ... ];
-  const featuredMatch = html.match(/const featured\s*=\s*\[([\s\S]*?)\];/);
-  if (!featuredMatch) throw new Error('Could not find const featured array in events.html');
-
-  const block = featuredMatch[1];
-
-  // img: U("Filename.webp") -> decode + trim to get "uploads/Filename.webp"
-  const imgMatches  = [...block.matchAll(/img:\s*U\("([^"]+)"\)/g)];
-  // base: "slug-name" -> used for variant globbing
-  const baseMatches = [...block.matchAll(/base:\s*"([^"]+)"/g)];
-
-  if (imgMatches.length !== 6) {
-    throw new Error('Expected 6 img: entries in featured, found ' + imgMatches.length);
-  }
-
-  return imgMatches.map((m, i) => ({
-    imgRef:   'uploads/' + decodeURIComponent(m[1]).trim(),
-    slugBase: baseMatches[i] ? baseMatches[i][1] : null,
-  }));
-}
-
 // ---------------------------------------------------------------------------
 // Variant resolution
 // ---------------------------------------------------------------------------
@@ -116,7 +91,7 @@ function smallestFile(paths) {
 }
 
 // Find the smallest variant for a given image ref.
-// slugBase (from events.html base: field) overrides URL-derived base for glob.
+// slugBase overrides the URL-derived base for globbing.
 // When ref is already in uploads/variants/ and no hyphen-suffix variants exist,
 // falls back to checking for the same-base AVIF/WebP file directly.
 function findSmallestVariant(ref, slugBase) {
@@ -183,8 +158,7 @@ function findSmallestVariant(ref, slugBase) {
 // ---------------------------------------------------------------------------
 
 function run() {
-  const homeRefs     = parseHomeSources();
-  const eventsEntries = parseEventsSources();
+  const homeRefs = parseHomeSources();
 
   console.log('\nHome ATF set (' + homeRefs.length + ' refs):');
   let homeTotal = 0;
@@ -194,22 +168,11 @@ function run() {
     homeTotal += result.bytes;
   }
 
-  console.log('\nEvents first-row set (' + eventsEntries.length + ' refs):');
-  let eventsTotal = 0;
-  for (const { imgRef, slugBase } of eventsEntries) {
-    const result = findSmallestVariant(imgRef, slugBase);
-    console.log('  ' + basename(imgRef) + ' -> ' + basename(result.chosen) + ' ' + result.bytes);
-    eventsTotal += result.bytes;
-  }
-
   console.log('');
-  const homeVerdict   = homeTotal   < HOME_BUDGET   ? 'PASS' : 'FAIL';
-  const eventsVerdict = eventsTotal < EVENTS_BUDGET ? 'PASS' : 'FAIL';
-
+  const homeVerdict = homeTotal < HOME_BUDGET ? 'PASS' : 'FAIL';
   console.log('BUDGET home ' + homeTotal + '/' + HOME_BUDGET + ' ' + homeVerdict);
-  console.log('BUDGET events-row ' + eventsTotal + '/' + EVENTS_BUDGET + ' ' + eventsVerdict);
 
-  if (homeVerdict === 'FAIL' || eventsVerdict === 'FAIL') {
+  if (homeVerdict === 'FAIL') {
     process.exit(1);
   }
 }
