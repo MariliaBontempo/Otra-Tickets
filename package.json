@@ -23,6 +23,7 @@
     "check:publish-photos": "node scripts/check-publish-photo-sync.mjs",
     "check:video": "node scripts/check-video-poster.mjs",
     "check:ux": "node scripts/check-ux-states.mjs",
-    "check:publish-photos-edit": "node scripts/check-published-photo-edit-sync.mjs"
+    "check:publish-photos-edit": "node scripts/check-published-photo-edit-sync.mjs",
+    "check:events-retired": "node scripts/check-events-retired.mjs"
   }
 }

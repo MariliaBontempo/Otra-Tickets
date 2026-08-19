@@ -10,14 +10,14 @@ Powered by Otra Guide.
 
 | URL | File | What it is |
 | --- | --- | --- |
-| `/` | `index.html` | **Events Mosaic** — the brand splash: the OTRA TICKETS wordmark knocked out over a 5×5 grid of event photography. Click **Enter Events** to go to the storefront. |
-| `/events.html` | `events.html` | **Otra Tickets storefront** — the events browse page with a full header (search, profile, menu, location, language) and horizontally-scrolling category rows of event cards. The Clearboat cards open the event detail page. |
-| `/clearboat.html` | `clearboat.html` | **Clearboat West Coast Tour** — a single cinematic event detail page: hero, story, video slot, highlights, practical info, rates, a working booking calendar → checkout mock, and a "Pairs Well With" related row. |
+| `/` | `index.html` | **Otra Tickets storefront** — the hero mosaic under the OTRA TICKETS wordmark, then horizontally-scrolling category rows of event cards built from the live `/api/homepage-events` feed. Cards open their event detail page. |
+| `/<event-slug>` | `event.html` | Event detail page, rendered by `functions/[slug].js` from the feed entry for that slug. |
+| `/events` | — | Retired. Permanently redirects to `/` (see `RETIRED_PATHS` in `functions/[slug].js`). |
+| `/clearboat` | `clearboat.html` | **Clearboat West Coast Tour** — a single cinematic event detail page: hero, story, video slot, highlights, practical info, rates, a working booking calendar → checkout mock, and a "Pairs Well With" related row. |
 | `/admin/` | `admin/index.html` | Staff-only editor for site-side event/page overrides. |
 
-Navigation is wired: the splash leads into the storefront, the storefront logo
-returns home, the Clearboat cards open the event page, and the event-page logo
-returns to the storefront.
+Navigation is wired: the storefront cards open their event page, and the logo in
+the header returns to `/` from every page.
 
 ## Design system
 

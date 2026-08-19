@@ -16,7 +16,6 @@ export async function onRequestGet(context) {
     "## Canonical Public Pages",
     "",
     `- Home: ${SITE_ORIGIN}/`,
-    `- Events: ${SITE_ORIGIN}/events`,
     `- Clearboat: ${SITE_ORIGIN}/clearboat`,
     `- We Love R&B: ${SITE_ORIGIN}/rnb`,
     "",
@@ -57,7 +56,7 @@ async function loadHomepageEvents(context) {
 }
 
 function eventLines(events) {
-  if (!events.length) return ["- Current listings are available from https://otratickets.com/events"];
+  if (!events.length) return ["- Current listings are available from https://otratickets.com/"];
   const seen = new Set();
   const lines = [];
   for (const event of events) {
@@ -72,7 +71,7 @@ function eventLines(events) {
     const detail = [venue, date].filter(Boolean).join(" - ");
     lines.push(`- ${title}${detail ? ` (${detail})` : ""}: ${url}`);
   }
-  return lines.length ? lines : ["- Current listings are available from https://otratickets.com/events"];
+  return lines.length ? lines : ["- Current listings are available from https://otratickets.com/"];
 }
 
 function canonicalPathForEvent(event) {

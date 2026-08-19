@@ -81,7 +81,7 @@ assert(
 );
 
 // The previewed pages themselves: no page-level horizontal overflow on phones.
-for (const pageFile of ['clearboat.html', 'events.html', 'rnb.html']) {
+for (const pageFile of ['clearboat.html', 'rnb.html']) {
   const html = fs.readFileSync(new URL(`../${pageFile}`, import.meta.url), 'utf8');
   const arrow = html.match(/\n\.arrow \{[\s\S]*?\}/);
   assert(
