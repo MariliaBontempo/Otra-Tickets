@@ -81,16 +81,19 @@ hand via `workflow_dispatch`):
 
 1. Checks out the repo.
 2. Installs Node 22 (`actions/setup-node@v4`), matching the droplet's Node version.
-3. Runs the server test suite: `cd server && npm ci && cd .. && node --test
+3. Builds the static output: `node scripts/build-pages.mjs`. `dist/` is gitignored,
+   so the runner must regenerate it from the tracked sources before anything else
+   can use it (added after the first live run failed exactly here; PR #69).
+4. Runs the server test suite: `cd server && npm ci && cd .. && node --test
    "server/test/*.test.mjs"`. A failing test stops here; nothing touches the droplet.
-4. Sets up SSH: writes the `DEPLOY_SSH_KEY` repo secret to a temporary key file, adds
+5. Sets up SSH: writes the `DEPLOY_SSH_KEY` repo secret to a temporary key file, adds
    `DEPLOY_HOST` to `known_hosts` via `ssh-keyscan`.
-5. Rsyncs `dist functions server package.json _headers` to
+6. Rsyncs `dist functions server package.json _headers` to
    `deploy@<droplet>:/srv/otratickets/`, with `--delete --exclude node_modules`.
-6. SSHes in as `deploy`, runs `npm --prefix server ci --omit=dev`, then
+7. SSHes in as `deploy`, runs `npm --prefix server ci --omit=dev`, then
    `sudo systemctl restart otratickets` (the one mutating command the `deploy` user's
    sudoers rule allows; see section 5).
-7. Health-checks `http://127.0.0.1:8788/api/homepage-events` from the droplet itself, up
+8. Health-checks `http://127.0.0.1:8788/api/homepage-events` from the droplet itself, up
    to 10 attempts 3 seconds apart, and fails the run if none returns 200.
 
 **Watching a run:**
@@ -106,6 +109,7 @@ or the Actions tab: `https://github.com/MariliaBontempo/Otra-Tickets/actions/wor
 code on the droplet without waiting on a merge):
 
 ```bash
+node scripts/build-pages.mjs   # dist/ is gitignored; regenerate it first
 rsync -az --delete --exclude node_modules \
   -e "ssh -i ~/.ssh/otratickets_deploy" \
   dist functions server package.json _headers \
