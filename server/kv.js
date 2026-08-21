@@ -40,9 +40,10 @@ export function createKv(pool) {
     async delete(key) { await pool.query("DELETE FROM kv WHERE key = $1", [key]); },
     async list({ prefix = "", cursor = "", limit = 1000 } = {}) {
       const after = cursor ? Buffer.from(cursor, "base64").toString("utf8") : "";
+      const escaped = prefix.replace(/\\/g, "\\\\").replace(/[%_]/g, (m) => "\\" + m);
       const { rows } = await pool.query(
-        `SELECT key, metadata FROM kv WHERE key LIKE $1 || '%' AND key > $2 ORDER BY key LIMIT $3`,
-        [prefix, after, limit + 1]);
+        `SELECT key, metadata FROM kv WHERE key LIKE $1 || '%' ESCAPE '\\' AND key > $2 ORDER BY key LIMIT $3`,
+        [escaped, after, limit + 1]);
       const page = rows.slice(0, limit);
       const complete = rows.length <= limit;
       return {

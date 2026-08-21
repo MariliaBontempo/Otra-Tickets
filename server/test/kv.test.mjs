@@ -13,8 +13,10 @@ function stubPool() {
       }
       if (/DELETE FROM kv/.test(text)) { store.delete(params[0]); return { rows: [] }; }
       if (/SELECT key, metadata FROM kv/.test(text)) {
-        const [prefix, after, limit] = params;
-        const keys = [...store.keys()].filter(k => k.startsWith(prefix) && k > after).sort().slice(0, limit);
+        const [pattern, after, limit] = params;
+        // Unescape the pattern: strip trailing '%', then unescape '\' sequences
+        const unescaped = pattern.slice(0, -1).replace(/\\(.)/g, "$1");
+        const keys = [...store.keys()].filter(k => k.startsWith(unescaped) && k > after).sort().slice(0, limit);
         return { rows: keys.map(k => ({ key: k, metadata: store.get(k).metadata })) };
       }
       if (/SELECT value, metadata FROM kv/.test(text)) {
@@ -55,4 +57,11 @@ test("delete removes", async () => {
   const kv = createKv(stubPool());
   await kv.put("k", "v"); await kv.delete("k");
   assert.equal(await kv.get("k"), null);
+});
+test("list treats prefix as literal, escaping LIKE wildcards", async () => {
+  const kv = createKv(stubPool());
+  await kv.put("a_b:1", "v1");
+  await kv.put("axb:1", "v2");
+  const result = await kv.list({ prefix: "a_b:" });
+  assert.deepEqual(result.keys.map(k => k.name), ["a_b:1"]);
 });
