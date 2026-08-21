@@ -1,0 +1,45 @@
+name: Deploy to DigitalOcean
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Run server tests
+        run: |
+          cd server && npm ci && cd ..
+          node --test "server/test/*.test.mjs"
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts
+      - name: Rsync code
+        run: |
+          rsync -az --delete --exclude node_modules \
+            -e "ssh -i ~/.ssh/deploy_key" \
+            dist functions server package.json _headers \
+            deploy@${{ secrets.DEPLOY_HOST }}:/srv/otratickets/
+      - name: Install deps and restart
+        run: |
+          ssh -i ~/.ssh/deploy_key deploy@${{ secrets.DEPLOY_HOST }} \
+            'cd /srv/otratickets && npm --prefix server ci --omit=dev && sudo systemctl restart otratickets'
+      - name: Health check
+        run: |
+          for i in $(seq 1 10); do
+            code=$(ssh -i ~/.ssh/deploy_key deploy@${{ secrets.DEPLOY_HOST }} \
+              'curl -s -o /dev/null --max-time 5 -w "%{http_code}" http://127.0.0.1:8788/api/homepage-events' || echo "000")
+            [ "$code" = "200" ] && echo "healthy" && exit 0
+            echo "attempt $i: $code"; sleep 3
+          done
+          echo "health check failed" && exit 1
