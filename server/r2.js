@@ -39,6 +39,7 @@ export function createBucket(s3, bucketName) {
         Bucket: bucketName, Key: key, Body: body,
         ContentType: opts.httpMetadata && opts.httpMetadata.contentType || undefined,
         CacheControl: opts.httpMetadata && opts.httpMetadata.cacheControl || undefined,
+        Metadata: opts.customMetadata || undefined,
       }));
     },
     async get(key, opts = {}) {

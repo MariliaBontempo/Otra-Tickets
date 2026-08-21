@@ -32,6 +32,22 @@ test("put passes bucket, key, body, content type", async () => {
   assert.equal(input.Key, "a/b.webp");
   assert.equal(input.ContentType, "image/webp");
 });
+test("put maps customMetadata to the S3 Metadata field", async () => {
+  const s3 = stubS3();
+  const b = createBucket(s3, "otratickets-media");
+  await b.put("a/b.webp", "bytes", {
+    httpMetadata: { contentType: "image/webp" },
+    customMetadata: { draftId: "d1", sourcePath: "images/a.webp" },
+  });
+  const input = s3.calls[0].input;
+  assert.deepEqual(input.Metadata, { draftId: "d1", sourcePath: "images/a.webp" });
+});
+test("put omits Metadata when no customMetadata is given", async () => {
+  const s3 = stubS3();
+  const b = createBucket(s3, "otratickets-media");
+  await b.put("a/b.webp", "bytes", { httpMetadata: { contentType: "image/webp" } });
+  assert.equal(s3.calls[0].input.Metadata, undefined);
+});
 test("get returns null on miss and object on hit", async () => {
   const b = createBucket(stubS3(), "m");
   assert.equal(await b.get("missing"), null);
