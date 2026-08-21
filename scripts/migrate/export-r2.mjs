@@ -15,10 +15,14 @@ do {
   const page = await (await cf(`/accounts/${account}/r2/buckets/${r2BucketName}/objects${q}`)).json();
   if (!page.success) throw new Error(JSON.stringify(page.errors));
   for (const obj of page.result) {
+    const cfEtag = obj.etag ? obj.etag.replace(/^"|"$/g, "") : null;
     try {
       const head = await s3.send(new HeadObjectCommand({ Bucket: BUCKET, Key: obj.key }));
-      const cfEtag = obj.etag ? obj.etag.replace(/^"|"$/g, "") : null;
       const s3Etag = head.ETag ? head.ETag.replace(/^"|"$/g, "") : null;
+      // Primary: the CF etag we stamped into object metadata on a previous copy.
+      // (Multipart CF etags carry a -N suffix and never equal a Spaces single-put etag.)
+      const storedCf = head.Metadata && head.Metadata["cf-etag"];
+      if (cfEtag && storedCf && storedCf === cfEtag) { skipped++; continue; }
       if (cfEtag && s3Etag && cfEtag === s3Etag) { skipped++; continue; } // already copied
       if (!cfEtag && !s3Etag && head.ContentLength === obj.size) { skipped++; continue; } // fallback
     } catch { /* not present: copy it */ }
@@ -27,6 +31,8 @@ do {
       Bucket: BUCKET, Key: obj.key,
       Body: Buffer.from(await body.arrayBuffer()),
       ContentType: obj.http_metadata && obj.http_metadata.contentType || body.headers.get("content-type") || "application/octet-stream",
+      CacheControl: obj.http_metadata && obj.http_metadata.cacheControl || undefined,
+      Metadata: cfEtag ? { "cf-etag": cfEtag } : undefined,
     }));
     total++;
     if (total % 25 === 0) console.log(`  ${total} objects...`);
