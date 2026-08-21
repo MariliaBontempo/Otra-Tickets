@@ -32,6 +32,10 @@ const pool = new pg.Pool({
     ? { ca: readFileSync(process.env.PGSSLROOTCERT, "utf8") }
     : { rejectUnauthorized: false },
 });
+// node-postgres emits "error" on the pool when an idle client's connection
+// dies (routine during a managed-Postgres failover); an unhandled emission
+// crashes the process. Log and let the pool recover the connection itself.
+pool.on("error", (e) => console.error("pg pool:", e));
 const s3 = new S3Client({
   endpoint: process.env.SPACES_ENDPOINT || "https://nyc3.digitaloceanspaces.com",
   region: "us-east-1",
