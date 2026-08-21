@@ -28,7 +28,8 @@ Scripts must run ON the droplet at /srv/otratickets.
 
 If the cluster's trusted-sources check (Task 1 Step 5) found non-empty rules, the laptop is NOT a trusted source and cannot connect from outside the VPC. In that case:
 
-1. rsync scripts/migrate to the droplet: `rsync -av scripts/migrate/ /srv/otratickets/scripts/migrate/`
+1. From the repo root on the laptop, rsync scripts to the droplet:
+   `rsync -az --exclude node_modules scripts root@167.71.106.85:/srv/otratickets/`
 2. Add Cloudflare env vars to the droplet environment (already has DATABASE_URL and Spaces credentials in /etc/otratickets/env)
 
 ### Invocation
