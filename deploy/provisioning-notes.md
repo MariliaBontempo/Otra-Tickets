@@ -22,8 +22,8 @@ resource creation for this site must include that assignment step.
   User grants (GRANT ALL on database otratickets) are applied from the droplet
   during setup because no laptop can reach the cluster.
 - Spaces: bucket `otratickets-media` (nyc3), private. Runtime key
-  `otratickets-media-rw` (access key id DO801T6K4AL6GNGP9R33, bucket-scoped
-  readwrite; secret stored only in the droplet env file). The temporary
-  `otratickets-bootstrap` full-access key used to create the bucket was deleted.
+  `otratickets-media-rw` (bucket-scoped readwrite; access key id and secret
+  stored only in the droplet env file). The temporary `otratickets-bootstrap`
+  full-access key used to create the bucket was deleted.
 - Secrets live in `/etc/otratickets/env` on the droplet. Nothing secret is in
   this repo.
