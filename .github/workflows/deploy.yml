@@ -38,7 +38,7 @@ jobs:
         run: |
           for i in $(seq 1 10); do
             code=$(ssh -i ~/.ssh/deploy_key deploy@${{ secrets.DEPLOY_HOST }} \
-              'curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8788/api/homepage-events')
+              'curl -s -o /dev/null --max-time 5 -w "%{http_code}" http://127.0.0.1:8788/api/homepage-events' || echo "000")
             [ "$code" = "200" ] && echo "healthy" && exit 0
             echo "attempt $i: $code"; sleep 3
           done
