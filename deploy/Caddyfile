@@ -1,0 +1,20 @@
+{
+  auto_https off
+}
+
+:80 {
+  redir https://{host}{uri} permanent
+}
+
+https://otratickets.com:443, https://www.otratickets.com:443 {
+  tls /etc/caddy/origin-cert/cert.pem /etc/caddy/origin-cert/key.pem
+  encode zstd gzip
+  reverse_proxy 127.0.0.1:8788
+  log {
+    output file /var/log/caddy/access.log {
+      roll_size 50MiB
+      roll_keep 5
+    }
+    format json
+  }
+}

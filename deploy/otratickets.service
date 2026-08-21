@@ -1,0 +1,19 @@
+[Unit]
+Description=otratickets.com Node server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=deploy
+WorkingDirectory=/srv/otratickets
+EnvironmentFile=/etc/otratickets/env
+ExecStart=/usr/bin/node server/index.js
+Restart=always
+RestartSec=2
+NoNewPrivileges=true
+ProtectSystem=full
+ReadWritePaths=/srv/otratickets
+
+[Install]
+WantedBy=multi-user.target
