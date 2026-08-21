@@ -1,6 +1,11 @@
 # Provisioning notes (2026-08-21)
 
-All resources on the DigitalOcean Otra Guide team, region nyc3.
+All resources on the DigitalOcean "Otra" team, region nyc3, assigned to the
+**otra-guide project** (fcb9d774-07cd-4dc3-aea5-40cb8b20dc67). Note: the
+team's DEFAULT project is `otra-card`, so freshly created resources land
+there until explicitly assigned; the droplet and Space below were moved to
+otra-guide with `doctl projects resources assign` on 2026-08-21. Any future
+resource creation for this site must include that assignment step.
 
 - Droplet: `otratickets-web-1`, ID `594088118`, public IP `167.71.106.85`,
   size s-1vcpu-2gb, Ubuntu 24.04, weekly backups on, monitoring agent on,
