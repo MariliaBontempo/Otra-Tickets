@@ -181,6 +181,13 @@ if (overridesRaw) {
 // --- Guard contract: clearboat.html accent sync ---
 if (clearboatRaw) {
   const scriptBlocks = clearboatRaw.match(/<script[\s\S]*?<\/script>/gi) || [];
+  const checkoutBlock = scriptBlocks.find(
+    (b) => b.includes('OtraStripeCheckoutEmbed.create') && b.includes('eventId: 6113'),
+  );
+  if (!checkoutBlock || !/theme:\s*["']otratickets["']/.test(checkoutBlock)) {
+    fail('clearboat.html', 'Clearboat checkout embed must request the otratickets theme');
+  }
+
   const accentBlock = scriptBlocks.find((b) => b.includes('/api/event?id=6113'));
   if (!accentBlock) {
     fail('clearboat.html', 'missing inline script block containing /api/event?id=6113');
