@@ -1,0 +1,24 @@
+# Provisioning notes (2026-08-21)
+
+All resources on the DigitalOcean Otra Guide team, region nyc3.
+
+- Droplet: `otratickets-web-1`, ID `594088118`, public IP `167.71.106.85`,
+  size s-1vcpu-2gb, Ubuntu 24.04, weekly backups on, monitoring agent on,
+  VPC `otraguide-nyc3` (`22422c51-0979-4ea5-a6fd-5313aed983ab`), tag `otratickets`.
+- Firewall: `otratickets-fw` (`f78fbc09-08eb-446e-b8f7-8e8f34ee14d1`),
+  inbound 22/80/443, attached by tag `otratickets`.
+- Postgres: logical database `otratickets` and user `otratickets` created in
+  cluster `otraguide-nyc-pg` (`17b10f37-8ebf-4ca5-b3b2-0f027a00c3fb`).
+  Private host `private-otraguide-nyc-pg-do-user-14322077-0.e.db.ondigitalocean.com`,
+  port 25060. Cluster trusted sources were already NON-EMPTY (droplets
+  576309749, 576419564); this droplet (594088118) was APPENDED, nothing removed.
+  Consequence: the cluster only accepts connections from trusted droplets, so
+  the data migration scripts run ON the droplet, not from a laptop.
+  User grants (GRANT ALL on database otratickets) are applied from the droplet
+  during setup because no laptop can reach the cluster.
+- Spaces: bucket `otratickets-media` (nyc3), private. Runtime key
+  `otratickets-media-rw` (access key id DO801T6K4AL6GNGP9R33, bucket-scoped
+  readwrite; secret stored only in the droplet env file). The temporary
+  `otratickets-bootstrap` full-access key used to create the bucket was deleted.
+- Secrets live in `/etc/otratickets/env` on the droplet. Nothing secret is in
+  this repo.
