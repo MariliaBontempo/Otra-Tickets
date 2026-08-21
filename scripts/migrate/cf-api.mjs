@@ -6,14 +6,14 @@ if (!TOKEN || !ACCOUNT) throw new Error("CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOU
 
 export async function cf(path, opts = {}) {
   const backoffs = [1000, 4000];
-  for (let attempt = 0; attempt <= 3; attempt++) {
+  for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const res = await fetch(`${BASE}${path}`, {
         ...opts, headers: { Authorization: `Bearer ${TOKEN}`, ...(opts.headers || {}) },
       });
       if (res.ok) return res;
       if (res.status === 429 || res.status >= 500) {
-        if (attempt < 3) {
+        if (attempt < 2) {
           const retryAfter = res.headers.get("Retry-After");
           const delay = retryAfter ? parseInt(retryAfter) * 1000 : backoffs[attempt];
           await new Promise(r => setTimeout(r, delay));
@@ -22,8 +22,9 @@ export async function cf(path, opts = {}) {
       }
       throw new Error(`CF ${path}: ${res.status} ${await res.text()}`);
     } catch (e) {
-      if (attempt < 3 && (e instanceof TypeError || e.message.includes("fetch"))) {
-        const delay = backoffs[attempt];
+      if (attempt < 2 && (e instanceof TypeError || e.message.includes("fetch"))) {
+        const retryAfter = e.headers?.get("Retry-After");
+        const delay = retryAfter ? parseInt(retryAfter) * 1000 : backoffs[attempt];
         await new Promise(r => setTimeout(r, delay));
         continue;
       }
