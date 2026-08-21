@@ -15,6 +15,7 @@
     "check:admin-duplicate-dates": "node scripts/check-admin-duplicate-event-dates.mjs",
     "check:admin-past-events": "node scripts/check-admin-past-event-search.mjs",
     "check:admin-info-cell": "node scripts/check-admin-empty-info-cell.mjs",
+    "check:admin-price-card": "node scripts/check-admin-price-card-visibility.mjs",
     "check:admin-video": "node scripts/check-admin-video-upload.mjs",
     "check:admin-responsive": "node scripts/check-admin-responsive.mjs",
     "check:clone-sync": "node scripts/check-clone-date-card-sync.mjs",
