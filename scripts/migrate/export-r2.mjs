@@ -17,7 +17,10 @@ do {
   for (const obj of page.result) {
     try {
       const head = await s3.send(new HeadObjectCommand({ Bucket: BUCKET, Key: obj.key }));
-      if (head.ContentLength === obj.size) { skipped++; continue; } // already copied
+      const cfEtag = obj.etag ? obj.etag.replace(/^"|"$/g, "") : null;
+      const s3Etag = head.ETag ? head.ETag.replace(/^"|"$/g, "") : null;
+      if (cfEtag && s3Etag && cfEtag === s3Etag) { skipped++; continue; } // already copied
+      if (!cfEtag && !s3Etag && head.ContentLength === obj.size) { skipped++; continue; } // fallback
     } catch { /* not present: copy it */ }
     const body = await cf(`/accounts/${account}/r2/buckets/${r2BucketName}/objects/${obj.key.split("/").map(encodeURIComponent).join("/")}`);
     await s3.send(new PutObjectCommand({

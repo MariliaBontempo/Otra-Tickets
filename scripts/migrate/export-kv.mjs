@@ -11,7 +11,7 @@ await pool.query(readFileSync(new URL("../../server/schema.sql", import.meta.url
 
 let cursor = "", total = 0;
 do {
-  const url = `/accounts/${account}/storage/kv/namespaces/${kvNamespaceId}/keys?limit=1000${cursor ? `&cursor=${cursor}` : ""}`;
+  const url = `/accounts/${account}/storage/kv/namespaces/${kvNamespaceId}/keys?limit=1000${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
   const res = await (await cf(url)).json();
   if (!res.success) throw new Error(JSON.stringify(res.errors));
   for (const k of res.result) {

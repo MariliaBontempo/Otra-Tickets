@@ -24,21 +24,20 @@ All scripts require the following environment variables:
 
 ### Location
 
-Scripts must run ON the droplet at /srv/otratickets with node_modules at /srv/otratickets/server/node_modules.
+Scripts must run ON the droplet at /srv/otratickets.
 
 If the cluster's trusted-sources check (Task 1 Step 5) found non-empty rules, the laptop is NOT a trusted source and cannot connect from outside the VPC. In that case:
 
 1. rsync scripts/migrate to the droplet: `rsync -av scripts/migrate/ /srv/otratickets/scripts/migrate/`
 2. Add Cloudflare env vars to the droplet environment (already has DATABASE_URL and Spaces credentials in /etc/otratickets/env)
-3. Run from the droplet with NODE_PATH configured
 
 ### Invocation
 
 From the droplet (with proper env vars set):
 
 ```bash
-cd /srv/otratickets/server && node ../scripts/migrate/export-kv.mjs
-cd /srv/otratickets/server && node ../scripts/migrate/export-r2.mjs
+cd /srv/otratickets && npm --prefix scripts/migrate ci && node scripts/migrate/export-kv.mjs
+cd /srv/otratickets && npm --prefix scripts/migrate ci && node scripts/migrate/export-r2.mjs
 ```
 
 ## Idempotency
@@ -46,9 +45,9 @@ cd /srv/otratickets/server && node ../scripts/migrate/export-r2.mjs
 Both scripts are **idempotent and safe to re-run**:
 
 - `export-kv.mjs`: Uses `ON CONFLICT` to update existing keys (compares both value and metadata)
-- `export-r2.mjs`: Skips objects that already exist in Spaces with matching size
+- `export-r2.mjs`: Skips objects that already exist in Spaces with matching etag (or size if etag unavailable)
 
-A final pre-cutover re-run is mandatory to catch any changes since the initial export.
+Automatic retries on transient failures (429, 5xx errors, and network errors) make these scripts resilient. A final pre-cutover re-run is mandatory to catch any changes since the initial export.
 
 ## What These Scripts Do
 
