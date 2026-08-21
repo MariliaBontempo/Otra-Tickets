@@ -36,3 +36,15 @@ pre-cutover override data.
   page all 200 via curl --resolve; event-page injected title identical to
   production; feed serves x-feed-source: kv-stale from the droplet's own
   Postgres snapshot; media byte-for-byte parity spot-checked.
+
+## Cutover result (2026-08-21, ~12:30 PT)
+
+- Records flipped by Brian in the Cloudflare dashboard (apex A 167.71.106.85,
+  www CNAME otratickets.com, both proxied). _domainconnect and _dmarc untouched.
+- Origin confirmed within a minute: a marked uncacheable /api/homepage-events
+  request appeared in the droplet's Caddy access log (cf-cache-status DYNAMIC,
+  x-feed-source kv-stale).
+- First live sample (60s window): 41 requests, 100 percent HTTP 200, zero
+  otratickets service errors, both services active. Public home load 0.195s.
+- Cloudflare Pages project left untouched as the rollback target; retire per
+  the runbook checklist after roughly a week of stable operation.
