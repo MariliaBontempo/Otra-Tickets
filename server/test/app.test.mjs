@@ -53,3 +53,13 @@ test("handler crash becomes 500", async () => {
   const { response } = await app2.handle(new Request("https://x.test/boom"));
   assert.equal(response.status, 500);
 });
+test("malformed percent-encoding falls through to ASSETS as a 400, not a 500", async () => {
+  const distDir = mkdtempSync(join(tmpdir(), "dist-"));
+  const assetsEnv = {
+    OVERRIDES: env.OVERRIDES,
+    ASSETS: (await import("../assets.js")).createAssets(distDir, null),
+  };
+  const app3 = createApp(assetsEnv, routes, dir);
+  const { response } = await app3.handle(new Request("https://x.test/%zz"));
+  assert.equal(response.status, 400);
+});

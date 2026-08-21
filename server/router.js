@@ -29,7 +29,13 @@ function score(route) {
   return s;
 }
 export function resolveRoute(routes, pathname) {
-  const segs = pathname.split("/").filter((s) => s !== "").map(decodeURIComponent);
+  let segs;
+  try {
+    segs = pathname.split("/").filter((s) => s !== "").map(decodeURIComponent);
+  } catch (e) {
+    if (e instanceof URIError) return null; // malformed percent-encoding; let ASSETS produce the 400
+    throw e;
+  }
   outer: for (const route of routes) {
     const params = {};
     let i = 0;
