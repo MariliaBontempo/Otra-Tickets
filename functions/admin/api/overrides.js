@@ -124,6 +124,12 @@ function normalizeFields(raw) {
     if (!type) continue;
     const value = typeof field.value === "string" ? field.value.trim() : "";
     fields[key] = { type, value };
+    // Removal metadata is presentation-only, but retaining it lets the admin
+    // offer the right restore control after the iframe element is gone.
+    if (type === "remove" && field.kind === "price-card") {
+      fields[key].kind = "price-card";
+      fields[key].label = typeof field.label === "string" ? field.label.trim().slice(0, 80) : "";
+    }
   }
   return fields;
 }

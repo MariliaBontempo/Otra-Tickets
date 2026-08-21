@@ -529,6 +529,7 @@
         <input id="accentColorHex" type="text" value="#1C9EBD" maxlength="7" spellcheck="false" />
       </label>
       <button class="btn ghost" id="saveColorBtn" type="button">Save color</button>
+      <button class="btn ghost hidden" id="restorePriceCardsBtn" type="button">Restore hidden price cards</button>
     </div>
 
     <main class="workspace">
@@ -2713,6 +2714,7 @@
     $("accentColorPicker").value = color;
     $("accentColorHex").value = color.toUpperCase();
     showImage($("imageUrl").value);
+    updateHiddenPriceCardControl();
   }
 
   function showImage(src) {
@@ -3009,7 +3011,9 @@
     btn.type = "button";
     btn.className = "otra-admin-remove-btn";
     btn.dataset.otraAdminRemove = field.key;
-    btn.setAttribute("aria-label", "Remove section");
+    const isPriceCard = field.kind === "price-card";
+    btn.setAttribute("aria-label", isPriceCard ? "Hide price card" : "Remove section");
+    btn.title = isPriceCard ? "Hide this price card from the page" : "Remove this section";
     btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
     btn.addEventListener("click", async (e) => {
       e.preventDefault();
@@ -3158,14 +3162,16 @@
     const main = doc.querySelector("main") || doc.body;
     const fields = [];
     const removed = currentOverride && currentOverride.fields ? currentOverride.fields : {};
-    main.querySelectorAll(":scope > section, :scope > footer").forEach((el) => {
+    const addCandidate = (el, kind) => {
       if (!isRemovableSection(el)) return;
       const selector = selectorFor(el, doc);
       if (!selector) return;
       const key = "remove:" + selector;
       if (removed[key] && removed[key].type === "remove") return;
-      fields.push({ type: "remove", key, element: el });
-    });
+      fields.push({ type: "remove", key, element: el, kind });
+    };
+    main.querySelectorAll(":scope > section, :scope > footer").forEach((el) => addCandidate(el, "section"));
+    main.querySelectorAll(".ev-rate").forEach((el) => addCandidate(el, "price-card"));
     return fields;
   }
 
@@ -3181,32 +3187,63 @@
   async function removeSection(field) {
     if (!selected || !field || !field.key) return;
     const label = sectionLabel(field.element);
-    if (!window.confirm(`Remove this section${label ? `: ${label}` : ""}?`)) return;
-    setStatus("Removing section...");
+    const isPriceCard = field.kind === "price-card";
+    const noun = isPriceCard ? "price card" : "section";
+    const detail = isPriceCard ? " This only changes the page design; the ticket type and checkout stay unchanged." : "";
+    if (!window.confirm(`Remove this ${noun}${label ? `: ${label}` : ""}?${detail}`)) return;
+    setStatus(`Removing ${noun}...`);
     try {
-      const next = {
-        description: currentOverride && currentOverride.description ? currentOverride.description : "",
-        image: currentOverride && currentOverride.image ? currentOverride.image : "",
-        fields: Object.assign({}, currentOverride && currentOverride.fields ? currentOverride.fields : {}),
-      };
-      next.fields[field.key] = { type: "remove", value: "1" };
-      const data = await api("/admin/api/overrides?id=" + encodeURIComponent(overrideIdForPage(selected)), {
-        method: "PUT",
-        headers: authHeaders({ "content-type": "application/json" }),
-        body: JSON.stringify(next),
+      await persistOverrideFields((fields) => {
+        fields[field.key] = {
+          type: "remove",
+          value: "1",
+          kind: isPriceCard ? "price-card" : "section",
+          label,
+        };
       });
-      fillForm(data.override);
       refreshPreview();
-      setStatus("Section removed.", "ok");
+      setStatus(`${isPriceCard ? "Price card" : "Section"} removed.`, "ok");
     } catch (err) {
       setStatus(err.message, "error");
     }
   }
 
   function sectionLabel(el) {
-    const text = el && el.querySelector("h1, h2, h3, .ev-eyebrow, .row-head h2");
+    const text = el && el.querySelector("h1, h2, h3, .ev-eyebrow, .row-head h2, .rk");
     return text ? text.textContent.trim().replace(/\s+/g, " ").slice(0, 80) : "";
   }
+
+  function hiddenPriceCardKeys() {
+    const fields = currentOverride && currentOverride.fields ? currentOverride.fields : {};
+    return Object.keys(fields).filter((key) => {
+      const field = fields[key];
+      return field && field.type === "remove" && field.kind === "price-card";
+    });
+  }
+
+  function updateHiddenPriceCardControl() {
+    const btn = $("restorePriceCardsBtn");
+    if (!btn) return;
+    const count = hiddenPriceCardKeys().length;
+    btn.classList.toggle("hidden", count === 0);
+    btn.textContent = count === 1 ? "Restore hidden price card" : `Restore ${count} hidden price cards`;
+  }
+
+  async function restoreHiddenPriceCards() {
+    if (!selected) return;
+    const keys = hiddenPriceCardKeys();
+    if (!keys.length) return;
+    setStatus("Restoring hidden price cards...");
+    try {
+      await persistOverrideFields((fields) => keys.forEach((key) => delete fields[key]));
+      refreshPreview();
+      setStatus(keys.length === 1 ? "Price card restored." : `${keys.length} price cards restored.`, "ok");
+    } catch (err) {
+      setStatus(err.message, "error");
+    }
+  }
+
+  $("restorePriceCardsBtn").addEventListener("click", restoreHiddenPriceCards);
 
   function positionPreviewButton(btn, field, host) {
     if (field.type !== "image" || field.element.parentElement !== host) return;
@@ -3311,6 +3348,15 @@
 
   function selectorFor(el, doc) {
     if (el.id) return "#" + cssEscape(el.id);
+    // Rate names are stable when sale windows or card ordering changes. An
+    // nth-of-type selector could otherwise hide a different ticket later.
+    if (el.classList && el.classList.contains("ev-rate")) {
+      const rateName = el.getAttribute("data-otra-rate-name");
+      const parentId = el.parentElement && el.parentElement.id;
+      if (rateName && parentId) {
+        return `#${cssEscape(parentId)} > .ev-rate[data-otra-rate-name="${cssAttr(rateName)}"]`;
+      }
+    }
     const parts = [];
     let node = el;
     let anchoredToId = false;

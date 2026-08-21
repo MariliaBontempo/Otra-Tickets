@@ -1366,7 +1366,7 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
           .map((t) => {
             const sym = cur(t.currency);
             return (
-              '<div class="ev-rate"><div class="rk">' + esc(t.name) + "</div>" +
+              '<div class="ev-rate" data-otra-rate-name="' + esc(t.name) + '"><div class="rk">' + esc(t.name) + "</div>" +
               '<div class="rp"><span class="rcur">' + esc(sym) + "</span>" + esc(money(t.price)) + "</div>" +
               (t.description ? '<div class="rn">' + esc(t.description) + "</div>" : "") +
               "</div>"
