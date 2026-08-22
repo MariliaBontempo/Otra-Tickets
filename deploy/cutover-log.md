@@ -48,3 +48,28 @@ pre-cutover override data.
   otratickets service errors, both services active. Public home load 0.195s.
 - Cloudflare Pages project left untouched as the rollback target; retire per
   the runbook checklist after roughly a week of stable operation.
+
+## Post-cutover incident (2026-08-22): admin writes leaked to the old stack
+
+The Kaya Kaya Festival 2026 videos 404'd on the live site (browsers surface
+this as a MIME error, since the 404 body is text/plain). Six mp4 uploads made
+the evening of cutover day (21:00-23:15 UTC) landed in the OLD Cloudflare R2
+bucket, not Spaces: someone was editing through the Pages admin (pages.dev
+URL or a pre-flip tab) after the final re-sync had already run. Resolved by
+re-running `scripts/migrate/export-r2.mjs` on the droplet (6 copied, 111
+already present) with the read-only CF token from Proton Pass.
+
+Hazards until the Pages project is retired:
+
+- The Pages admin still accepts logins and writes to CF KV/R2, which the
+  droplet never reads. Anything saved there silently vanishes from prod.
+  Retiring the Pages project (or at least its admin access) closes the hole.
+- `export-r2.mjs` is safe to re-run for admin-upload keys, which are
+  write-once UUIDs. It is NOT unconditionally safe: project-import assets use
+  deterministic keys (`<draft-id>/claude-design/<name>`), and a re-run
+  overwrites the Spaces copy with the old R2 bytes when those diverge. Check
+  the conflicting keys (the etag-skip logging shows what it copies) before
+  re-running once such assets have been edited post-cutover.
+  `export-kv.mjs` is worse: it blindly upserts every CF value over Postgres
+  and would clobber all post-cutover droplet edits. Never re-run it while
+  both stacks are writable without first diffing keys.
