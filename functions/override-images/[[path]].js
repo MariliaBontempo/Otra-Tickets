@@ -27,6 +27,11 @@ export async function onRequestGet(context) {
         headers.set("content-length", String(length));
         return new Response(object.body, { status: 206, headers });
       }
+      // Without an explicit length the droplet streams this chunked, and
+      // Cloudflare then caches the 200 without a size and answers Range
+      // requests with the full body; Safari refuses to play video from
+      // origins that ignore its range probe.
+      if (object.size !== undefined) headers.set("content-length", String(object.size));
       return new Response(object.body, { headers });
     }
   }

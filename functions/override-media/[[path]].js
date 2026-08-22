@@ -21,6 +21,9 @@ export async function onRequestGet(context) {
       if (!headers.has("cache-control")) {
         headers.set("cache-control", "public, max-age=31536000, immutable");
       }
+      // Same as override-images: an explicit length keeps Cloudflare's cached
+      // copy range-capable instead of a chunked 200-only entry.
+      if (object.size !== undefined) headers.set("content-length", String(object.size));
       return new Response(object.body, { headers });
     }
   }
