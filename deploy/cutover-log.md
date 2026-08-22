@@ -64,7 +64,12 @@ Hazards until the Pages project is retired:
 - The Pages admin still accepts logins and writes to CF KV/R2, which the
   droplet never reads. Anything saved there silently vanishes from prod.
   Retiring the Pages project (or at least its admin access) closes the hole.
-- `export-r2.mjs` is safe to re-run any time (keys are write-once UUIDs).
-  `export-kv.mjs` is NOT: it blindly upserts every CF value over Postgres and
-  would clobber all post-cutover droplet edits. Never re-run it while both
-  stacks are writable without first diffing keys.
+- `export-r2.mjs` is safe to re-run for admin-upload keys, which are
+  write-once UUIDs. It is NOT unconditionally safe: project-import assets use
+  deterministic keys (`<draft-id>/claude-design/<name>`), and a re-run
+  overwrites the Spaces copy with the old R2 bytes when those diverge. Check
+  the conflicting keys (the etag-skip logging shows what it copies) before
+  re-running once such assets have been edited post-cutover.
+  `export-kv.mjs` is worse: it blindly upserts every CF value over Postgres
+  and would clobber all post-cutover droplet edits. Never re-run it while
+  both stacks are writable without first diffing keys.
