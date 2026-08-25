@@ -444,12 +444,19 @@ main { padding-top: calc(var(--header-h) + 22px); padding-bottom: 80px; }
   border-color: #6fa8e8;
   box-shadow: 0 14px 40px rgba(0,0,0,0.55), 0 0 28px rgba(74,140,214,0.55);
 }
-.card-img {
+.card-media {
+  position: relative;
   width: 100%;
   aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: 22px;
+  background: #000;
+}
+.card-img {
+  width: 100%;
+  height: 100%;
   object-fit: cover;
   display: block;
-  border-radius: 22px;
   background: #000;
   transition: transform 0.6s cubic-bezier(.22,1,.36,1);  /* Netflix-style zoom within the card frame */
 }
@@ -948,7 +955,7 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
           <div class="track-wrap">
             <div class="track">
               <article class="card sk-card">
-                <div class="card-img sk-shimmer"></div>
+                <div class="card-media"><div class="card-img sk-shimmer"></div></div>
                 <div class="card-body">
                   <span class="sk-line sk-title"></span>
                   <span class="sk-line sk-venue"></span>
@@ -956,7 +963,7 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
                 </div>
               </article>
               <article class="card sk-card">
-                <div class="card-img sk-shimmer"></div>
+                <div class="card-media"><div class="card-img sk-shimmer"></div></div>
                 <div class="card-body">
                   <span class="sk-line sk-title"></span>
                   <span class="sk-line sk-venue"></span>
@@ -964,7 +971,7 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
                 </div>
               </article>
               <article class="card sk-card">
-                <div class="card-img sk-shimmer"></div>
+                <div class="card-media"><div class="card-img sk-shimmer"></div></div>
                 <div class="card-body">
                   <span class="sk-line sk-title"></span>
                   <span class="sk-line sk-venue"></span>
@@ -972,7 +979,7 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
                 </div>
               </article>
               <article class="card sk-card">
-                <div class="card-img sk-shimmer"></div>
+                <div class="card-media"><div class="card-img sk-shimmer"></div></div>
                 <div class="card-body">
                   <span class="sk-line sk-title"></span>
                   <span class="sk-line sk-venue"></span>
@@ -980,7 +987,7 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
                 </div>
               </article>
               <article class="card sk-card">
-                <div class="card-img sk-shimmer"></div>
+                <div class="card-media"><div class="card-img sk-shimmer"></div></div>
                 <div class="card-body">
                   <span class="sk-line sk-title"></span>
                   <span class="sk-line sk-venue"></span>
@@ -1147,12 +1154,15 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
       items.forEach((ev) => {
         const card = document.createElement("article");
         card.className = "card";
+        const media = document.createElement("div");
+        media.className = "card-media";
         const img = document.createElement("img");
         img.className = "card-img";
         img.src = ev.img; img.alt = ev.title;
         img.loading = rowIndex === 0 ? "eager" : "lazy";
         img.decoding = "async";
         if (rowIndex === 0) img.fetchPriority = "high";
+        media.append(img);
         const body = document.createElement("div");
         body.className = "card-body";
         const titleEl = document.createElement("div");
@@ -1165,7 +1175,7 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
         dateEl.className = "card-date";
         dateEl.textContent = ev.date;
         body.append(titleEl, venueEl, dateEl);
-        card.append(img, body);
+        card.append(media, body);
         // Every card opens its event page (bespoke slug, or the generic template).
         if (ev.href) {
           card.style.cursor = "pointer";

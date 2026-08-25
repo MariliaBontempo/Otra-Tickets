@@ -26,6 +26,7 @@
     "check:ux": "node scripts/check-ux-states.mjs",
     "check:publish-photos-edit": "node scripts/check-published-photo-edit-sync.mjs",
     "check:events-retired": "node scripts/check-events-retired.mjs",
-    "check:feed-fast-path": "node scripts/check-feed-fast-path.mjs"
+    "check:feed-fast-path": "node scripts/check-feed-fast-path.mjs",
+    "check:events-card-ratio": "node scripts/check-events-card-aspect-ratio.mjs"
   }
 }

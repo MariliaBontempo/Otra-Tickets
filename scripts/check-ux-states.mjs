@@ -46,7 +46,7 @@ if (!pkgRaw) {
   try { pkg = JSON.parse(pkgRaw); } catch { fail('package.json', 'invalid JSON'); }
   if (pkg) {
     const scripts = pkg.scripts || {};
-    for (const s of ['build', 'gen:variants', 'check:headers', 'check:fonts', 'check:seo', 'check:payload', 'check:admin-only', 'check:ux']) {
+    for (const s of ['build', 'gen:variants', 'check:headers', 'check:fonts', 'check:seo', 'check:payload', 'check:admin-only', 'check:ux', 'check:events-card-ratio']) {
       if (!scripts[s]) fail('package.json', `missing script: ${s}`);
     }
   }
