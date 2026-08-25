@@ -17,23 +17,37 @@ const failures = [];
 const fail = (msg) => failures.push(msg);
 const assert = (cond, msg) => { if (!cond) fail(msg); };
 
+const VIEWPORTS = {
+  mobile: [320, 375, 390, 414],
+  tablet: [768, 820],
+  desktop: [1024, 1280, 1440],
+  ultrawide: [1920, 2560],
+};
+const ALL_VIEWPORTS = Object.values(VIEWPORTS).flat();
+const RATIO_16_9 = 16 / 9;
+
 function clamp(n, min, max) {
   return Math.min(max, Math.max(min, n));
 }
 
-/** Flyer box inside a flexible card whose width is clamp(min, vw, max). */
-function flyerBox(viewportWidth, { min = 300, vw = 0.225, max = 452, pad = 16 } = {}) {
+/** Card/flyer widths from the live clamp(), independent of aspect-ratio. */
+function flyerWidth(viewportWidth, { min = 300, vw = 0.225, max = 452, pad = 16 } = {}) {
   const cardW = clamp(vw * viewportWidth, min, max);
   const mediaW = Math.max(0, cardW - pad * 2);
-  const mediaH = mediaW * (9 / 16);
-  return { cardW, mediaW, mediaH, ratio: mediaW / mediaH };
+  return { cardW, mediaW };
 }
 
 function isSixteenByNine(value) {
+  if (value == null) return false;
   const n = String(value).replace(/\s+/g, "");
-  const m = n.match(/^(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)$/);
-  if (!m) return false;
-  return Math.abs(Number(m[1]) / Number(m[2]) - 16 / 9) < 1e-6;
+  const fraction = n.match(/^(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)$/);
+  if (fraction) {
+    const denom = Number(fraction[2]);
+    if (!denom) return false;
+    return Math.abs(Number(fraction[1]) / denom - RATIO_16_9) < 1e-6;
+  }
+  const numeric = Number(n);
+  return Number.isFinite(numeric) && Math.abs(numeric - RATIO_16_9) < 1e-6;
 }
 
 function parseDecls(body) {
@@ -89,18 +103,126 @@ function targetsClass(selectorList, className) {
   });
 }
 
-function pxBoxSize(value) {
+function isRestingSelector(selectorList) {
+  return selectorList.split(",").some((s) => !/:(hover|focus|active|focus-visible)/i.test(s));
+}
+
+function parsePx(value) {
+  const m = String(value).trim().match(/^([\d.]+)px$/i);
+  return m ? Number(m[1]) : null;
+}
+
+function splitTopLevel(str, sepChar) {
+  const out = [];
+  let buf = "";
+  let depth = 0;
+  for (const ch of str) {
+    if (ch === "(") depth++;
+    else if (ch === ")") depth = Math.max(0, depth - 1);
+    if (ch === sepChar && depth === 0) {
+      out.push(buf);
+      buf = "";
+    } else {
+      buf += ch;
+    }
+  }
+  if (buf.trim()) out.push(buf);
+  return out;
+}
+
+function mediaMatchesViewport(mediaAtRule, viewportWidth) {
+  if (!mediaAtRule) return true;
+  if (/^@supports\b/i.test(mediaAtRule)) return true;
+  const cond = mediaAtRule.replace(/^@media\s+/i, "").trim();
+  return splitTopLevel(cond, ",").some((query) => matchOneMediaQuery(query, viewportWidth));
+}
+
+function matchOneMediaQuery(query, viewportWidth) {
+  let s = query.trim();
+  if (/^not\b/i.test(s)) return false;
+  s = s.replace(/^(only\s+)?(screen|all|print)\s+and\s+/i, "");
+  s = s.replace(/^(only\s+)?(screen|all|print)\s*$/i, "");
+  if (!s.trim()) return true;
+
+  const features = [...s.matchAll(/\(\s*(min-width|max-width|width|prefers-reduced-motion)\s*:\s*([^)]+)\)/gi)];
+  if (!features.length) return false;
+
+  for (const [, name, raw] of features) {
+    const feature = name.toLowerCase();
+    const value = raw.trim();
+    if (feature === "prefers-reduced-motion") return false;
+    const px = parsePx(value);
+    if (px == null) return false;
+    if (feature === "max-width" && viewportWidth > px) return false;
+    if (feature === "min-width" && viewportWidth < px) return false;
+    if (feature === "width" && viewportWidth !== px) return false;
+  }
+  return true;
+}
+
+function isForbiddenBoxHeight(value, { allowPercentFill = false } = {}) {
   if (value == null) return null;
   const v = String(value).trim();
-  if (v === "auto" || v === "100%" || v === "0" || v === "0px") return null;
-  if (/(?:^|\s)(?:height|min-height|max-height)/.test(v)) return v;
-  if (/\d(?:\.\d+)?px/.test(v) || /clamp\(/i.test(v)) return v;
-  return null;
+  const lower = v.toLowerCase();
+  if (lower === "auto" || lower === "unset" || lower === "initial" || lower === "none") return null;
+  if (allowPercentFill && (lower === "100%" || lower === "0" || lower === "0px")) return null;
+  if (lower === "0" || lower === "0px") return null;
+  if (/\d(?:\.\d+)?px/i.test(v)) return v;
+  if (/clamp\(/i.test(v)) return v;
+  if (/calc\(/i.test(v)) return v;
+  if (/\d(?:\.\d+)?(?:vw|vh|vmin|vmax|em|rem|%)/i.test(v)) return v;
+  return v;
+}
+
+function isCardSelector(selector) {
+  return targetsClass(selector, "card")
+    && !targetsClass(selector, "card-media")
+    && !targetsClass(selector, "card-img")
+    && !targetsClass(selector, "card-body")
+    && !targetsClass(selector, "card-title")
+    && !targetsClass(selector, "card-venue")
+    && !targetsClass(selector, "card-date");
+}
+
+/**
+ * Cascade .card / .card-media / .card-img at a viewport. Source order, last
+ * matching resting rule wins. Hover/focus rules are ignored here so the
+ * resting flyer box is what we measure; collectFlyerViolations still scans them.
+ */
+function resolveFlyerStyles(css, viewportWidth) {
+  const mediaDecls = {};
+  const imgDecls = {};
+  const cardDecls = {};
+
+  eachRule(css, ({ selector, body, media }) => {
+    if (!mediaMatchesViewport(media, viewportWidth)) return;
+    if (!isRestingSelector(selector)) return;
+    const decls = declMap(body);
+    if (targetsClass(selector, "card-media")) Object.assign(mediaDecls, decls);
+    if (targetsClass(selector, "card-img")) Object.assign(imgDecls, decls);
+    if (isCardSelector(selector)) Object.assign(cardDecls, decls);
+  });
+
+  return {
+    aspectRatio: mediaDecls["aspect-ratio"] || null,
+    overflow: mediaDecls["overflow"] || null,
+    overflowHidden: /\bhidden\b/i.test(mediaDecls["overflow"] || ""),
+    objectFit: imgDecls["object-fit"] || null,
+    objectFitCover: (imgDecls["object-fit"] || "").includes("cover"),
+    imgWidth: imgDecls["width"] || null,
+    imgHeight: imgDecls["height"] || null,
+    mediaHeight: mediaDecls["height"] || null,
+    mediaMinHeight: mediaDecls["min-height"] || null,
+    mediaMaxHeight: mediaDecls["max-height"] || null,
+    cardWidth: cardDecls["width"] || null,
+    cardPad: cardDecls["padding"] || null,
+  };
 }
 
 function collectFlyerViolations(css, { requireMedia = true } = {}) {
   const issues = [];
   let sawMediaRatio = false;
+  let sawOverflowHidden = false;
   let sawImgCover = false;
   let sawImgWidth = false;
   let sawImgHeightFill = false;
@@ -112,45 +234,54 @@ function collectFlyerViolations(css, { requireMedia = true } = {}) {
     const decls = declMap(body);
     const isMedia = targetsClass(selector, "card-media");
     const isImg = targetsClass(selector, "card-img");
-    const isCard = targetsClass(selector, "card") && !isMedia && !isImg
-      && !targetsClass(selector, "card-body")
-      && !targetsClass(selector, "card-title")
-      && !targetsClass(selector, "card-venue")
-      && !targetsClass(selector, "card-date");
+    const isCard = isCardSelector(selector);
 
     if (isMedia || isImg || isCard) {
       for (const prop of ["height", "min-height", "max-height"]) {
-        if (prop in decls) {
-          const bad = pxBoxSize(decls[prop]);
-          if (bad && !(isImg && (decls[prop].trim() === "100%" || decls[prop].trim() === "auto"))) {
-            if (isImg && decls[prop].trim() === "100%") continue;
-            if (isImg && decls[prop].trim() === "auto") continue;
-            issues.push(`${where} sets ${prop}: ${decls[prop]} (flyer box must not use a pixel height)`);
-          }
+        if (!(prop in decls)) continue;
+        const bad = isForbiddenBoxHeight(decls[prop], { allowPercentFill: isImg });
+        if (!bad) continue;
+        issues.push(`${where} sets ${prop}: ${decls[prop]} (flyer box must not use a pixel height)`);
+      }
+    }
+
+    if (isMedia) {
+      if (decls["aspect-ratio"]) {
+        if (isSixteenByNine(decls["aspect-ratio"])) {
+          if (!media) sawMediaRatio = true;
+        } else {
+          issues.push(`${where} aspect-ratio is ${decls["aspect-ratio"]}, expected 16 / 9`);
+        }
+      }
+      if (decls["overflow"]) {
+        if (/\bhidden\b/i.test(decls["overflow"])) {
+          if (!media) sawOverflowHidden = true;
+        } else {
+          issues.push(`${where} overflow is ${decls["overflow"]}, expected hidden`);
         }
       }
     }
 
-    if (isMedia && !media) {
-      if (decls["aspect-ratio"] && isSixteenByNine(decls["aspect-ratio"])) sawMediaRatio = true;
-      if (decls["aspect-ratio"] && !isSixteenByNine(decls["aspect-ratio"])) {
-        issues.push(`.card-media aspect-ratio is ${decls["aspect-ratio"]}, expected 16 / 9`);
+    if (isImg) {
+      if (decls["object-fit"] && !(decls["object-fit"] || "").includes("cover")) {
+        issues.push(`${where} object-fit is ${decls["object-fit"]}, expected cover`);
       }
-    }
-    if (isImg && !media) {
-      if ((decls["object-fit"] || "").includes("cover")) sawImgCover = true;
-      if (decls["width"] === "100%") sawImgWidth = true;
-      if (decls["height"] === "100%" || decls["height"] === "auto") sawImgHeightFill = true;
+      if (!media) {
+        if ((decls["object-fit"] || "").includes("cover")) sawImgCover = true;
+        if (decls["width"] === "100%") sawImgWidth = true;
+        if (decls["height"] === "100%" || decls["height"] === "auto") sawImgHeightFill = true;
+      }
     }
     if (isCard && !media && decls["width"]) cardWidth = decls["width"];
     if (isCard && !media && decls["padding"]) cardPad = decls["padding"];
   });
 
   if (requireMedia && !sawMediaRatio) issues.push("missing .card-media { aspect-ratio: 16 / 9 }");
+  if (requireMedia && !sawOverflowHidden) issues.push("missing .card-media { overflow: hidden }");
   if (!sawImgCover) issues.push("missing .card-img { object-fit: cover }");
   if (!sawImgWidth) issues.push("missing .card-img { width: 100% }");
   if (!sawImgHeightFill) issues.push("missing .card-img { height: 100% } (fill the 16:9 container)");
-  return { issues, cardWidth, cardPad, sawMediaRatio };
+  return { issues, cardWidth, cardPad, sawMediaRatio, sawOverflowHidden };
 }
 
 function extractStyle(html) {
@@ -158,55 +289,150 @@ function extractStyle(html) {
   return blocks.map((m) => m[1]).join("\n");
 }
 
-// ---------------------------------------------------------------------------
-// 1. Geometric unit tests — ratio holds at every breakpoint
-// ---------------------------------------------------------------------------
-
-const VIEWPORTS = [320, 375, 390, 414, 768, 820, 1024, 1280, 1440, 1920, 2560];
-for (const vw of VIEWPORTS) {
-  const box = flyerBox(vw);
-  assert(
-    Math.abs(box.ratio - 16 / 9) < 1e-9,
-    `viewport ${vw}px: flyer ratio ${box.ratio} !== 16/9`,
-  );
-  assert(box.mediaH > 0, `viewport ${vw}px: flyer height collapsed`);
-}
-
-{
-  const narrow = flyerBox(320);
-  assert(narrow.cardW === 300, `narrow card width ${narrow.cardW}, expected clamp min 300`);
-  const wide = flyerBox(2560);
-  assert(wide.cardW === 452, `wide card width ${wide.cardW}, expected clamp max 452`);
-  const mid = flyerBox(1600);
-  assert(mid.cardW === 360, `1600px card width ${mid.cardW}, expected 22.5vw = 360`);
-}
-
-// Portrait / landscape / missing flyer: the CONTAINER stays 16:9; object-fit
-// cover fills it. Height is a function of width, never a fixed px.
-{
-  const box = flyerBox(1440);
-  const portraitIntrinsic = { w: 900, h: 1600 };
-  const landscapeIntrinsic = { w: 1920, h: 1080 };
-  const missing = { w: 0, h: 0 };
-  for (const [name, intrinsic] of [
-    ["portrait flyer", portraitIntrinsic],
-    ["16:9 flyer", landscapeIntrinsic],
-    ["missing flyer", missing],
-  ]) {
+function assertFlyerLockAtViewports(css, viewports, label) {
+  for (const vw of viewports) {
+    const resolved = resolveFlyerStyles(css, vw);
     assert(
-      Math.abs(box.mediaW / box.mediaH - 16 / 9) < 1e-9,
-      `${name}: container drifted from 16:9`,
+      isSixteenByNine(resolved.aspectRatio),
+      `${label} at ${vw}px: aspect-ratio is ${resolved.aspectRatio}, expected 16 / 9`,
     );
-    void intrinsic;
+    assert(
+      resolved.overflowHidden,
+      `${label} at ${vw}px: overflow is ${resolved.overflow}, expected hidden`,
+    );
+    assert(
+      resolved.objectFitCover,
+      `${label} at ${vw}px: object-fit is ${resolved.objectFit}, expected cover`,
+    );
+    assert(
+      resolved.imgWidth === "100%",
+      `${label} at ${vw}px: .card-img width is ${resolved.imgWidth}, expected 100%`,
+    );
+    assert(
+      resolved.imgHeight === "100%" || resolved.imgHeight === "auto",
+      `${label} at ${vw}px: .card-img height is ${resolved.imgHeight}, expected 100%`,
+    );
+    for (const [prop, value] of [
+      ["height", resolved.mediaHeight],
+      ["min-height", resolved.mediaMinHeight],
+      ["max-height", resolved.mediaMaxHeight],
+    ]) {
+      const bad = isForbiddenBoxHeight(value);
+      assert(!bad, `${label} at ${vw}px: .card-media ${prop} is ${value}`);
+    }
   }
 }
 
-// A fixed 145px height (the previous events-grid bug) CANNOT stay 16:9 as
-// card width moves. Lock that regression in as an oracle.
+const GOOD_CSS = `
+  .card { width: clamp(300px, 22.5vw, 452px); padding: 16px; }
+  .card-media { width: 100%; aspect-ratio: 16 / 9; overflow: hidden; }
+  .card-img { width: 100%; height: 100%; object-fit: cover; }
+`;
+
+// ---------------------------------------------------------------------------
+// 1. CSS cascade at every breakpoint (parses real rules, not hardcoded 9/16)
+// ---------------------------------------------------------------------------
+
 {
-  const heights = VIEWPORTS.map((vw) => flyerBox(vw).mediaW / 145);
-  const unique = new Set(heights.map((r) => r.toFixed(3)));
+  const { issues } = collectFlyerViolations(GOOD_CSS);
+  assert(issues.length === 0, `good fixture flagged: ${issues.join("; ")}`);
+  for (const [name, widths] of Object.entries(VIEWPORTS)) {
+    assertFlyerLockAtViewports(GOOD_CSS, widths, `good fixture (${name})`);
+  }
+}
+
+{
+  const mqRatio = `
+    ${GOOD_CSS}
+    @media (max-width: 720px) { .card-media { aspect-ratio: 4 / 3; } }
+  `;
+  const { issues } = collectFlyerViolations(mqRatio);
+  assert(
+    issues.some((i) => /4\s*\/\s*3/.test(i)),
+    "detector missed a media-query aspect-ratio override of 4 / 3",
+  );
+  const mobile = resolveFlyerStyles(mqRatio, 375);
+  assert(!isSixteenByNine(mobile.aspectRatio), `cascade missed 4/3 at 375px (got ${mobile.aspectRatio})`);
+  const desktop = resolveFlyerStyles(mqRatio, 1280);
+  assert(isSixteenByNine(desktop.aspectRatio), `cascade lost base 16/9 at 1280px (got ${desktop.aspectRatio})`);
+}
+
+{
+  const mqContain = `
+    ${GOOD_CSS}
+    @media (min-width: 1920px) { .card-img { object-fit: contain; } }
+  `;
+  const { issues } = collectFlyerViolations(mqContain);
+  assert(
+    issues.some((i) => /object-fit/.test(i) && /contain/.test(i)),
+    "detector missed a media-query object-fit override",
+  );
+  const ultra = resolveFlyerStyles(mqContain, 2560);
+  assert(!ultra.objectFitCover, `cascade missed contain at 2560px (got ${ultra.objectFit})`);
+  const desktop = resolveFlyerStyles(mqContain, 1280);
+  assert(desktop.objectFitCover, `cascade lost cover at 1280px (got ${desktop.objectFit})`);
+}
+
+{
+  const noRatio = `
+    .card { width: clamp(300px, 22.5vw, 452px); padding: 16px; }
+    .card-media { width: 100%; overflow: hidden; }
+    .card-img { width: 100%; height: 100%; object-fit: cover; }
+  `;
+  const { issues } = collectFlyerViolations(noRatio);
+  assert(
+    issues.some((i) => /aspect-ratio/.test(i)),
+    "detector missed a missing aspect-ratio",
+  );
+  for (const vw of ALL_VIEWPORTS) {
+    assert(
+      !isSixteenByNine(resolveFlyerStyles(noRatio, vw).aspectRatio),
+      `removed aspect-ratio still resolved as 16/9 at ${vw}px`,
+    );
+  }
+}
+
+{
+  const changed = GOOD_CSS.replace("16 / 9", "1 / 1");
+  const { issues } = collectFlyerViolations(changed);
+  assert(
+    issues.some((i) => /1\s*\/\s*1/.test(i) || /aspect-ratio/.test(i)),
+    "detector missed aspect-ratio changed to 1 / 1",
+  );
+  assert(
+    !isSixteenByNine(resolveFlyerStyles(changed, 1440).aspectRatio),
+    "changed 1/1 ratio still counted as 16/9",
+  );
+}
+
+// Clamp limits (width only). These read the clamp numbers, not the ratio.
+{
+  const narrow = flyerWidth(320);
+  assert(narrow.cardW === 300, `narrow card width ${narrow.cardW}, expected clamp min 300`);
+  const wide = flyerWidth(2560);
+  assert(wide.cardW === 452, `wide card width ${wide.cardW}, expected clamp max 452`);
+  const mid = flyerWidth(1600);
+  assert(mid.cardW === 360, `1600px card width ${mid.cardW}, expected 22.5vw = 360`);
+}
+
+// A fixed 145px height (the previous events-grid bug) CANNOT stay 16:9 as
+// card width moves. Lock that regression in as an oracle against CSS, not
+// against a helper that already multiplies by 9/16.
+{
+  const pxHeight = `
+    .card { width: clamp(300px, 22.5vw, 452px); padding: 16px; }
+    .card-media { width: 100%; height: 145px; overflow: hidden; }
+    .card-img { width: 100%; height: 100%; object-fit: cover; }
+  `;
+  const implied = ALL_VIEWPORTS.map((vw) => flyerWidth(vw).mediaW / 145);
+  const unique = new Set(implied.map((r) => r.toFixed(3)));
   assert(unique.size > 1, "sanity: a 145px flyer height would NOT hold 16:9 across viewports");
+  assert(
+    implied.some((r) => Math.abs(r - RATIO_16_9) > 1e-6),
+    "sanity: 145px height matched 16:9 at every clamp width",
+  );
+  const { issues } = collectFlyerViolations(pxHeight);
+  assert(issues.some((i) => /145px/.test(i)), "detector missed a 145px flyer height (the crop bug)");
 }
 
 // ---------------------------------------------------------------------------
@@ -214,30 +440,8 @@ for (const vw of VIEWPORTS) {
 // ---------------------------------------------------------------------------
 
 {
-  const good = `
-    .card { width: clamp(300px, 22.5vw, 452px); padding: 16px; }
-    .card-media { width: 100%; aspect-ratio: 16 / 9; overflow: hidden; }
-    .card-img { width: 100%; height: 100%; object-fit: cover; }
-  `;
-  const { issues } = collectFlyerViolations(good);
-  assert(issues.length === 0, `good fixture flagged: ${issues.join("; ")}`);
-}
-
-{
-  const pxHeight = `
-    .card-media { width: 100%; height: 145px; }
-    .card-img { width: 100%; object-fit: cover; }
-  `;
-  const { issues } = collectFlyerViolations(pxHeight);
-  assert(
-    issues.some((i) => /145px/.test(i)),
-    "detector missed a 145px flyer height (the crop bug)",
-  );
-}
-
-{
   const fourByThree = `
-    .card-media { width: 100%; aspect-ratio: 4 / 3; }
+    .card-media { width: 100%; aspect-ratio: 4 / 3; overflow: hidden; }
     .card-img { width: 100%; height: 100%; object-fit: cover; }
   `;
   const { issues } = collectFlyerViolations(fourByThree);
@@ -249,8 +453,7 @@ for (const vw of VIEWPORTS) {
 
 {
   const mqHeight = `
-    .card-media { width: 100%; aspect-ratio: 16 / 9; }
-    .card-img { width: 100%; height: 100%; object-fit: cover; }
+    ${GOOD_CSS}
     @media (max-width: 720px) { .card-img { height: 180px; } }
   `;
   const { issues } = collectFlyerViolations(mqHeight);
@@ -262,13 +465,38 @@ for (const vw of VIEWPORTS) {
 
 {
   const maxH = `
-    .card-media { width: 100%; aspect-ratio: 16 / 9; max-height: 221px; }
+    .card-media { width: 100%; aspect-ratio: 16 / 9; max-height: 221px; overflow: hidden; }
     .card-img { width: 100%; height: 100%; object-fit: cover; }
   `;
   const { issues } = collectFlyerViolations(maxH);
   assert(
     issues.some((i) => /max-height/.test(i)),
     "detector missed max-height on the flyer container",
+  );
+}
+
+{
+  const calcHeight = `
+    .card-media { width: 100%; aspect-ratio: 16 / 9; height: calc(100% - 1px); overflow: hidden; }
+    .card-img { width: 100%; height: 100%; object-fit: cover; }
+  `;
+  const { issues } = collectFlyerViolations(calcHeight);
+  assert(
+    issues.some((i) => /calc\(/.test(i)),
+    "detector missed a calc() height on the flyer container",
+  );
+}
+
+{
+  const noOverflow = `
+    .card { width: clamp(300px, 22.5vw, 452px); padding: 16px; }
+    .card-media { width: 100%; aspect-ratio: 16 / 9; }
+    .card-img { width: 100%; height: 100%; object-fit: cover; }
+  `;
+  const { issues } = collectFlyerViolations(noOverflow);
+  assert(
+    issues.some((i) => /overflow/.test(i)),
+    "detector missed missing overflow: hidden on .card-media",
   );
 }
 
@@ -310,6 +538,32 @@ if (indexHtml) {
     "index.html .card-media has a pixel height",
   );
 
+  for (const [name, widths] of Object.entries(VIEWPORTS)) {
+    assertFlyerLockAtViewports(css, widths, `index.html (${name})`);
+  }
+
+  const stripped = css.replace(/aspect-ratio\s*:\s*16\s*\/\s*9/gi, "");
+  const strippedIssues = collectFlyerViolations(stripped).issues;
+  assert(
+    strippedIssues.some((i) => /aspect-ratio/.test(i)),
+    "live CSS with 16/9 removed still passed the detector",
+  );
+  assert(
+    !isSixteenByNine(resolveFlyerStyles(stripped, 1440).aspectRatio),
+    "live CSS with 16/9 removed still cascaded as 16/9",
+  );
+
+  const mutated = css.replace(/aspect-ratio\s*:\s*16\s*\/\s*9/gi, "aspect-ratio: 4 / 3");
+  const mutatedIssues = collectFlyerViolations(mutated).issues;
+  assert(
+    mutatedIssues.some((i) => /4\s*\/\s*3/.test(i)),
+    "live CSS with 4/3 still passed the detector",
+  );
+  assert(
+    !isSixteenByNine(resolveFlyerStyles(mutated, 375).aspectRatio),
+    "live CSS mutated to 4/3 still cascaded as 16/9",
+  );
+
   const wrappedSkeleton = (indexHtml.match(/<div class="card-media">\s*<div class="card-img sk-shimmer">/g) || []).length;
   const skeletonImgs = (indexHtml.match(/class="card-img sk-shimmer"/g) || []).length;
   assert(skeletonImgs >= 1, "index.html skeleton lost .card-img.sk-shimmer");
@@ -327,18 +581,20 @@ if (indexHtml) {
   assert(indexHtml.includes('dateEl.className = "card-date"'), "index.html JS lost the date element");
   assert(indexHtml.includes("body.append(titleEl, venueEl, dateEl)"), "index.html date is no longer in .card-body (would be cropped with the flyer)");
 
-  // Parse clamp + padding from live CSS and re-run the geometric oracle
-  // against the values actually in the stylesheet.
   const clampMatch = (cardWidth || "").match(/clamp\(\s*([\d.]+)px\s*,\s*([\d.]+)vw\s*,\s*([\d.]+)px\s*\)/);
   const padMatch = (cardPad || "").match(/^([\d.]+)px$/);
   if (clampMatch) {
-    const spec = { min: Number(clampMatch[1]), vw: Number(clampMatch[2]) / 100, max: Number(clampMatch[3]), pad: padMatch ? Number(padMatch[1]) : 16 };
-    for (const vw of VIEWPORTS) {
-      const box = flyerBox(vw, spec);
-      assert(
-        Math.abs(box.ratio - 16 / 9) < 1e-9,
-        `live CSS at ${vw}px: flyer ratio ${box.ratio} !== 16/9`,
-      );
+    const spec = {
+      min: Number(clampMatch[1]),
+      vw: Number(clampMatch[2]) / 100,
+      max: Number(clampMatch[3]),
+      pad: padMatch ? Number(padMatch[1]) : 16,
+    };
+    for (const vw of ALL_VIEWPORTS) {
+      const { mediaW } = flyerWidth(vw, spec);
+      const resolved = resolveFlyerStyles(css, vw);
+      assert(isSixteenByNine(resolved.aspectRatio), `live CSS at ${vw}px: parsed aspect-ratio ${resolved.aspectRatio}`);
+      assert(mediaW > 0, `live CSS at ${vw}px: flyer width collapsed`);
     }
   } else {
     fail(`index.html .card width is not clamp(min px, vw, max px): ${cardWidth}`);
