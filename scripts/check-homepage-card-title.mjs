@@ -357,6 +357,61 @@ assert(
   "applyOverrides title-only rename after dedupe must keep img"
 );
 
+const perennialProjects = {
+  "site-event:draft-prod-6830-live": {
+    id: "draft-prod-6830-live",
+    otraGuideId: 6830,
+    title: seedTitle,
+    status: "published",
+    isPerennial: true,
+    startDate: "2999-03-04T12:00:00-04:00",
+    image: seedImg,
+  },
+};
+const perennialKv = {
+  async list({ prefix }) {
+    return {
+      keys: prefix === "site-event:" ? Object.keys(perennialProjects).map((name) => ({ name })) : [],
+      list_complete: true,
+    };
+  },
+  async get(key) {
+    return perennialProjects[key] || null;
+  },
+};
+const originalFetch = globalThis.fetch;
+globalThis.fetch = async (url) => {
+  if (String(url).endsWith("/events/details/6830/")) {
+    return new Response(JSON.stringify({
+      id: 6830,
+      title: djangoTitle,
+      full_web_image_url: djangoImg,
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  }
+  return new Response("{}", { status: 404 });
+};
+let perennialSite;
+try {
+  perennialSite = await buildPublishedSiteEvents({
+    OVERRIDES: perennialKv,
+    OTRA_API_URL: "https://mock.invalid/api",
+  });
+} finally {
+  globalThis.fetch = originalFetch;
+}
+assert(
+  perennialSite[0]?.title === djangoTitle,
+  "bound perennial without an upstream twin must take the Django detail title"
+);
+assert(
+  perennialSite[0]?.img === djangoImg,
+  "bound perennial Django title refresh must still use the current detail hero"
+);
+assert(
+  homepageEventSlugBase(perennialSite[0]) === eventSlug(djangoTitle),
+  "bound perennial without a title override must slug from the Django title"
+);
+
 const overridesSrc = readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), "../functions/admin/api/overrides.js"),
   "utf8"

@@ -548,26 +548,30 @@ export async function buildPublishedSiteEvents(env, { includeAdminOnly = false }
         overrideImg = "";
         overrideTitle = "";
       }
-      // Perennial events are not reliably present in the category feed, so
-      // there may be no upstream duplicate for dedupeEvents to refresh from.
-      // Read their current detail hero directly; this is the same source used
-      // by the event page and prevents a bind-time project image becoming
-      // permanently stale. An explicit Tickets hero edit still wins.
-      let currentDetailImg = "";
-      if (!overrideImg && project.isPerennial === true && /^\d+$/.test(id)) {
-        const detail = await fetchJson(`${apiBase(env)}/events/details/${id}/`);
-        currentDetailImg = eventCardImage(detail);
-      }
       const curatedTitle = projectCardTitle(project);
       const design = project.claudeDesign && typeof project.claudeDesign === "object" ? project.claudeDesign : {};
       const displayTitle = typeof design.displayTitle === "string" ? design.displayTitle.trim() : "";
       // Same order as the event page: text:#evTitle, then design.displayTitle.
-      // Bound cards without either take the live Django title in dedupeEvents.
+      // Bound cards without either take the live Django title.
       const pageTitle = overrideTitle || displayTitle;
       const isBound = /^\d+$/.test(String(project.otraGuideId || ""));
+      // Perennial events are not reliably present in the category feed, so
+      // there may be no upstream duplicate for dedupeEvents to refresh from.
+      // Read their current detail hero/title directly; this is the same source
+      // used by the event page. An explicit Tickets hero or title still wins.
+      let currentDetailImg = "";
+      let currentDetailTitle = "";
+      const fetchForImg = !overrideImg && project.isPerennial === true && isBound;
+      const fetchForTitle = !pageTitle && project.isPerennial === true && isBound;
+      if (fetchForImg || fetchForTitle) {
+        const detail = await fetchJson(`${apiBase(env)}/events/details/${id}/`);
+        if (fetchForImg) currentDetailImg = eventCardImage(detail);
+        const liveTitle = detail && typeof detail.title === "string" ? detail.title.trim() : "";
+        if (fetchForTitle && liveTitle) currentDetailTitle = liveTitle;
+      }
       out.push({
         id,
-        title: pageTitle || curatedTitle,
+        title: pageTitle || currentDetailTitle || curatedTitle,
         date: startDate,
         endDate,
         isPerennial: project.isPerennial === true,
