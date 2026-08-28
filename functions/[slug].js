@@ -32,15 +32,15 @@ export async function onRequestGet(context) {
   if (retiredTarget) return permanentRedirect(retiredTarget);
   const aliasTarget = SLUG_ALIASES.get(slug);
   if (!isEventSlug(slug) || STATIC_PATHS.has(slug)) {
-    if (aliasTarget) return permanentRedirect(aliasTarget);
+    if (aliasTarget) return aliasRedirect(aliasTarget);
     return context.env.ASSETS.fetch(context.request);
   }
 
   // Frozen live slugs (iguana-ride-e-scooter-...) must 200 when the feed
-  // still lists them, even if an alias also lists that path. The 301 is
+  // still lists them, even if an alias also lists that path. The 302 is
   // only a safety net when the feed is healthy, this slug is genuinely
   // missing, AND the alias target is present in that same events list.
-  // Never 301 to a slug the current feed would 404. Empty or failed
+  // Never redirect to a slug the current feed would 404. Empty or failed
   // feed returns 404 no-store.
   let event = null;
   let feedHealthy = false;
@@ -73,7 +73,7 @@ export async function onRequestGet(context) {
   if (event) {
     // serve below
   } else if (feedHealthy && aliasTarget && aliasTargetPresent) {
-    return permanentRedirect(aliasTarget);
+    return aliasRedirect(aliasTarget);
   } else {
     return notFound();
   }
@@ -237,6 +237,16 @@ function permanentRedirect(location) {
   return new Response(null, {
     status: 301,
     headers: { location, "cache-control": "public, max-age=3600" },
+  });
+}
+
+// Alias safety net only. 302 and Cache-Control no-store so a transient
+// miss cannot pin a live frozen URL onto a Django slug. Retired paths
+// keep permanentRedirect.
+function aliasRedirect(location) {
+  return new Response(null, {
+    status: 302,
+    headers: { location, "cache-control": "no-store" },
   });
 }
 

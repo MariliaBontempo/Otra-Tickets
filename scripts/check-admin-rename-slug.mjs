@@ -598,6 +598,98 @@ function publishedDraft(overrides = {}) {
   assert(homepageEventSlugBase(site[0]) === "brand", "Brand feed slug stays brand after the rename stamp");
 }
 
+// Later publish of a legacy Sunday Social (clone) stamps the live base.
+{
+  const kv = makeKv({
+    "site-event:draft-clone-republish": {
+      id: "draft-clone-republish",
+      title: "Sunday Social (clone)",
+      status: "published",
+      publishedAt: "2026-08-01T12:00:00.000Z",
+      otraGuideId: "203",
+      otraGuideSlug: "203",
+      usesExistingOtraGuideEvent: true,
+      startDate: "2026-09-13T17:00:00-04:00",
+      image: seedImg,
+    },
+  });
+  const published = await publishProject(kv, "draft-clone-republish");
+  assert(published.response.status === 200, `legacy clone later publish must succeed (got ${published.response.status})`);
+  assert(
+    published.body.project?.frozenSlug === "sunday-social-clone",
+    "later publish of a legacy Sunday Social (clone) must stamp sunday-social-clone"
+  );
+  assert(
+    published.body.project?.frozenSlug !== "sunday-social",
+    "later publish of a legacy clone must not remint to sunday-social"
+  );
+}
+
+// Later publish of a legacy Brand row stamps brand, not brand-night-tour.
+{
+  const kv = makeKv({
+    "site-event:draft-brand-republish": {
+      id: "draft-brand-republish",
+      title: "Brand - Night Tour",
+      status: "published",
+      publishedAt: "2026-08-01T12:00:00.000Z",
+      otraGuideId: "8803",
+      otraGuideSlug: "8803",
+      usesExistingOtraGuideEvent: true,
+      startDate: "2999-04-03T12:00:00-04:00",
+      image: seedImg,
+      claudeDesign: { displayTitle: "Brand", subtitle: "Night Tour" },
+    },
+  });
+  const published = await publishProject(kv, "draft-brand-republish");
+  assert(published.response.status === 200, `legacy Brand later publish must succeed (got ${published.response.status})`);
+  assert(
+    published.body.project?.frozenSlug === "brand",
+    "later publish of a legacy Brand row must stamp the live brand base"
+  );
+  assert(
+    published.body.project?.frozenSlug !== "brand-night-tour",
+    "later publish of a legacy Brand row must not remint to brand-night-tour"
+  );
+}
+
+// Homepage row with status published and no publishedAt still stamps liveSlugBase.
+{
+  const kv = makeKv({
+    "site-event:draft-home-republish": {
+      id: "draft-home-republish",
+      title: "Sunday Social (clone)",
+      status: "published",
+      publishedAt: "",
+      otraGuideId: "204",
+      otraGuideSlug: "204",
+      usesExistingOtraGuideEvent: true,
+      startDate: "2026-09-20T17:00:00-04:00",
+      image: seedImg,
+    },
+  });
+  const published = await publishProject(kv, "draft-home-republish");
+  assert(
+    published.body.project?.frozenSlug === "sunday-social-clone",
+    "a homepage row with status published and no publishedAt must stamp sunday-social-clone"
+  );
+}
+
+// Later publish of a published row that already has frozenSlug does not overwrite.
+{
+  const kv = makeKv({
+    "site-event:draft-night": publishedDraft({
+      title: "Changed After Going Live",
+      frozenSlug: seedSlug,
+    }),
+  });
+  const published = await publishProject(kv, "draft-night");
+  assert(
+    published.body.project?.frozenSlug === seedSlug,
+    "later publish must keep an already stamped frozenSlug"
+  );
+}
+
 // Clone clears frozenSlug; first publish of the clone mints without the word clone.
 {
   const kv = makeKv({

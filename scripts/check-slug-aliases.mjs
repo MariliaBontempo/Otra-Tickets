@@ -3,9 +3,10 @@
 //
 // Production still serves the pre-rename Iguana Ride E-Scooter pretty URLs.
 // Bound cards keep those frozen slugs, so those paths 200 while the live
-// event is in the feed. The alias 301 to the Django title slug is only for
+// event is in the feed. The alias 302 to the Django title slug is only for
 // a genuine miss on a healthy feed (ok response, non empty events array).
-// An empty or failed feed must 404, never 301 to a slug that 404s in production.
+// Alias 302 is Cache-Control no-store. An empty or failed feed must 404,
+// never redirect to a slug that 404s in production.
 //
 // Run: node scripts/check-slug-aliases.mjs
 
@@ -214,10 +215,14 @@ for (const [from, title] of GOLDEN) {
     targetPresentResponse = null;
   }
   if (targetPresentResponse) {
-    assert(targetPresentResponse.status === 301, `/${from} on a healthy miss whose target is present returned ${targetPresentResponse.status}, expected 301`);
+    assert(targetPresentResponse.status === 302, `/${from} on a healthy miss whose target is present returned ${targetPresentResponse.status}, expected 302`);
     assert(
       targetPresentResponse.headers.get("location") === expected,
       `/${from} on a healthy miss whose target is present redirects to ${targetPresentResponse.headers.get("location")}, expected ${expected}`,
+    );
+    assert(
+      String(targetPresentResponse.headers.get("cache-control") || "").includes("no-store"),
+      `/${from} on a healthy miss whose target is present must be 302 no-store (got ${targetPresentResponse.headers.get("cache-control")})`,
     );
   }
 }
@@ -245,4 +250,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log("PASS slug-aliases: freeze 200 on a healthy feed, 301 only when the target is in that feed, 404 no-store otherwise");
+console.log("PASS slug-aliases: freeze 200 on a healthy feed, 302 no-store only when the target is in that feed, 404 no-store otherwise");

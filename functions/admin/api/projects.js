@@ -214,13 +214,18 @@ export async function onRequestPost(context) {
           photoWarning = `photo sync failed: ${error.message}`;
         }
       }
+      // A row already on the homepage (status published, or it already
+      // had publishedAt) keeps the live pretty URL. Stamp frozenSlug
+      // from liveSlugBase, never mintFrozenSlug / eventSlugFromTitle.
+      // First publish of a draft still mints with clone stripped.
+      const alreadyPublished = project.status === "published" || Boolean(project.publishedAt);
       const next = {
         ...reconciled,
         status: "published",
         publishedAt: new Date().toISOString(),
         otraGuidePublished: publishOtraGuide || reconciled.otraGuidePublished === true,
         syncError: photoWarning,
-        frozenSlug: mintFrozenSlug(reconciled),
+        frozenSlug: alreadyPublished ? liveSlugBase(reconciled) : mintFrozenSlug(reconciled),
       };
       await putProject(kv, next);
       return json(photoWarning ? { project: next, warning: photoWarning } : { project: next });
