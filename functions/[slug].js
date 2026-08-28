@@ -31,20 +31,34 @@ export async function onRequestGet(context) {
   const retiredTarget = RETIRED_PATHS.get(slug);
   if (retiredTarget) return permanentRedirect(retiredTarget);
   const aliasTarget = SLUG_ALIASES.get(slug);
-  if (aliasTarget) return permanentRedirect(aliasTarget);
   if (!isEventSlug(slug) || STATIC_PATHS.has(slug)) {
+    if (aliasTarget) return permanentRedirect(aliasTarget);
     return context.env.ASSETS.fetch(context.request);
   }
 
-  const feedUrl = new URL("/api/homepage-events", context.request.url);
-  const feedResponse = await getHomepageEvents({ ...context, request: new Request(feedUrl) });
-  if (!feedResponse.ok) return notFound();
-
-  const feed = await feedResponse.json().catch(() => null);
-  const event = Array.isArray(feed && feed.events)
-    ? feed.events.find((item) => item && item.slug === slug)
-    : null;
-  if (!event) return notFound();
+  // Frozen live slugs (iguana-ride-e-scooter-...) must 200 even when an
+  // alias also lists that path. The 301 is only a safety net for when the
+  // feed no longer serves that slug.
+  let event = null;
+  try {
+    const feedUrl = new URL("/api/homepage-events", context.request.url);
+    const feedResponse = await getHomepageEvents({ ...context, request: new Request(feedUrl) });
+    if (feedResponse.ok) {
+      const feed = await feedResponse.json().catch(() => null);
+      event = Array.isArray(feed && feed.events)
+        ? feed.events.find((item) => item && item.slug === slug)
+        : null;
+    }
+  } catch {
+    event = null;
+  }
+  if (event) {
+    // serve below
+  } else if (aliasTarget) {
+    return permanentRedirect(aliasTarget);
+  } else {
+    return notFound();
+  }
 
   const id = String(event.id || "");
   const assetPath = SPECIAL_EVENT_ASSETS[id] || "/event";

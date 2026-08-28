@@ -69,13 +69,15 @@ const HOMEPAGE_TIME_ZONE = "America/Curacao";
 // allowing dedupeEvents to distinguish a deliberately edited hero from the
 // stale image captured when a draft was first linked to Otra Guide.
 const HAS_HERO_OVERRIDE = Symbol("hasHeroOverride");
-// Parallel marker for a title the event page actually shows (text:#evTitle
-// or design.displayTitle). Bound cards without this take the live Django
-// title during dedupe, the same way a missing hero override refreshes img.
+// Parallel marker for a title the event page actually shows (text:#evTitle).
+// Bound cards without this take the live Django title during dedupe, the
+// same way a missing hero override refreshes img. design.displayTitle is
+// shared brand copy, not a per-card label, so it is not a title override.
 const HAS_TITLE_OVERRIDE = Symbol("hasTitleOverride");
 // When an admin renames the detail title via text:#evTitle, the card label
-// follows. The pretty URL stays rooted in the event-page slug: Django title
-// for a bound event, curated project.title for an unbound draft.
+// follows. Pretty URLs stay frozen on the curated / seed title already
+// live on the card (e.g. iguana-ride-e-scooter-...). A live Django rename
+// must never move a URL that is already public.
 const SLUG_SOURCE = Symbol("slugSource");
 
 // Build the full { events, rows } homepage payload.
@@ -549,33 +551,34 @@ export async function buildPublishedSiteEvents(env, { includeAdminOnly = false }
         overrideTitle = "";
       }
       const curatedTitle = projectCardTitle(project);
-      const design = project.claudeDesign && typeof project.claudeDesign === "object" ? project.claudeDesign : {};
-      const displayTitle = typeof design.displayTitle === "string" ? design.displayTitle.trim() : "";
-      // Same order as the event page: text:#evTitle, then design.displayTitle.
-      // Bound cards without either take the live Django title.
-      const pageTitle = overrideTitle || displayTitle;
+      // Card title is text:#evTitle only — not design.displayTitle. That
+      // field is a shared brand line (e.g. "Iguana Ride Curaçao") reused
+      // across sibling events; projectCardTitle already keeps hero copy
+      // off cards when no admin rename exists.
+      const pageTitle = overrideTitle;
       const isBound = /^\d+$/.test(String(project.otraGuideId || ""));
       // Perennial events are not reliably present in the category feed, so
       // there may be no upstream duplicate for dedupeEvents to refresh from.
       // Read their current detail hero/title directly; this is the same source
       // used by the event page. An explicit Tickets hero still wins for img;
-      // text:#evTitle / displayTitle still win for the visible title, but a
-      // bound event always needs the live Django title for SLUG_SOURCE.
+      // text:#evTitle still wins for the visible title. Live Django title
+      // is fetched for bound perennial CARDS only. Pretty URLs stay on the
+      // curated / seed title — never rebuild SLUG_SOURCE from a live rename.
       let currentDetailImg = "";
       let currentDetailTitle = "";
       const fetchForImg = !overrideImg && project.isPerennial === true && isBound;
-      const fetchForTitle = isBound && (project.isPerennial === true || Boolean(pageTitle));
+      const fetchForTitle = isBound && project.isPerennial === true;
       if (fetchForImg || fetchForTitle) {
         const detail = await fetchJson(`${apiBase(env)}/events/details/${id}/`);
         if (fetchForImg) currentDetailImg = eventCardImage(detail);
         const liveTitle = detail && typeof detail.title === "string" ? detail.title.trim() : "";
         if (liveTitle) currentDetailTitle = liveTitle;
       }
-      // Bound: live Django title. Unbound: project.title when the card shows
-      // displayTitle / text:#evTitle so those never become the pretty URL.
-      const slugSource = isBound
-        ? currentDetailTitle
-        : (pageTitle ? curatedTitle : "");
+      // Freeze pretty URLs on the curated / seed title. Dated events keep
+      // bingo-bengo-sep-6; Iguana tours keep iguana-ride-e-scooter-... even
+      // when the card shows a live Django title or text:#evTitle.
+      const visibleTitle = pageTitle || currentDetailTitle || curatedTitle;
+      const slugSource = curatedTitle && curatedTitle !== visibleTitle ? curatedTitle : "";
       out.push({
         id,
         title: pageTitle || currentDetailTitle || curatedTitle,
@@ -760,10 +763,12 @@ export function dedupeEvents(events) {
     // (full) image from the matching Otra Guide event, exactly as detail does.
     if (!kept[HAS_HERO_OVERRIDE] && event.img) kept.img = event.img;
     if (event.title) {
-      if (!kept[HAS_TITLE_OVERRIDE]) kept.title = event.title;
-      // Upstream copy is the live Django title. Bound pretty URLs stay on
-      // that even when the visible title is text:#evTitle / displayTitle.
-      kept[SLUG_SOURCE] = event.title;
+      if (!kept[HAS_TITLE_OVERRIDE]) {
+        // Freeze the pretty URL on the title already on the card (seed /
+        // curated) before the visible label refreshes from Django.
+        if (!kept[SLUG_SOURCE] && kept.title) kept[SLUG_SOURCE] = kept.title;
+        kept.title = event.title;
+      }
     }
   }
   return [...byId.values()];
@@ -810,10 +815,9 @@ export async function applyOverrides(events, env) {
     const next = { ...ev };
     if (image) next.img = image;
     if (title) {
-      // Bound events already carry Django in SLUG_SOURCE (details fetch or
-      // dedupe). Do not fall back to ev.title when that is already the
-      // override — ev[SLUG_SOURCE] || ev.title only helps Django-only cards
-      // and unbound drafts whose title is still the curated project.title.
+      // Freeze the pretty URL on the title already on the card (seed /
+      // curated, or the Django feed title for events with no site-event).
+      // text:#evTitle must not become the slug.
       next[SLUG_SOURCE] = ev[SLUG_SOURCE] || ev.title;
       next.title = title;
       next[HAS_TITLE_OVERRIDE] = true;

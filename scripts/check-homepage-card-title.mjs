@@ -1,9 +1,12 @@
-// Oracle: homepage cards use the same title the event page shows.
+#!/usr/bin/env node
+// Oracle: homepage card titles stay distinguishable; pretty URLs stay frozen.
 //   1. text:#evTitle when an admin renamed the H1
-//   2. else design.displayTitle
-//   3. else the live Django title when the site-event is bound
-//   4. else project.title for unbound drafts
-// Pretty URL stays rooted in the event-page slug (Django title when bound).
+//   2. else the live Django title for bound perennials
+//   3. else projectCardTitle / curated title
+// design.displayTitle is event-page H1 / brand copy, never a card title
+// (sibling Iguana / Clearboat events share one brand line).
+// Pretty URL stays on the curated / seed title already live
+// (iguana-ride-e-scooter-..., bingo-bengo-sep-6). Never rebuild from Django.
 // Run: node scripts/check-homepage-card-title.mjs
 
 import {
@@ -265,12 +268,12 @@ assert(
   "title-only override must still keep (and refresh) img when there is no hero override"
 );
 assert(
-  homepageEventSlugBase(evTitleKept) === eventSlug(djangoTitle),
-  "after text:#evTitle rename, homepageEventSlugBase must stay on the Django title, not the seed [E-Scooter] title"
+  homepageEventSlugBase(evTitleKept) === eventSlug(seedTitle),
+  "after text:#evTitle rename, pretty URL must stay on the seed e-scooter slug"
 );
 assert(
-  homepageEventSlugBase(evTitleKept) !== eventSlug(seedTitle),
-  "renamed bound card must not keep the seed e-scooter slug"
+  homepageEventSlugBase(evTitleKept) !== eventSlug(djangoTitle),
+  "renamed bound card must not move the slug onto the live Django title"
 );
 
 const displayProjects = {
@@ -301,8 +304,12 @@ const [displayKept] = dedupeEvents([
   { id: 6831, title: "Iguana Scooter Ride Night Tour", img: djangoImg },
 ]);
 assert(
-  displayKept?.title === "Night Ride Display Title",
-  "design.displayTitle must win over the Django title when text:#evTitle is absent"
+  displayKept?.title === "Iguana Scooter Ride Night Tour",
+  "design.displayTitle must not replace the Django / curated card title"
+);
+assert(
+  displayKept?.title !== "Night Ride Display Title",
+  "shared design.displayTitle must stay off the homepage card"
 );
 
 const unboundProjects = {
@@ -349,8 +356,12 @@ assert(
   "applyOverrides text:#evTitle must still win after Django title refresh"
 );
 assert(
-  homepageEventSlugBase(renamedAfterDedupe[0]) === eventSlug(djangoTitle),
-  "applyOverrides rename after dedupe must root the slug in the Django title"
+  homepageEventSlugBase(renamedAfterDedupe[0]) === eventSlug(seedTitle),
+  "applyOverrides rename after dedupe must keep the seed e-scooter slug"
+);
+assert(
+  homepageEventSlugBase(renamedAfterDedupe[0]) !== eventSlug(djangoTitle),
+  "applyOverrides rename after dedupe must not move the slug onto Django"
 );
 assert(
   renamedAfterDedupe[0]?.img === djangoImg,
@@ -408,8 +419,12 @@ assert(
   "bound perennial Django title refresh must still use the current detail hero"
 );
 assert(
-  homepageEventSlugBase(perennialSite[0]) === eventSlug(djangoTitle),
-  "bound perennial without a title override must slug from the Django title"
+  homepageEventSlugBase(perennialSite[0]) === eventSlug(seedTitle),
+  "bound perennial card may show Django but the pretty URL stays on the seed slug"
+);
+assert(
+  homepageEventSlugBase(perennialSite[0]) !== eventSlug(djangoTitle),
+  "bound perennial must not rebuild the slug from the live Django title"
 );
 
 const prodOverrideTitle = "OTROBANDA OR PUNDA RIDE";
@@ -468,16 +483,16 @@ assert(
   "bound perennial text:#evTitle must stay the visible card title"
 );
 assert(
-  homepageEventSlugBase(prodBound[0]) === eventSlug(prodDjangoTitle),
-  "bound perennial with text:#evTitle must slug from the live Django title, not the override or E-Scooter seed"
+  homepageEventSlugBase(prodBound[0]) === eventSlug(seedTitle),
+  "bound perennial with text:#evTitle must keep the seed e-scooter slug"
 );
 assert(
   homepageEventSlugBase(prodBound[0]) !== eventSlug(prodOverrideTitle),
   "bound perennial slug must not follow OTROBANDA OR PUNDA RIDE"
 );
 assert(
-  homepageEventSlugBase(prodBound[0]) !== eventSlug(seedTitle),
-  "bound perennial slug must not follow the E-Scooter seed title"
+  homepageEventSlugBase(prodBound[0]) !== eventSlug(prodDjangoTitle),
+  "bound perennial slug must not follow the live Django title"
 );
 
 const fancyProjects = {
@@ -503,8 +518,12 @@ const fancyKv = {
 };
 const fancySite = await buildPublishedSiteEvents({ OVERRIDES: fancyKv });
 assert(
-  fancySite[0]?.title === "Fancy Name",
-  "unbound draft card must show design.displayTitle"
+  fancySite[0]?.title === "Draft Tour",
+  "unbound draft card must stay on projectCardTitle, not shared displayTitle"
+);
+assert(
+  fancySite[0]?.title !== "Fancy Name",
+  "unbound draft homepage card must not promote design.displayTitle"
 );
 assert(
   homepageEventSlugBase(fancySite[0]) === eventSlug("Draft Tour"),
@@ -572,10 +591,294 @@ assert(
   }
 }
 
+const sharedBrand = "Iguana Ride Curaçao";
+const nightDjango = "Iguana Scooter Ride - Night Tour";
+const sunsetDjango = "Iguana Scooter Ride - Sunset Tour";
+const nightSeed = "Iguana Ride [E-Scooter] Night Tour";
+const sunsetSeed = "Iguana Ride [E-Scooter] Sunset Tour";
+const nightRename = "Admin Night Rename";
+
+const sharedBrandProjects = {
+  "site-event:draft-night-brand": {
+    id: "draft-night-brand",
+    otraGuideId: 6831,
+    title: nightSeed,
+    status: "published",
+    isPerennial: true,
+    startDate: "2999-03-07T12:00:00-04:00",
+    image: seedImg,
+    claudeDesign: { displayTitle: sharedBrand },
+  },
+  "site-event:draft-sunset-brand": {
+    id: "draft-sunset-brand",
+    otraGuideId: 6832,
+    title: sunsetSeed,
+    status: "published",
+    isPerennial: true,
+    startDate: "2999-03-08T12:00:00-04:00",
+    image: seedImg,
+    claudeDesign: { displayTitle: sharedBrand },
+  },
+};
+const sharedBrandOverrides = {
+  "event:draft-night-brand": {
+    fields: {
+      "text:#evTitle": { type: "text", value: nightRename },
+    },
+  },
+};
+const sharedBrandKv = {
+  async list({ prefix }) {
+    return {
+      keys: prefix === "site-event:" ? Object.keys(sharedBrandProjects).map((name) => ({ name })) : [],
+      list_complete: true,
+    };
+  },
+  async get(key) {
+    return sharedBrandProjects[key] || sharedBrandOverrides[key] || null;
+  },
+};
+const sharedFetch = globalThis.fetch;
+globalThis.fetch = async (url) => {
+  const href = String(url);
+  if (href.endsWith("/events/details/6831/")) {
+    return new Response(JSON.stringify({
+      id: 6831,
+      title: nightDjango,
+      full_web_image_url: djangoImg,
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  }
+  if (href.endsWith("/events/details/6832/")) {
+    return new Response(JSON.stringify({
+      id: 6832,
+      title: sunsetDjango,
+      full_web_image_url: djangoImg,
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  }
+  return new Response("{}", { status: 404 });
+};
+let sharedSite;
+try {
+  sharedSite = await buildPublishedSiteEvents({
+    OVERRIDES: sharedBrandKv,
+    OTRA_API_URL: "https://mock.invalid/api",
+  });
+} finally {
+  globalThis.fetch = sharedFetch;
+}
+const sharedById = new Map(sharedSite.map((event) => [String(event.id), event]));
+assert(
+  sharedById.get("6831")?.title === nightRename,
+  "text:#evTitle still wins on a bound perennial that shares a brand displayTitle"
+);
+assert(
+  sharedById.get("6832")?.title === sunsetDjango,
+  "bound perennial without evTitle must show the live Django title, not the shared brand"
+);
+assert(
+  sharedById.get("6831")?.title !== sharedBrand && sharedById.get("6832")?.title !== sharedBrand,
+  "sibling bound perennials that share displayTitle Iguana Ride Curaçao must not both become that brand line"
+);
+assert(
+  sharedById.get("6831")?.title !== sharedById.get("6832")?.title,
+  "Night vs Sunset cards must stay distinguishable when they share a brand displayTitle"
+);
+assert(
+  homepageEventSlugBase(sharedById.get("6831")) === eventSlug(nightSeed),
+  "Night pretty URL must stay on the old e-scooter slug"
+);
+assert(
+  homepageEventSlugBase(sharedById.get("6832")) === eventSlug(sunsetSeed),
+  "Sunset pretty URL must stay on the old e-scooter slug"
+);
+assert(
+  homepageEventSlugBase(sharedById.get("6831")) !== eventSlug(nightDjango),
+  "Night slug must not move onto the live Django title"
+);
+assert(
+  homepageEventSlugBase(sharedById.get("6832")) !== eventSlug(sunsetDjango),
+  "Sunset slug must not move onto the live Django title"
+);
+
+const datedCurated = "Bingo Bengo Sep 6";
+const datedProjects = {
+  "site-event:draft-bingo-dated": {
+    id: "draft-bingo-dated",
+    otraGuideId: 7522,
+    title: datedCurated,
+    status: "published",
+    isPerennial: false,
+    startDate: "2999-09-06T12:00:00-04:00",
+    image: seedImg,
+    claudeDesign: { displayTitle: "Bingo Night Brand" },
+  },
+};
+const datedKv = {
+  async list({ prefix }) {
+    return {
+      keys: prefix === "site-event:" ? Object.keys(datedProjects).map((name) => ({ name })) : [],
+      list_complete: true,
+    };
+  },
+  async get(key) {
+    return datedProjects[key] || null;
+  },
+};
+const datedFetch = globalThis.fetch;
+let datedDetailsFetched = false;
+globalThis.fetch = async (url) => {
+  if (String(url).includes("/events/details/7522/")) {
+    datedDetailsFetched = true;
+    return new Response(JSON.stringify({
+      id: 7522,
+      title: "Bingo Bengo Live Django",
+      full_web_image_url: djangoImg,
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  }
+  return new Response("{}", { status: 404 });
+};
+let datedSite;
+try {
+  datedSite = await buildPublishedSiteEvents({
+    OVERRIDES: datedKv,
+    OTRA_API_URL: "https://mock.invalid/api",
+  });
+} finally {
+  globalThis.fetch = datedFetch;
+}
+assert(
+  datedSite[0]?.title === datedCurated,
+  "dated bound event card must stay on the curated title, not displayTitle or Django"
+);
+assert(
+  datedSite[0]?.title !== "Bingo Night Brand",
+  "dated bound event must not promote design.displayTitle onto the card"
+);
+assert(
+  homepageEventSlugBase(datedSite[0]) === eventSlug(datedCurated),
+  "dated (non-perennial) bound event must keep its curated slug even if displayTitle is set"
+);
+assert(
+  homepageEventSlugBase(datedSite[0]) !== eventSlug("Bingo Bengo Live Django"),
+  "dated bound event must not move SLUG_SOURCE onto the live Django title"
+);
+assert(
+  datedDetailsFetched === false,
+  "dated bound event must not fetch Django details just because displayTitle is set"
+);
+
+const citySeed = "Iguana Ride [E-Scooter] City Combo Tour";
+const pundaSeed = "Iguana Ride [E-Scooter] Punda or Otrobanda Tour";
+const cityDjango = "Iguana Scooter Ride - City Combo Tour";
+const pundaDjango = "Iguana Scooter Ride - Punda or Otrobanda Tour";
+const pundaEvTitle = "OTROBANDA OR PUNDA RIDE";
+const iguanaFourProjects = {
+  "site-event:draft-6827": {
+    id: "draft-6827",
+    otraGuideId: 6827,
+    title: citySeed,
+    status: "published",
+    isPerennial: true,
+    startDate: "2999-03-09T12:00:00-04:00",
+    image: seedImg,
+    claudeDesign: { displayTitle: sharedBrand },
+  },
+  "site-event:draft-6830": {
+    id: "draft-6830",
+    otraGuideId: 6830,
+    title: pundaSeed,
+    status: "published",
+    isPerennial: true,
+    startDate: "2999-03-10T12:00:00-04:00",
+    image: seedImg,
+    claudeDesign: { displayTitle: sharedBrand },
+  },
+  "site-event:draft-6831-four": {
+    id: "draft-6831-four",
+    otraGuideId: 6831,
+    title: nightSeed,
+    status: "published",
+    isPerennial: true,
+    startDate: "2999-03-11T12:00:00-04:00",
+    image: seedImg,
+    claudeDesign: { displayTitle: sharedBrand },
+  },
+  "site-event:draft-6832-four": {
+    id: "draft-6832-four",
+    otraGuideId: 6832,
+    title: sunsetSeed,
+    status: "published",
+    isPerennial: true,
+    startDate: "2999-03-12T12:00:00-04:00",
+    image: seedImg,
+    claudeDesign: { displayTitle: sharedBrand },
+  },
+};
+const iguanaFourOverrides = {
+  "event:draft-6830": {
+    fields: {
+      "text:#evTitle": { type: "text", value: pundaEvTitle },
+    },
+  },
+};
+const iguanaFourKv = {
+  async list({ prefix }) {
+    return {
+      keys: prefix === "site-event:" ? Object.keys(iguanaFourProjects).map((name) => ({ name })) : [],
+      list_complete: true,
+    };
+  },
+  async get(key) {
+    return iguanaFourProjects[key] || iguanaFourOverrides[key] || null;
+  },
+};
+const fourFetch = globalThis.fetch;
+globalThis.fetch = async (url) => {
+  const href = String(url);
+  const titles = {
+    "6827": cityDjango,
+    "6830": pundaDjango,
+    "6831": nightDjango,
+    "6832": sunsetDjango,
+  };
+  for (const [id, title] of Object.entries(titles)) {
+    if (href.endsWith(`/events/details/${id}/`)) {
+      return new Response(JSON.stringify({
+        id: Number(id),
+        title,
+        full_web_image_url: djangoImg,
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+  }
+  return new Response("{}", { status: 404 });
+};
+let iguanaFour;
+try {
+  iguanaFour = await buildPublishedSiteEvents({
+    OVERRIDES: iguanaFourKv,
+    OTRA_API_URL: "https://mock.invalid/api",
+  });
+} finally {
+  globalThis.fetch = fourFetch;
+}
+const fourById = new Map(iguanaFour.map((event) => [String(event.id), event]));
+assert(fourById.get("6827")?.title === cityDjango, "6827 card must show the live Django title");
+assert(fourById.get("6830")?.title === pundaEvTitle, "6830 card must show text:#evTitle when present");
+assert(fourById.get("6831")?.title === nightDjango, "6831 card must show the live Django title");
+assert(fourById.get("6832")?.title === sunsetDjango, "6832 card must show the live Django title");
+assert(
+  [6827, 6830, 6831, 6832].every((id) => fourById.get(String(id))?.title !== sharedBrand),
+  "6827/6830/6831/6832 cards must not all become Iguana Ride Curaçao"
+);
+assert(homepageEventSlugBase(fourById.get("6827")) === eventSlug(citySeed), "6827 slug stays iguana-ride-e-scooter-city-combo-tour");
+assert(homepageEventSlugBase(fourById.get("6830")) === eventSlug(pundaSeed), "6830 slug stays iguana-ride-e-scooter-punda-or-otrobanda-tour");
+assert(homepageEventSlugBase(fourById.get("6831")) === eventSlug(nightSeed), "6831 slug stays iguana-ride-e-scooter-night-tour");
+assert(homepageEventSlugBase(fourById.get("6832")) === eventSlug(sunsetSeed), "6832 slug stays iguana-ride-e-scooter-sunset-tour");
+
 if (failures.length) {
   console.error("check-homepage-card-title FAILED:");
   failures.forEach((failure) => console.error(" - " + failure));
   process.exit(1);
 }
 
-console.log("check-homepage-card-title OK (cards follow event-page title; bound slug stays on Django title)");
+console.log("check-homepage-card-title OK (cards distinguishable; slugs frozen on seed; displayTitle off cards)");
