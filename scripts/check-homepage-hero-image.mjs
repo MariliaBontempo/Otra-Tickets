@@ -141,8 +141,8 @@ assert(
   'a bound draft without a hero edit must use the current first detail photo, not its stale bind image'
 );
 assert(
-  mergedBoundEvent?.title === 'Published Draft With Stale Image',
-  'refreshing the bound hero must preserve the curated Tickets title'
+  mergedBoundEvent?.title === 'Otra Guide title',
+  'a bound draft without a title override must use the live Otra Guide title'
 );
 
 if (failures.length) {

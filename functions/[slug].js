@@ -1,4 +1,5 @@
 import { eventSlug } from "./_lib/event-slug.js";
+import { SLUG_ALIASES } from "./_lib/slug-aliases.js";
 import { onRequestGet as getHomepageEvents } from "./api/homepage-events.js";
 
 const STATIC_PATHS = new Set([
@@ -29,19 +30,53 @@ export async function onRequestGet(context) {
   const slug = String(context.params.slug || "").toLowerCase();
   const retiredTarget = RETIRED_PATHS.get(slug);
   if (retiredTarget) return permanentRedirect(retiredTarget);
+  const aliasTarget = SLUG_ALIASES.get(slug);
   if (!isEventSlug(slug) || STATIC_PATHS.has(slug)) {
+    if (aliasTarget) return aliasRedirect(aliasTarget);
     return context.env.ASSETS.fetch(context.request);
   }
 
-  const feedUrl = new URL("/api/homepage-events", context.request.url);
-  const feedResponse = await getHomepageEvents({ ...context, request: new Request(feedUrl) });
-  if (!feedResponse.ok) return notFound();
-
-  const feed = await feedResponse.json().catch(() => null);
-  const event = Array.isArray(feed && feed.events)
-    ? feed.events.find((item) => item && item.slug === slug)
-    : null;
-  if (!event) return notFound();
+  // Frozen live slugs (iguana-ride-e-scooter-...) must 200 when the feed
+  // still lists them, even if an alias also lists that path. The 302 is
+  // only a safety net when the feed is healthy, this slug is genuinely
+  // missing, AND the alias target is present in that same events list.
+  // Never redirect to a slug the current feed would 404. Empty or failed
+  // feed returns 404 no-store.
+  let event = null;
+  let feedHealthy = false;
+  let aliasTargetPresent = false;
+  try {
+    const feedUrl = new URL("/api/homepage-events", context.request.url);
+    const fetchFeed = typeof context.getHomepageEvents === "function"
+      ? context.getHomepageEvents
+      : getHomepageEvents;
+    const feedResponse = await fetchFeed({ ...context, request: new Request(feedUrl) });
+    if (feedResponse.ok) {
+      const feed = await feedResponse.json().catch(() => null);
+      const events = feed && Array.isArray(feed.events) ? feed.events : null;
+      feedHealthy = Boolean(events && events.length);
+      event = feedHealthy
+        ? events.find((item) => item && item.slug === slug) || null
+        : null;
+      const targetSlug = aliasTarget ? String(aliasTarget).replace(/^\//, "") : "";
+      aliasTargetPresent = Boolean(
+        feedHealthy &&
+        targetSlug &&
+        events.some((item) => item && item.slug === targetSlug)
+      );
+    }
+  } catch {
+    event = null;
+    feedHealthy = false;
+    aliasTargetPresent = false;
+  }
+  if (event) {
+    // serve below
+  } else if (feedHealthy && aliasTarget && aliasTargetPresent) {
+    return aliasRedirect(aliasTarget);
+  } else {
+    return notFound();
+  }
 
   const id = String(event.id || "");
   const assetPath = SPECIAL_EVENT_ASSETS[id] || "/event";
@@ -202,6 +237,16 @@ function permanentRedirect(location) {
   return new Response(null, {
     status: 301,
     headers: { location, "cache-control": "public, max-age=3600" },
+  });
+}
+
+// Alias safety net only. 302 and Cache-Control no-store so a transient
+// miss cannot pin a live frozen URL onto a Django slug. Retired paths
+// keep permanentRedirect.
+function aliasRedirect(location) {
+  return new Response(null, {
+    status: 302,
+    headers: { location, "cache-control": "no-store" },
   });
 }
 

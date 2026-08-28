@@ -7,7 +7,7 @@
 // and never touches the shared caches, so admin-only content can never leak
 // into a publicly cached response.
 
-import { eventSlug } from "./event-slug.js";
+import { eventSlug, legacyCuratedTitle, persistedFrozenSlug } from "./event-slug.js";
 import { readHiddenPageIds } from "./hidden-pages.js";
 
 const API = "https://otraguide.com/api";
@@ -69,6 +69,19 @@ const HOMEPAGE_TIME_ZONE = "America/Curacao";
 // allowing dedupeEvents to distinguish a deliberately edited hero from the
 // stale image captured when a draft was first linked to Otra Guide.
 const HAS_HERO_OVERRIDE = Symbol("hasHeroOverride");
+// Parallel marker for a title the event page actually shows (text:#evTitle).
+// Bound cards without this take the live Django title during dedupe, the
+// same way a missing hero override refreshes img. design.displayTitle is
+// shared brand copy, not a per-card label, so it is not a title override.
+const HAS_TITLE_OVERRIDE = Symbol("hasTitleOverride");
+// When an admin renames the detail title via text:#evTitle, the card label
+// follows. Pretty URLs stay frozen on the curated / seed title already
+// live on the card (e.g. iguana-ride-e-scooter-...). A live Django rename
+// must never move a URL that is already public.
+const SLUG_SOURCE = Symbol("slugSource");
+// Exact persisted frozenSlug. assignUniqueSlugs must not recompute or
+// suffix this value (a stored date suffix stays as stored).
+const FROZEN_SLUG = Symbol("frozenSlug");
 
 // Build the full { events, rows } homepage payload.
 //   includeAdminOnly — include KV site events flagged adminOnly (staff preview)
@@ -89,8 +102,9 @@ export async function buildHomepageFeed(context, { includeAdminOnly = false, aut
   if (authToken && !upstreamEvents.length) {
     upstreamEvents = await getUpstreamEvents(context, now, false);
   }
-  // Site events come first so their curated title/image win when the same
-  // published Otra Guide event also appears in the upstream public feed.
+  // Site events come first so a curated hero can win when the same published
+  // Otra Guide event also appears in the upstream public feed. Titles refresh
+  // from the live Django event unless the event page has a title override.
   // Apply explicit exclusions after combining both sources. Filtering only
   // the upstream candidates is insufficient when an archived/legacy event
   // also has a site-event KV copy. Events archived from the admin (the
@@ -99,7 +113,7 @@ export async function buildHomepageFeed(context, { includeAdminOnly = false, aut
   const visibleEvents = filterHomepageEvents(dedupeEvents([...siteEvents, ...upstreamEvents])).filter(
     (event) => !hiddenIds.has(String(event && event.id))
   );
-  const events = await applyImageOverrides(visibleEvents, context.env);
+  const events = await applyOverrides(visibleEvents, context.env);
   assignUniqueSlugs(events);
   const rows = await buildRows(events, context.env);
   return { events, rows, hasSiteEvents: siteEvents.length > 0 };
@@ -158,10 +172,11 @@ export function applyFixedRows(events, rows, now = Date.now()) {
 // slug and newer same-title events get a dated suffix — so publishing a new
 // event (e.g. a clone) only ever changes the new one's URL, never the URL of an
 // event that is already live, whatever date the new one lands on.
-function assignUniqueSlugs(events) {
+export function assignUniqueSlugs(events) {
   const groups = new Map();
   for (const event of events) {
-    const base = eventSlug(event.title);
+    const persisted = event[FROZEN_SLUG];
+    const base = persisted || eventSlug(event[SLUG_SOURCE] || event.title);
     event.slug = base;
     if (!groups.has(base)) groups.set(base, []);
     groups.get(base).push(event);
@@ -528,27 +543,50 @@ export async function buildPublishedSiteEvents(env, { includeAdminOnly = false }
       // project.image holds the Otra Guide event's stock image captured at bind
       // time — so prefer the override hero, exactly like the detail page does.
       let overrideImg = "";
+      let overrideTitle = "";
       try {
         const draftOverride =
           (await kv.get(`event:${draftId}`, "json")) ||
           (await kv.get(`override:${draftId}`, "json"));
         overrideImg = homepageOverrideImage(draftOverride);
+        overrideTitle = homepageOverrideTitle(draftOverride);
       } catch {
         overrideImg = "";
+        overrideTitle = "";
       }
+      const curatedTitle = projectCardTitle(project);
+      // Card title is text:#evTitle only — not design.displayTitle. That
+      // field is a shared brand line (e.g. "Iguana Ride Curaçao") reused
+      // across sibling events; projectCardTitle already keeps hero copy
+      // off cards when no admin rename exists.
+      const pageTitle = overrideTitle;
+      const isBound = /^\d+$/.test(String(project.otraGuideId || ""));
       // Perennial events are not reliably present in the category feed, so
       // there may be no upstream duplicate for dedupeEvents to refresh from.
-      // Read their current detail hero directly; this is the same source used
-      // by the event page and prevents a bind-time project image becoming
-      // permanently stale. An explicit Tickets hero edit still wins.
+      // Read their current detail hero/title directly; this is the same source
+      // used by the event page. An explicit Tickets hero still wins for img;
+      // text:#evTitle still wins for the visible title. Live Django title
+      // is fetched for bound perennial CARDS only. Pretty URLs stay on the
+      // curated / seed title — never rebuild SLUG_SOURCE from a live rename.
       let currentDetailImg = "";
-      if (!overrideImg && project.isPerennial === true && /^\d+$/.test(id)) {
+      let currentDetailTitle = "";
+      const fetchForImg = !overrideImg && project.isPerennial === true && isBound;
+      const fetchForTitle = isBound && project.isPerennial === true;
+      if (fetchForImg || fetchForTitle) {
         const detail = await fetchJson(`${apiBase(env)}/events/details/${id}/`);
-        currentDetailImg = eventCardImage(detail);
+        if (fetchForImg) currentDetailImg = eventCardImage(detail);
+        const liveTitle = detail && typeof detail.title === "string" ? detail.title.trim() : "";
+        if (liveTitle) currentDetailTitle = liveTitle;
       }
+      // Freeze pretty URLs on the persisted first-published slug. Old
+      // published rows without frozenSlug keep the pre-4fb799d base:
+      // eventSlug(legacyCuratedTitle), never eventSlugFromTitle and never
+      // a clone-stripped remint from project.title.
+      const frozen = persistedFrozenSlug(project);
+      const slugSource = frozen || legacyCuratedTitle(project);
       out.push({
         id,
-        title: projectCardTitle(project),
+        title: pageTitle || currentDetailTitle || curatedTitle,
         date: startDate,
         endDate,
         isPerennial: project.isPerennial === true,
@@ -568,6 +606,9 @@ export async function buildPublishedSiteEvents(env, { includeAdminOnly = false }
           (project.claudeDesign && typeof project.claudeDesign.image === "string" && project.claudeDesign.image) ||
           "",
         [HAS_HERO_OVERRIDE]: Boolean(overrideImg),
+        [HAS_TITLE_OVERRIDE]: Boolean(pageTitle),
+        ...(slugSource ? { [SLUG_SOURCE]: slugSource } : {}),
+        ...(frozen ? { [FROZEN_SLUG]: frozen } : {}),
       });
     }
     cursor = page.list_complete ? undefined : page.cursor;
@@ -707,10 +748,9 @@ function isCurrentOrFutureEvent(event, now = Date.now()) {
 }
 
 export function dedupeEvents(events) {
-  // Site events come first so their curated title/image win. But the location
-  // must come from the Otra Guide event: when a real event location exists on
-  // either copy (e.g. the upstream feed duplicate of a published draft), it
-  // overrides the curated venue.
+  // Site events come first so a curated hero can win. Location always comes
+  // from the Otra Guide event when either copy has one. Titles refresh from
+  // the later (upstream Django) copy unless the event page set a title.
   const byId = new Map();
   for (const event of events) {
     const id = String((event && event.id) || "");
@@ -728,6 +768,14 @@ export function dedupeEvents(events) {
     // hero was deliberately edited on the Tickets page, use the current first
     // (full) image from the matching Otra Guide event, exactly as detail does.
     if (!kept[HAS_HERO_OVERRIDE] && event.img) kept.img = event.img;
+    if (event.title) {
+      if (!kept[HAS_TITLE_OVERRIDE]) {
+        // Freeze the pretty URL on the title already on the card (seed /
+        // curated) before the visible label refreshes from Django.
+        if (!kept[SLUG_SOURCE] && kept.title) kept[SLUG_SOURCE] = kept.title;
+        kept.title = event.title;
+      }
+    }
   }
   return [...byId.values()];
 }
@@ -748,7 +796,10 @@ function dateKeyInTimeZone(value, timeZone) {
   return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
-async function applyImageOverrides(events, env) {
+// Apply the same KV field overrides the detail page uses so homepage cards
+// stay in sync: hero image (image:#evHeroImg / legacy image) and display
+// title (text:#evTitle). Exported for oracle scripts.
+export async function applyOverrides(events, env) {
   if (!env || !env.OVERRIDES || !events.length) return events;
   const overrides = await Promise.all(
     events.map(async (ev) => {
@@ -765,8 +816,38 @@ async function applyImageOverrides(events, env) {
   return events.map((ev, i) => {
     const override = overrides[i];
     const image = homepageOverrideImage(override);
-    return image ? { ...ev, img: image } : ev;
+    const title = homepageOverrideTitle(override);
+    if (!image && !title) return ev;
+    const next = { ...ev };
+    if (ev[SLUG_SOURCE]) next[SLUG_SOURCE] = ev[SLUG_SOURCE];
+    if (ev[FROZEN_SLUG]) next[FROZEN_SLUG] = ev[FROZEN_SLUG];
+    if (image) next.img = image;
+    if (title) {
+      // Freeze the pretty URL on the title already on the card (seed /
+      // curated, or the Django feed title for events with no site-event).
+      // text:#evTitle must not become the slug.
+      next[SLUG_SOURCE] = ev[SLUG_SOURCE] || ev.title;
+      next.title = title;
+      next[HAS_TITLE_OVERRIDE] = true;
+    }
+    return next;
   });
+}
+
+export function homepageEventSlugBase(event) {
+  if (!event || typeof event !== "object") return "";
+  if (event[FROZEN_SLUG]) return event[FROZEN_SLUG];
+  return eventSlug(event[SLUG_SOURCE] || event.title);
+}
+
+export function homepageOverrideTitle(override) {
+  if (!override || typeof override !== "object") return "";
+  const fields = override.fields;
+  if (!fields || typeof fields !== "object" || Array.isArray(fields)) return "";
+  const field = fields["text:#evTitle"];
+  if (!field || field.type !== "text") return "";
+  const value = typeof field.value === "string" ? field.value.trim() : "";
+  return value;
 }
 
 function homepageOverrideImage(override) {
@@ -836,17 +917,14 @@ function projectVenue(project) {
   return parts[1] || "Curaçao";
 }
 
-function projectCardTitle(project) {
+export function projectCardTitle(project) {
   const title = typeof project.title === "string" ? project.title.trim() : "";
-  const design = project.claudeDesign && typeof project.claudeDesign === "object" ? project.claudeDesign : {};
-  const displayTitle = typeof design.displayTitle === "string" ? design.displayTitle.trim() : "";
-  const subtitle = typeof design.subtitle === "string" ? design.subtitle.trim() : "";
-
-  // Claude designs store the hero subtitle alongside the event title for the
-  // event detail page. On homepage cards that subtitle can be a ticket type,
-  // so keep the card's first line limited to the actual event title.
-  if (displayTitle && (!title || (subtitle && title === `${displayTitle} - ${subtitle}`))) return displayTitle;
-  return title || displayTitle || "Claude Design Event";
+  // Shared brand displayTitle is event-page H1 copy, never a card title.
+  // The blank-title and "displayTitle - subtitle" branches used to leak
+  // that brand line onto sibling cards (Night and Sunset both becoming
+  // Iguana Ride Curaçao). Card title is the event-specific curated title
+  // only; callers still prefer text:#evTitle then the live Django title.
+  return title || "Claude Design Event";
 }
 
 const CARD_DATE_RE = /(?:(?:Sun|Mon|Tue|Wed|Thu|Fri|Sat)[a-z]*,?\s+)?(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s+\d{4})?/gi;
