@@ -38,10 +38,13 @@ export async function onRequestGet(context) {
 
   // Frozen live slugs (iguana-ride-e-scooter-...) must 200 when the feed
   // still lists them, even if an alias also lists that path. The 301 is
-  // only a safety net when the feed is healthy (ok, non empty events) and
-  // the slug is genuinely missing. An empty or failed feed returns 404.
+  // only a safety net when the feed is healthy, this slug is genuinely
+  // missing, AND the alias target is present in that same events list.
+  // Never 301 to a slug the current feed would 404. Empty or failed
+  // feed returns 404 no-store.
   let event = null;
   let feedHealthy = false;
+  let aliasTargetPresent = false;
   try {
     const feedUrl = new URL("/api/homepage-events", context.request.url);
     const fetchFeed = typeof context.getHomepageEvents === "function"
@@ -55,14 +58,21 @@ export async function onRequestGet(context) {
       event = feedHealthy
         ? events.find((item) => item && item.slug === slug) || null
         : null;
+      const targetSlug = aliasTarget ? String(aliasTarget).replace(/^\//, "") : "";
+      aliasTargetPresent = Boolean(
+        feedHealthy &&
+        targetSlug &&
+        events.some((item) => item && item.slug === targetSlug)
+      );
     }
   } catch {
     event = null;
     feedHealthy = false;
+    aliasTargetPresent = false;
   }
   if (event) {
     // serve below
-  } else if (feedHealthy && aliasTarget) {
+  } else if (feedHealthy && aliasTarget && aliasTargetPresent) {
     return permanentRedirect(aliasTarget);
   } else {
     return notFound();

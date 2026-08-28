@@ -5,7 +5,7 @@
 // can build on this record.
 
 import { apiBase, requireStaff, json } from "./_auth.js";
-import { mintFrozenSlug } from "../../_lib/event-slug.js";
+import { mintFrozenSlug, liveSlugBase } from "../../_lib/event-slug.js";
 
 const MAX_BYTES = 50 * 1024 * 1024;
 const DRAFT_PREFIX = "site-event:";
@@ -146,9 +146,11 @@ export async function onRequestPost(context) {
     const next = { ...project, title: name };
     // Live pretty URL freezes at first publish. Renaming a published
     // site-event updates the card/name only. Stamp frozenSlug from the
-    // pre-rename seed title when older published rows lack the field.
+    // current live base (persisted frozenSlug, else the pre-4fb799d
+    // eventSlug of the historical curated title). Never remint from the
+    // new display name and never strip clone on this implicit path.
     if (project.status === "published" || project.publishedAt) {
-      next.frozenSlug = mintFrozenSlug(project);
+      next.frozenSlug = liveSlugBase(project);
     }
     await putProject(kv, next);
     try {

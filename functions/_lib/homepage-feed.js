@@ -7,7 +7,7 @@
 // and never touches the shared caches, so admin-only content can never leak
 // into a publicly cached response.
 
-import { eventSlug, eventSlugFromTitle, mintFrozenSlug } from "./event-slug.js";
+import { eventSlug, legacyCuratedTitle, persistedFrozenSlug } from "./event-slug.js";
 import { readHiddenPageIds } from "./hidden-pages.js";
 
 const API = "https://otraguide.com/api";
@@ -79,6 +79,9 @@ const HAS_TITLE_OVERRIDE = Symbol("hasTitleOverride");
 // live on the card (e.g. iguana-ride-e-scooter-...). A live Django rename
 // must never move a URL that is already public.
 const SLUG_SOURCE = Symbol("slugSource");
+// Exact persisted frozenSlug. assignUniqueSlugs must not recompute or
+// suffix this value (a stored date suffix stays as stored).
+const FROZEN_SLUG = Symbol("frozenSlug");
 
 // Build the full { events, rows } homepage payload.
 //   includeAdminOnly — include KV site events flagged adminOnly (staff preview)
@@ -172,7 +175,8 @@ export function applyFixedRows(events, rows, now = Date.now()) {
 export function assignUniqueSlugs(events) {
   const groups = new Map();
   for (const event of events) {
-    const base = event[SLUG_SOURCE] ? eventSlug(event[SLUG_SOURCE]) : eventSlugFromTitle(event.title);
+    const persisted = event[FROZEN_SLUG];
+    const base = persisted || eventSlug(event[SLUG_SOURCE] || event.title);
     event.slug = base;
     if (!groups.has(base)) groups.set(base, []);
     groups.get(base).push(event);
@@ -575,10 +579,11 @@ export async function buildPublishedSiteEvents(env, { includeAdminOnly = false }
         if (liveTitle) currentDetailTitle = liveTitle;
       }
       // Freeze pretty URLs on the persisted first-published slug. Old
-      // published rows without frozenSlug implicitly freeze on the seed /
-      // curated title (iguana-ride-e-scooter-...), never displayTitle.
-      const visibleTitle = pageTitle || currentDetailTitle || curatedTitle;
-      const slugSource = mintFrozenSlug(project) || eventSlugFromTitle(curatedTitle);
+      // published rows without frozenSlug keep the pre-4fb799d base:
+      // eventSlug(legacyCuratedTitle), never eventSlugFromTitle and never
+      // a clone-stripped remint from project.title.
+      const frozen = persistedFrozenSlug(project);
+      const slugSource = frozen || legacyCuratedTitle(project);
       out.push({
         id,
         title: pageTitle || currentDetailTitle || curatedTitle,
@@ -603,6 +608,7 @@ export async function buildPublishedSiteEvents(env, { includeAdminOnly = false }
         [HAS_HERO_OVERRIDE]: Boolean(overrideImg),
         [HAS_TITLE_OVERRIDE]: Boolean(pageTitle),
         ...(slugSource ? { [SLUG_SOURCE]: slugSource } : {}),
+        ...(frozen ? { [FROZEN_SLUG]: frozen } : {}),
       });
     }
     cursor = page.list_complete ? undefined : page.cursor;
@@ -813,6 +819,8 @@ export async function applyOverrides(events, env) {
     const title = homepageOverrideTitle(override);
     if (!image && !title) return ev;
     const next = { ...ev };
+    if (ev[SLUG_SOURCE]) next[SLUG_SOURCE] = ev[SLUG_SOURCE];
+    if (ev[FROZEN_SLUG]) next[FROZEN_SLUG] = ev[FROZEN_SLUG];
     if (image) next.img = image;
     if (title) {
       // Freeze the pretty URL on the title already on the card (seed /
@@ -828,8 +836,8 @@ export async function applyOverrides(events, env) {
 
 export function homepageEventSlugBase(event) {
   if (!event || typeof event !== "object") return "";
-  if (event[SLUG_SOURCE]) return eventSlug(event[SLUG_SOURCE]);
-  return eventSlugFromTitle(event.title);
+  if (event[FROZEN_SLUG]) return event[FROZEN_SLUG];
+  return eventSlug(event[SLUG_SOURCE] || event.title);
 }
 
 export function homepageOverrideTitle(override) {
@@ -909,17 +917,14 @@ function projectVenue(project) {
   return parts[1] || "Curaçao";
 }
 
-function projectCardTitle(project) {
+export function projectCardTitle(project) {
   const title = typeof project.title === "string" ? project.title.trim() : "";
-  const design = project.claudeDesign && typeof project.claudeDesign === "object" ? project.claudeDesign : {};
-  const displayTitle = typeof design.displayTitle === "string" ? design.displayTitle.trim() : "";
-  const subtitle = typeof design.subtitle === "string" ? design.subtitle.trim() : "";
-
-  // Claude designs store the hero subtitle alongside the event title for the
-  // event detail page. On homepage cards that subtitle can be a ticket type,
-  // so keep the card's first line limited to the actual event title.
-  if (displayTitle && (!title || (subtitle && title === `${displayTitle} - ${subtitle}`))) return displayTitle;
-  return title || displayTitle || "Claude Design Event";
+  // Shared brand displayTitle is event-page H1 copy, never a card title.
+  // The blank-title and "displayTitle - subtitle" branches used to leak
+  // that brand line onto sibling cards (Night and Sunset both becoming
+  // Iguana Ride Curaçao). Card title is the event-specific curated title
+  // only; callers still prefer text:#evTitle then the live Django title.
+  return title || "Claude Design Event";
 }
 
 const CARD_DATE_RE = /(?:(?:Sun|Mon|Tue|Wed|Thu|Fri|Sat)[a-z]*,?\s+)?(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s+\d{4})?/gi;

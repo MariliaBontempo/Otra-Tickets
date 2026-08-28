@@ -15,6 +15,7 @@ import {
   dedupeEvents,
   homepageEventSlugBase,
   homepageOverrideTitle,
+  projectCardTitle,
 } from "../functions/_lib/homepage-feed.js";
 import { eventSlug } from "../functions/_lib/event-slug.js";
 import { onRequestPut } from "../functions/admin/api/overrides.js";
@@ -978,9 +979,106 @@ assert(
   "homepageEventSlugBase must tolerate a null event"
 );
 assert(
-  homepageEventSlugBase({ title: "Sunday Social (clone)" }) === eventSlug("Sunday Social"),
-  "clone in the title string must not appear in the pretty URL"
+  homepageEventSlugBase({ title: "Sunday Social (clone)" }) === eventSlug("Sunday Social (clone)"),
+  "homepageEventSlugBase on a raw clone title keeps the pre-4fb799d eventSlug"
 );
+
+assert(
+  projectCardTitle({ title: "", claudeDesign: { displayTitle: "Iguana Ride Curaçao", subtitle: "Night Tour" } }) !== "Iguana Ride Curaçao",
+  "projectCardTitle must not leak shared displayTitle when project.title is blank"
+);
+assert(
+  projectCardTitle({ title: "", claudeDesign: { displayTitle: "Iguana Ride Curaçao" } }) === "Claude Design Event",
+  "blank project.title falls back to the generic curated label, never displayTitle"
+);
+assert(
+  projectCardTitle({
+    title: "Iguana Ride Curaçao - Night Tour",
+    claudeDesign: { displayTitle: "Iguana Ride Curaçao", subtitle: "Night Tour" },
+  }) === "Iguana Ride Curaçao - Night Tour",
+  "projectCardTitle must not collapse displayTitle - subtitle into the shared brand"
+);
+assert(
+  projectCardTitle({
+    title: "Brand - Night Tour",
+    claudeDesign: { displayTitle: "Brand", subtitle: "Night Tour" },
+  }) === "Brand - Night Tour",
+  "Brand - Night Tour card title stays event-specific, not the shared Brand displayTitle"
+);
+
+{
+  const brandProjects = {
+    "site-event:draft-brand-card": {
+      id: "draft-brand-card",
+      title: "Brand - Night Tour",
+      status: "published",
+      startDate: "2999-04-03T12:00:00-04:00",
+      image: "/images/brand.jpg",
+      claudeDesign: { displayTitle: "Brand", subtitle: "Night Tour" },
+    },
+    "site-event:draft-blank-card": {
+      id: "draft-blank-card",
+      title: "   ",
+      status: "published",
+      startDate: "2999-04-04T12:00:00-04:00",
+      image: "/images/blank.jpg",
+      claudeDesign: { displayTitle: "Iguana Ride Curaçao", subtitle: "Sunset Tour" },
+    },
+  };
+  const brandKv = {
+    async list({ prefix }) {
+      return {
+        keys: prefix === "site-event:" ? Object.keys(brandProjects).map((name) => ({ name })) : [],
+        list_complete: true,
+      };
+    },
+    async get(key) {
+      return brandProjects[key] || null;
+    },
+  };
+  const brandSite = await buildPublishedSiteEvents({ OVERRIDES: brandKv });
+  const brandById = new Map(brandSite.map((event) => [String(event.id), event]));
+  assert(
+    brandById.get("draft-brand-card")?.title === "Brand - Night Tour",
+    "feed card for Brand - Night Tour must not become the shared displayTitle"
+  );
+  assert(
+    homepageEventSlugBase(brandById.get("draft-brand-card")) === "brand",
+    "legacy Brand - Night Tour without frozenSlug stays /brand"
+  );
+  assert(
+    brandById.get("draft-blank-card")?.title !== "Iguana Ride Curaçao",
+    "blank project.title must not leak shared displayTitle onto the card"
+  );
+}
+
+{
+  const cloneProjects = {
+    "site-event:draft-sunday-clone": {
+      id: "draft-sunday-clone",
+      title: "Sunday Social (clone)",
+      status: "published",
+      startDate: "2026-09-13T17:00:00-04:00",
+      image: "/images/sunday.jpg",
+    },
+  };
+  const cloneKv = {
+    async list({ prefix }) {
+      return {
+        keys: prefix === "site-event:" ? Object.keys(cloneProjects).map((name) => ({ name })) : [],
+        list_complete: true,
+      };
+    },
+    async get(key) {
+      return cloneProjects[key] || null;
+    },
+  };
+  const cloneSite = await buildPublishedSiteEvents({ OVERRIDES: cloneKv });
+  assert(
+    homepageEventSlugBase(cloneSite[0]) === "sunday-social-clone",
+    "legacy Sunday Social (clone) without frozenSlug stays sunday-social-clone"
+  );
+}
 
 if (failures.length) {
   console.error("check-homepage-card-title FAILED:");

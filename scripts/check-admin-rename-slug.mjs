@@ -8,8 +8,9 @@ import {
   assignUniqueSlugs,
   buildPublishedSiteEvents,
   homepageEventSlugBase,
+  projectCardTitle,
 } from "../functions/_lib/homepage-feed.js";
-import { eventSlug, eventSlugFromTitle, mintFrozenSlug } from "../functions/_lib/event-slug.js";
+import { eventSlug, eventSlugFromTitle, mintFrozenSlug, liveSlugBase } from "../functions/_lib/event-slug.js";
 
 const failures = [];
 const assert = (condition, message) => { if (!condition) failures.push(message); };
@@ -43,8 +44,27 @@ assert(
   "homepageEventSlugBase(null) must be empty"
 );
 assert(
-  homepageEventSlugBase({ title: "Bingo Bengo (clone)" }) === eventSlug("Bingo Bengo"),
-  "homepageEventSlugBase must not put clone in the slug"
+  homepageEventSlugBase({ title: "Bingo Bengo (clone)" }) === eventSlug("Bingo Bengo (clone)"),
+  "homepageEventSlugBase on a raw title keeps the pre-4fb799d eventSlug, including clone"
+);
+assert(
+  liveSlugBase({ title: "Sunday Social (clone)" }) === "sunday-social-clone",
+  "liveSlugBase for a legacy clone title is eventSlug of that title, not clone-stripped"
+);
+assert(
+  liveSlugBase({
+    title: "Brand - Night Tour",
+    claudeDesign: { displayTitle: "Brand", subtitle: "Night Tour" },
+  }) === "brand",
+  "liveSlugBase for Brand - Night Tour with displayTitle Brand stays brand"
+);
+assert(
+  liveSlugBase({ title: seedTitle }) === seedSlug,
+  "liveSlugBase for an Iguana seed title stays on the e-scooter slug"
+);
+assert(
+  liveSlugBase({ title: "Renamed Later", frozenSlug: seedSlug }) === seedSlug,
+  "liveSlugBase prefers the persisted frozenSlug over a later title"
 );
 
 function makeKv(records) {
@@ -390,6 +410,7 @@ function publishedDraft(overrides = {}) {
       id: "draft-clone",
       otraGuideId: 200,
       title: "Sunday Social (clone)",
+      frozenSlug: "sunday-social",
       status: "published",
       startDate: "2026-09-06T17:00:00-04:00",
       image: seedImg,
@@ -464,6 +485,164 @@ function publishedDraft(overrides = {}) {
   assert(
     homepageEventSlugBase(site[0]) !== eventSlug(djangoTitle),
     "old published Iguana must not switch to the Django slug"
+  );
+}
+
+// Legacy Sunday Social (clone) without frozenSlug stays sunday-social-clone.
+{
+  const kv = makeKv({
+    "site-event:draft-clone-legacy": {
+      id: "draft-clone-legacy",
+      otraGuideId: 201,
+      title: "Sunday Social (clone)",
+      status: "published",
+      startDate: "2026-09-13T17:00:00-04:00",
+      image: seedImg,
+    },
+  });
+  const site = await buildPublishedSiteEvents({ OVERRIDES: kv });
+  assignUniqueSlugs(site);
+  assert(
+    homepageEventSlugBase(site[0]) === "sunday-social-clone",
+    "legacy Sunday Social (clone) without frozenSlug must stay sunday-social-clone"
+  );
+  assert(
+    homepageEventSlugBase(site[0]) !== "sunday-social",
+    "legacy Sunday Social (clone) must not remint to the clone-stripped sunday-social"
+  );
+  assert(site[0]?.slug === "sunday-social-clone", "assigned legacy clone slug stays sunday-social-clone");
+}
+
+// Legacy Brand - Night Tour + displayTitle Brand without frozenSlug stays brand.
+{
+  const kv = makeKv({
+    "site-event:draft-brand": {
+      id: "draft-brand",
+      otraGuideId: 8801,
+      title: "Brand - Night Tour",
+      status: "published",
+      startDate: "2999-04-01T12:00:00-04:00",
+      image: seedImg,
+      claudeDesign: { displayTitle: "Brand", subtitle: "Night Tour" },
+    },
+  });
+  const site = await buildPublishedSiteEvents({ OVERRIDES: kv });
+  assert(site[0]?.title === "Brand - Night Tour", "Brand card must show the event-specific title, not displayTitle");
+  assert(site[0]?.title !== "Brand", "shared displayTitle Brand must stay off the card");
+  assert(
+    homepageEventSlugBase(site[0]) === "brand",
+    "legacy Brand - Night Tour + displayTitle Brand without frozenSlug stays brand"
+  );
+  assert(
+    homepageEventSlugBase(site[0]) !== "brand-night-tour",
+    "legacy Brand row must not remint from project.title"
+  );
+  assert(
+    projectCardTitle({
+      title: "Brand - Night Tour",
+      claudeDesign: { displayTitle: "Brand", subtitle: "Night Tour" },
+    }) === "Brand - Night Tour",
+    "projectCardTitle must not collapse displayTitle - subtitle into the shared brand"
+  );
+}
+
+// Published rename of a legacy clone stamps the live sunday-social-clone base.
+{
+  const kv = makeKv({
+    "site-event:draft-clone-rename": {
+      id: "draft-clone-rename",
+      title: "Sunday Social (clone)",
+      status: "published",
+      publishedAt: "2026-08-01T12:00:00.000Z",
+      otraGuideId: "202",
+      otraGuideSlug: "202",
+      usesExistingOtraGuideEvent: true,
+      startDate: "2026-09-13T17:00:00-04:00",
+      image: seedImg,
+    },
+  });
+  const { body } = await renameProject(kv, "draft-clone-rename", "Sunday Social Renamed");
+  assert(body.project?.title === "Sunday Social Renamed", "legacy clone rename must update the title");
+  assert(
+    body.project?.frozenSlug === "sunday-social-clone",
+    "published rename of a legacy clone must stamp the pre-rename live base sunday-social-clone"
+  );
+  const site = await buildPublishedSiteEvents({ OVERRIDES: kv });
+  assert(site[0]?.title === "Sunday Social Renamed", "feed card title follows the rename");
+  assert(
+    homepageEventSlugBase(site[0]) === "sunday-social-clone",
+    "feed slug stays on the pre-rename live base after the rename stamp"
+  );
+}
+
+// Published rename of a legacy Brand row stamps brand, not brand-night-tour.
+{
+  const kv = makeKv({
+    "site-event:draft-brand-rename": {
+      id: "draft-brand-rename",
+      title: "Brand - Night Tour",
+      status: "published",
+      publishedAt: "2026-08-01T12:00:00.000Z",
+      otraGuideId: "8802",
+      otraGuideSlug: "8802",
+      usesExistingOtraGuideEvent: true,
+      startDate: "2999-04-02T12:00:00-04:00",
+      image: seedImg,
+      claudeDesign: { displayTitle: "Brand", subtitle: "Night Tour" },
+    },
+  });
+  const { body } = await renameProject(kv, "draft-brand-rename", "Brand Night Renamed");
+  assert(body.project?.frozenSlug === "brand", "published rename of a legacy Brand row stamps the live brand base");
+  const site = await buildPublishedSiteEvents({ OVERRIDES: kv });
+  assert(site[0]?.title === "Brand Night Renamed", "Brand rename updates the card title");
+  assert(homepageEventSlugBase(site[0]) === "brand", "Brand feed slug stays brand after the rename stamp");
+}
+
+// Clone clears frozenSlug; first publish of the clone mints without the word clone.
+{
+  const kv = makeKv({
+    "site-event:draft-night": publishedDraft({ frozenSlug: seedSlug, title: "Sunday Social" }),
+  });
+  const restore = staffFetch();
+  let cloneBody;
+  let cloneResponse;
+  try {
+    cloneResponse = await onRequestPost({
+      request: new Request("https://otratickets.com/admin/api/projects?action=clone&id=draft-night", {
+        method: "POST",
+        headers: { authorization: "Bearer test-token", "content-type": "application/json" },
+        body: JSON.stringify({}),
+      }),
+      env: { OVERRIDES: kv, OTRA_API_URL: "https://og.test/api" },
+    });
+    cloneBody = await cloneResponse.json();
+  } finally {
+    restore();
+  }
+  assert(
+    cloneResponse.status === 201 || cloneResponse.status === 202,
+    `clone must persist a draft (got ${cloneResponse.status})`
+  );
+  const cloneProject = cloneBody.project;
+  assert(cloneProject && cloneProject.id, "clone must return a project");
+  assert(!cloneProject.frozenSlug, "clone must clear frozenSlug");
+  assert(
+    String(cloneProject.title || "").toLowerCase().includes("clone"),
+    "default clone title still carries the clone marker"
+  );
+  const cloneId = cloneProject.id;
+  const stored = await kv.get(`site-event:${cloneId}`, "json");
+  stored.otraGuideId = "9099";
+  stored.otraGuideSlug = "9099";
+  stored.usesExistingOtraGuideEvent = true;
+  stored.frozenSlug = "";
+  await kv.put(`site-event:${cloneId}`, JSON.stringify(stored));
+  const published = await publishProject(kv, cloneId);
+  assert(published.response.status === 200, `clone first publish must succeed (got ${published.response.status})`);
+  assert(published.body.project?.frozenSlug, "clone first publish must mint frozenSlug");
+  assert(
+    !String(published.body.project.frozenSlug).includes("clone"),
+    "new mint after clone must never contain the word clone"
   );
 }
 

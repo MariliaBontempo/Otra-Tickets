@@ -190,10 +190,34 @@ for (const [from, title] of GOLDEN) {
     missingResponse = null;
   }
   if (missingResponse) {
-    assert(missingResponse.status === 301, `/${from} on a healthy miss returned ${missingResponse.status}, expected 301`);
+    assert(missingResponse.status === 404, `/${from} on a healthy miss whose target is absent returned ${missingResponse.status}, expected 404`);
     assert(
-      missingResponse.headers.get("location") === expected,
-      `/${from} on a healthy miss redirects to ${missingResponse.headers.get("location")}, expected ${expected}`,
+      String(missingResponse.headers.get("cache-control") || "").includes("no-store"),
+      `/${from} on a healthy miss whose target is absent must be 404 no-store (got ${missingResponse.headers.get("cache-control")})`,
+    );
+    assert(
+      !missingResponse.headers.get("location"),
+      `/${from} must not 301 to a slug the current feed does not serve (got ${missingResponse.headers.get("location")})`,
+    );
+  }
+
+  const targetSlug = expected.replace(/^\//, "");
+  let targetPresentResponse;
+  try {
+    targetPresentResponse = await callSlug(from, {
+      getHomepageEvents: jsonFeed({
+        events: [{ id: "9", slug: targetSlug, title }],
+      }),
+    });
+  } catch (error) {
+    failures.push(`/${from} threw when the healthy feed listed the alias target: ${error.message}`);
+    targetPresentResponse = null;
+  }
+  if (targetPresentResponse) {
+    assert(targetPresentResponse.status === 301, `/${from} on a healthy miss whose target is present returned ${targetPresentResponse.status}, expected 301`);
+    assert(
+      targetPresentResponse.headers.get("location") === expected,
+      `/${from} on a healthy miss whose target is present redirects to ${targetPresentResponse.headers.get("location")}, expected ${expected}`,
     );
   }
 }
@@ -221,4 +245,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log("PASS slug-aliases: freeze 200 on a healthy feed, 301 only on a healthy miss, 404 when the feed is empty or failed");
+console.log("PASS slug-aliases: freeze 200 on a healthy feed, 301 only when the target is in that feed, 404 no-store otherwise");
