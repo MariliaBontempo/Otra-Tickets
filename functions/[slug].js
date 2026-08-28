@@ -1,4 +1,5 @@
 import { eventSlug } from "./_lib/event-slug.js";
+import { SLUG_ALIASES } from "./_lib/slug-aliases.js";
 import { onRequestGet as getHomepageEvents } from "./api/homepage-events.js";
 
 const STATIC_PATHS = new Set([
@@ -29,6 +30,8 @@ export async function onRequestGet(context) {
   const slug = String(context.params.slug || "").toLowerCase();
   const retiredTarget = RETIRED_PATHS.get(slug);
   if (retiredTarget) return permanentRedirect(retiredTarget);
+  const aliasTarget = SLUG_ALIASES.get(slug);
+  if (aliasTarget) return permanentRedirect(aliasTarget);
   if (!isEventSlug(slug) || STATIC_PATHS.has(slug)) {
     return context.env.ASSETS.fetch(context.request);
   }

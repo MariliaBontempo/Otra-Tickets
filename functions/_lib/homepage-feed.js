@@ -558,17 +558,24 @@ export async function buildPublishedSiteEvents(env, { includeAdminOnly = false }
       // Perennial events are not reliably present in the category feed, so
       // there may be no upstream duplicate for dedupeEvents to refresh from.
       // Read their current detail hero/title directly; this is the same source
-      // used by the event page. An explicit Tickets hero or title still wins.
+      // used by the event page. An explicit Tickets hero still wins for img;
+      // text:#evTitle / displayTitle still win for the visible title, but a
+      // bound event always needs the live Django title for SLUG_SOURCE.
       let currentDetailImg = "";
       let currentDetailTitle = "";
       const fetchForImg = !overrideImg && project.isPerennial === true && isBound;
-      const fetchForTitle = !pageTitle && project.isPerennial === true && isBound;
+      const fetchForTitle = isBound && (project.isPerennial === true || Boolean(pageTitle));
       if (fetchForImg || fetchForTitle) {
         const detail = await fetchJson(`${apiBase(env)}/events/details/${id}/`);
         if (fetchForImg) currentDetailImg = eventCardImage(detail);
         const liveTitle = detail && typeof detail.title === "string" ? detail.title.trim() : "";
-        if (fetchForTitle && liveTitle) currentDetailTitle = liveTitle;
+        if (liveTitle) currentDetailTitle = liveTitle;
       }
+      // Bound: live Django title. Unbound: project.title when the card shows
+      // displayTitle / text:#evTitle so those never become the pretty URL.
+      const slugSource = isBound
+        ? currentDetailTitle
+        : (pageTitle ? curatedTitle : "");
       out.push({
         id,
         title: pageTitle || currentDetailTitle || curatedTitle,
@@ -592,9 +599,7 @@ export async function buildPublishedSiteEvents(env, { includeAdminOnly = false }
           "",
         [HAS_HERO_OVERRIDE]: Boolean(overrideImg),
         [HAS_TITLE_OVERRIDE]: Boolean(pageTitle),
-        // Bound slugs stay on the event-page (Django) title, set in dedupe /
-        // applyOverrides. Unbound drafts root a rename in project.title.
-        ...(overrideTitle && !isBound ? { [SLUG_SOURCE]: curatedTitle } : {}),
+        ...(slugSource ? { [SLUG_SOURCE]: slugSource } : {}),
       });
     }
     cursor = page.list_complete ? undefined : page.cursor;
@@ -756,12 +761,9 @@ export function dedupeEvents(events) {
     if (!kept[HAS_HERO_OVERRIDE] && event.img) kept.img = event.img;
     if (event.title) {
       if (!kept[HAS_TITLE_OVERRIDE]) kept.title = event.title;
-      // Bound cards keep the event-page slug even when the visible title is
-      // a later rename or displayTitle. applyOverrides also uses ev.title
-      // as SLUG_SOURCE after this refresh.
-      if (kept[HAS_TITLE_OVERRIDE] && !kept[SLUG_SOURCE]) {
-        kept[SLUG_SOURCE] = event.title;
-      }
+      // Upstream copy is the live Django title. Bound pretty URLs stay on
+      // that even when the visible title is text:#evTitle / displayTitle.
+      kept[SLUG_SOURCE] = event.title;
     }
   }
   return [...byId.values()];
@@ -808,8 +810,10 @@ export async function applyOverrides(events, env) {
     const next = { ...ev };
     if (image) next.img = image;
     if (title) {
-      // Keep the pretty URL rooted in the pre-override title (Django for a
-      // bound event after dedupe, curated title for an unbound draft).
+      // Bound events already carry Django in SLUG_SOURCE (details fetch or
+      // dedupe). Do not fall back to ev.title when that is already the
+      // override — ev[SLUG_SOURCE] || ev.title only helps Django-only cards
+      // and unbound drafts whose title is still the curated project.title.
       next[SLUG_SOURCE] = ev[SLUG_SOURCE] || ev.title;
       next.title = title;
       next[HAS_TITLE_OVERRIDE] = true;

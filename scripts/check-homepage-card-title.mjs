@@ -412,6 +412,105 @@ assert(
   "bound perennial without a title override must slug from the Django title"
 );
 
+const prodOverrideTitle = "OTROBANDA OR PUNDA RIDE";
+const prodDjangoTitle = "Iguana Scooter Ride - Punda or Otrobanda Tour";
+const prodProjects = {
+  "site-event:draft-prod-6830-evtitle": {
+    id: "draft-prod-6830-evtitle",
+    otraGuideId: 6830,
+    title: seedTitle,
+    status: "published",
+    isPerennial: true,
+    startDate: "2999-03-05T12:00:00-04:00",
+    image: seedImg,
+  },
+};
+const prodOverrides = {
+  "event:draft-prod-6830-evtitle": {
+    fields: {
+      "text:#evTitle": { type: "text", value: prodOverrideTitle },
+    },
+  },
+};
+const prodKv = {
+  async list({ prefix }) {
+    return {
+      keys: prefix === "site-event:" ? Object.keys(prodProjects).map((name) => ({ name })) : [],
+      list_complete: true,
+    };
+  },
+  async get(key) {
+    return prodProjects[key] || prodOverrides[key] || null;
+  },
+};
+const prodFetch = globalThis.fetch;
+globalThis.fetch = async (url) => {
+  if (String(url).endsWith("/events/details/6830/")) {
+    return new Response(JSON.stringify({
+      id: 6830,
+      title: prodDjangoTitle,
+      full_web_image_url: djangoImg,
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  }
+  return new Response("{}", { status: 404 });
+};
+let prodBound;
+try {
+  prodBound = await buildPublishedSiteEvents({
+    OVERRIDES: prodKv,
+    OTRA_API_URL: "https://mock.invalid/api",
+  });
+} finally {
+  globalThis.fetch = prodFetch;
+}
+assert(
+  prodBound[0]?.title === prodOverrideTitle,
+  "bound perennial text:#evTitle must stay the visible card title"
+);
+assert(
+  homepageEventSlugBase(prodBound[0]) === eventSlug(prodDjangoTitle),
+  "bound perennial with text:#evTitle must slug from the live Django title, not the override or E-Scooter seed"
+);
+assert(
+  homepageEventSlugBase(prodBound[0]) !== eventSlug(prodOverrideTitle),
+  "bound perennial slug must not follow OTROBANDA OR PUNDA RIDE"
+);
+assert(
+  homepageEventSlugBase(prodBound[0]) !== eventSlug(seedTitle),
+  "bound perennial slug must not follow the E-Scooter seed title"
+);
+
+const fancyProjects = {
+  "site-event:draft-fancy": {
+    id: "draft-fancy",
+    title: "Draft Tour",
+    status: "published",
+    startDate: "2999-03-06T12:00:00-04:00",
+    image: seedImg,
+    claudeDesign: { displayTitle: "Fancy Name" },
+  },
+};
+const fancyKv = {
+  async list({ prefix }) {
+    return {
+      keys: prefix === "site-event:" ? Object.keys(fancyProjects).map((name) => ({ name })) : [],
+      list_complete: true,
+    };
+  },
+  async get(key) {
+    return fancyProjects[key] || null;
+  },
+};
+const fancySite = await buildPublishedSiteEvents({ OVERRIDES: fancyKv });
+assert(
+  fancySite[0]?.title === "Fancy Name",
+  "unbound draft card must show design.displayTitle"
+);
+assert(
+  homepageEventSlugBase(fancySite[0]) === eventSlug("Draft Tour"),
+  "unbound draft pretty URL must stay on project.title, not displayTitle"
+);
+
 const overridesSrc = readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), "../functions/admin/api/overrides.js"),
   "utf8"
