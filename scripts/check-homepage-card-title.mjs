@@ -1,11 +1,15 @@
-// Oracle: homepage cards use text:#evTitle when an admin renamed the detail
-// title, and keep the curated/Django title when that field is absent. Slug
-// stays rooted in the pre-override title so existing pretty URLs keep working.
+// Oracle: homepage cards use the same title the event page shows.
+//   1. text:#evTitle when an admin renamed the H1
+//   2. else design.displayTitle
+//   3. else the live Django title when the site-event is bound
+//   4. else project.title for unbound drafts
+// Pretty URL stays rooted in the event-page slug (Django title when bound).
 // Run: node scripts/check-homepage-card-title.mjs
 
 import {
   applyOverrides,
   buildPublishedSiteEvents,
+  dedupeEvents,
   homepageEventSlugBase,
   homepageOverrideTitle,
 } from "../functions/_lib/homepage-feed.js";
@@ -201,6 +205,158 @@ assert(
   "applyOverrides with only a title override must keep the existing card image"
 );
 
+const seedTitle = "Iguana Ride [E-Scooter] Punda or Otrobanda Tour";
+const djangoTitle = "Iguana Scooter Ride - Punda or Otrobanda Tour";
+const seedImg = "/images/iguana-seed.jpg";
+const djangoImg = "/images/iguana-live.jpg";
+
+const [boundNoOverride] = dedupeEvents([
+  { id: 6830, title: seedTitle, img: seedImg },
+  { id: 6830, title: djangoTitle, img: djangoImg },
+]);
+assert(
+  boundNoOverride?.title === djangoTitle,
+  "bound site-event without text:#evTitle / displayTitle must take the Django title"
+);
+assert(
+  boundNoOverride?.img === djangoImg,
+  "refreshing a bound title from Django must still refresh img when there is no hero override"
+);
+
+const evTitleProjects = {
+  "site-event:draft-prod-6830": {
+    id: "draft-prod-6830",
+    otraGuideId: 6830,
+    title: seedTitle,
+    status: "published",
+    startDate: "2999-03-01T12:00:00-04:00",
+    image: seedImg,
+  },
+};
+const evTitleOverrides = {
+  "event:draft-prod-6830": {
+    fields: {
+      "text:#evTitle": { type: "text", value: "Admin Renamed Iguana" },
+    },
+  },
+};
+const evTitleKv = {
+  async list({ prefix }) {
+    return {
+      keys: prefix === "site-event:" ? Object.keys(evTitleProjects).map((name) => ({ name })) : [],
+      list_complete: true,
+    };
+  },
+  async get(key) {
+    return evTitleProjects[key] || evTitleOverrides[key] || null;
+  },
+};
+const evTitleSite = await buildPublishedSiteEvents({ OVERRIDES: evTitleKv });
+const [evTitleKept] = dedupeEvents([
+  ...evTitleSite,
+  { id: 6830, title: djangoTitle, img: djangoImg },
+]);
+assert(
+  evTitleKept?.title === "Admin Renamed Iguana",
+  "text:#evTitle must win over the Django title"
+);
+assert(
+  evTitleKept?.img === djangoImg,
+  "title-only override must still keep (and refresh) img when there is no hero override"
+);
+assert(
+  homepageEventSlugBase(evTitleKept) === eventSlug(djangoTitle),
+  "after text:#evTitle rename, homepageEventSlugBase must stay on the Django title, not the seed [E-Scooter] title"
+);
+assert(
+  homepageEventSlugBase(evTitleKept) !== eventSlug(seedTitle),
+  "renamed bound card must not keep the seed e-scooter slug"
+);
+
+const displayProjects = {
+  "site-event:draft-prod-6831": {
+    id: "draft-prod-6831",
+    otraGuideId: 6831,
+    title: "Iguana Ride [E-Scooter] Night Tour",
+    status: "published",
+    startDate: "2999-03-02T12:00:00-04:00",
+    image: seedImg,
+    claudeDesign: { displayTitle: "Night Ride Display Title" },
+  },
+};
+const displayKv = {
+  async list({ prefix }) {
+    return {
+      keys: prefix === "site-event:" ? Object.keys(displayProjects).map((name) => ({ name })) : [],
+      list_complete: true,
+    };
+  },
+  async get(key) {
+    return displayProjects[key] || null;
+  },
+};
+const displaySite = await buildPublishedSiteEvents({ OVERRIDES: displayKv });
+const [displayKept] = dedupeEvents([
+  ...displaySite,
+  { id: 6831, title: "Iguana Scooter Ride Night Tour", img: djangoImg },
+]);
+assert(
+  displayKept?.title === "Night Ride Display Title",
+  "design.displayTitle must win over the Django title when text:#evTitle is absent"
+);
+
+const unboundProjects = {
+  "site-event:draft-unbound": {
+    id: "draft-unbound",
+    title: "Local Draft Only",
+    status: "published",
+    startDate: "2999-03-03T12:00:00-04:00",
+    image: seedImg,
+  },
+};
+const unboundKv = {
+  async list({ prefix }) {
+    return {
+      keys: prefix === "site-event:" ? Object.keys(unboundProjects).map((name) => ({ name })) : [],
+      list_complete: true,
+    };
+  },
+  async get(key) {
+    return unboundProjects[key] || null;
+  },
+};
+const unboundSite = await buildPublishedSiteEvents({ OVERRIDES: unboundKv });
+assert(
+  unboundSite[0]?.title === "Local Draft Only",
+  "unbound site-event with no numeric otraGuideId must keep project.title"
+);
+
+const renamedAfterDedupeKv = {
+  async get(key) {
+    if (key === "event:6830") {
+      return {
+        fields: {
+          "text:#evTitle": { type: "text", value: "Card Renamed After Dedupe" },
+        },
+      };
+    }
+    return null;
+  },
+};
+const renamedAfterDedupe = await applyOverrides([boundNoOverride], { OVERRIDES: renamedAfterDedupeKv });
+assert(
+  renamedAfterDedupe[0]?.title === "Card Renamed After Dedupe",
+  "applyOverrides text:#evTitle must still win after Django title refresh"
+);
+assert(
+  homepageEventSlugBase(renamedAfterDedupe[0]) === eventSlug(djangoTitle),
+  "applyOverrides rename after dedupe must root the slug in the Django title"
+);
+assert(
+  renamedAfterDedupe[0]?.img === djangoImg,
+  "applyOverrides title-only rename after dedupe must keep img"
+);
+
 const overridesSrc = readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), "../functions/admin/api/overrides.js"),
   "utf8"
@@ -268,4 +424,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log("check-homepage-card-title OK (cards follow text:#evTitle; slug stays on original title)");
+console.log("check-homepage-card-title OK (cards follow event-page title; bound slug stays on Django title)");
