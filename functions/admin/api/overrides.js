@@ -66,6 +66,13 @@ export async function onRequestPut(context) {
   };
   const previous = await readOverride(kv, id);
   await kv.put(KEY(id), JSON.stringify(override));
+  // Drop the public homepage snapshot so the next /api/homepage-events rebuild
+  // picks up renamed titles and new hero photos instead of serving stale cards.
+  try {
+    await kv.delete("__homepage_feed_snapshot__");
+  } catch {
+    /* snapshot miss is fine */
+  }
 
   // A photo edit on an already-published event must reach Otra Guide too -
   // publish-time sync alone would leave its gallery stuck at the photos from

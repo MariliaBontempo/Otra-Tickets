@@ -69,6 +69,10 @@ const HOMEPAGE_TIME_ZONE = "America/Curacao";
 // allowing dedupeEvents to distinguish a deliberately edited hero from the
 // stale image captured when a draft was first linked to Otra Guide.
 const HAS_HERO_OVERRIDE = Symbol("hasHeroOverride");
+// When an admin renames the detail title via text:#evTitle, the card label
+// follows. The pretty URL must stay rooted in the pre-override title so
+// existing links keep working.
+const SLUG_SOURCE = Symbol("slugSource");
 
 // Build the full { events, rows } homepage payload.
 //   includeAdminOnly — include KV site events flagged adminOnly (staff preview)
@@ -99,7 +103,7 @@ export async function buildHomepageFeed(context, { includeAdminOnly = false, aut
   const visibleEvents = filterHomepageEvents(dedupeEvents([...siteEvents, ...upstreamEvents])).filter(
     (event) => !hiddenIds.has(String(event && event.id))
   );
-  const events = await applyImageOverrides(visibleEvents, context.env);
+  const events = await applyOverrides(visibleEvents, context.env);
   assignUniqueSlugs(events);
   const rows = await buildRows(events, context.env);
   return { events, rows, hasSiteEvents: siteEvents.length > 0 };
@@ -161,7 +165,7 @@ export function applyFixedRows(events, rows, now = Date.now()) {
 function assignUniqueSlugs(events) {
   const groups = new Map();
   for (const event of events) {
-    const base = eventSlug(event.title);
+    const base = eventSlug(event[SLUG_SOURCE] || event.title);
     event.slug = base;
     if (!groups.has(base)) groups.set(base, []);
     groups.get(base).push(event);
@@ -528,13 +532,16 @@ export async function buildPublishedSiteEvents(env, { includeAdminOnly = false }
       // project.image holds the Otra Guide event's stock image captured at bind
       // time — so prefer the override hero, exactly like the detail page does.
       let overrideImg = "";
+      let overrideTitle = "";
       try {
         const draftOverride =
           (await kv.get(`event:${draftId}`, "json")) ||
           (await kv.get(`override:${draftId}`, "json"));
         overrideImg = homepageOverrideImage(draftOverride);
+        overrideTitle = homepageOverrideTitle(draftOverride);
       } catch {
         overrideImg = "";
+        overrideTitle = "";
       }
       // Perennial events are not reliably present in the category feed, so
       // there may be no upstream duplicate for dedupeEvents to refresh from.
@@ -546,9 +553,10 @@ export async function buildPublishedSiteEvents(env, { includeAdminOnly = false }
         const detail = await fetchJson(`${apiBase(env)}/events/details/${id}/`);
         currentDetailImg = eventCardImage(detail);
       }
+      const curatedTitle = projectCardTitle(project);
       out.push({
         id,
-        title: projectCardTitle(project),
+        title: overrideTitle || curatedTitle,
         date: startDate,
         endDate,
         isPerennial: project.isPerennial === true,
@@ -568,6 +576,7 @@ export async function buildPublishedSiteEvents(env, { includeAdminOnly = false }
           (project.claudeDesign && typeof project.claudeDesign.image === "string" && project.claudeDesign.image) ||
           "",
         [HAS_HERO_OVERRIDE]: Boolean(overrideImg),
+        ...(overrideTitle ? { [SLUG_SOURCE]: curatedTitle } : {}),
       });
     }
     cursor = page.list_complete ? undefined : page.cursor;
@@ -748,7 +757,10 @@ function dateKeyInTimeZone(value, timeZone) {
   return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
-async function applyImageOverrides(events, env) {
+// Apply the same KV field overrides the detail page uses so homepage cards
+// stay in sync: hero image (image:#evHeroImg / legacy image) and display
+// title (text:#evTitle). Exported for oracle scripts.
+export async function applyOverrides(events, env) {
   if (!env || !env.OVERRIDES || !events.length) return events;
   const overrides = await Promise.all(
     events.map(async (ev) => {
@@ -765,8 +777,32 @@ async function applyImageOverrides(events, env) {
   return events.map((ev, i) => {
     const override = overrides[i];
     const image = homepageOverrideImage(override);
-    return image ? { ...ev, img: image } : ev;
+    const title = homepageOverrideTitle(override);
+    if (!image && !title) return ev;
+    const next = { ...ev };
+    if (image) next.img = image;
+    if (title) {
+      // Keep the pretty URL rooted in the pre-override title.
+      next[SLUG_SOURCE] = ev[SLUG_SOURCE] || ev.title;
+      next.title = title;
+    }
+    return next;
   });
+}
+
+export function homepageEventSlugBase(event) {
+  if (!event || typeof event !== "object") return "";
+  return eventSlug(event[SLUG_SOURCE] || event.title);
+}
+
+export function homepageOverrideTitle(override) {
+  if (!override || typeof override !== "object") return "";
+  const fields = override.fields;
+  if (!fields || typeof fields !== "object" || Array.isArray(fields)) return "";
+  const field = fields["text:#evTitle"];
+  if (!field || field.type !== "text") return "";
+  const value = typeof field.value === "string" ? field.value.trim() : "";
+  return value;
 }
 
 function homepageOverrideImage(override) {
