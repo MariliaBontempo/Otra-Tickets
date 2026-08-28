@@ -36,25 +36,33 @@ export async function onRequestGet(context) {
     return context.env.ASSETS.fetch(context.request);
   }
 
-  // Frozen live slugs (iguana-ride-e-scooter-...) must 200 even when an
-  // alias also lists that path. The 301 is only a safety net for when the
-  // feed no longer serves that slug.
+  // Frozen live slugs (iguana-ride-e-scooter-...) must 200 when the feed
+  // still lists them, even if an alias also lists that path. The 301 is
+  // only a safety net when the feed is healthy (ok, non empty events) and
+  // the slug is genuinely missing. An empty or failed feed returns 404.
   let event = null;
+  let feedHealthy = false;
   try {
     const feedUrl = new URL("/api/homepage-events", context.request.url);
-    const feedResponse = await getHomepageEvents({ ...context, request: new Request(feedUrl) });
+    const fetchFeed = typeof context.getHomepageEvents === "function"
+      ? context.getHomepageEvents
+      : getHomepageEvents;
+    const feedResponse = await fetchFeed({ ...context, request: new Request(feedUrl) });
     if (feedResponse.ok) {
       const feed = await feedResponse.json().catch(() => null);
-      event = Array.isArray(feed && feed.events)
-        ? feed.events.find((item) => item && item.slug === slug)
+      const events = feed && Array.isArray(feed.events) ? feed.events : null;
+      feedHealthy = Boolean(events && events.length);
+      event = feedHealthy
+        ? events.find((item) => item && item.slug === slug) || null
         : null;
     }
   } catch {
     event = null;
+    feedHealthy = false;
   }
   if (event) {
     // serve below
-  } else if (aliasTarget) {
+  } else if (feedHealthy && aliasTarget) {
     return permanentRedirect(aliasTarget);
   } else {
     return notFound();

@@ -1,9 +1,11 @@
 #!/usr/bin/env node
-// Oracle: old Iguana pretty URLs 301 to the live event-page slugs.
+// Oracle: freeze first. Alias is a safety net only when the homepage feed is healthy.
 //
-// Production still serves the pre-rename paths (Iguana Ride [E-Scooter] ...).
-// After bound cards slug from the live Django title those paths would 404
-// unless aliased. The alias branch must answer before any feed/KV lookup.
+// Production still serves the pre-rename Iguana Ride E-Scooter pretty URLs.
+// Bound cards keep those frozen slugs, so those paths 200 while the live
+// event is in the feed. The alias 301 to the Django title slug is only for
+// a genuine miss on a healthy feed (ok response, non empty events array).
+// An empty or failed feed must 404, never 301 to a slug that 404s in production.
 //
 // Run: node scripts/check-slug-aliases.mjs
 
@@ -23,6 +25,60 @@ const GOLDEN = [
   ["iguana-ride-e-scooter-sunset-tour", "Iguana Scooter Ride - Sunset Tour"],
 ];
 
+const FOUR_EVENTS = GOLDEN.map(([slug, title], i) => ({
+  id: String(6827 + i),
+  slug,
+  title,
+}));
+
+const EVENT_HTML = `<!doctype html><html><head><title>Event</title></head><body><div data-event-id=""></div><script src="/site-overrides.js"></script></body></html>`;
+
+function jsonFeed(body, status = 200) {
+  return async () => new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json; charset=utf-8" },
+  });
+}
+
+function throwingFeed() {
+  return async () => {
+    throw new Error("homepage feed failed");
+  };
+}
+
+function eventAssets() {
+  return {
+    fetch: async () => new Response(EVENT_HTML, {
+      status: 200,
+      headers: { "content-type": "text/html; charset=utf-8" },
+    }),
+  };
+}
+
+function explodingAssets() {
+  return {
+    fetch: () => {
+      throw new Error("ASSETS.fetch reached");
+    },
+  };
+}
+
+async function callSlug(slug, { getHomepageEvents, assets } = {}) {
+  return slugRoute({
+    getHomepageEvents,
+    env: {
+      ASSETS: assets || explodingAssets(),
+      OVERRIDES: {
+        get: () => {
+          throw new Error("KV reached");
+        },
+      },
+    },
+    params: { slug },
+    request: new Request(`https://otratickets.com/${slug}`),
+  });
+}
+
 assert(
   SLUG_ALIAS_TITLES.length === GOLDEN.length,
   `SLUG_ALIAS_TITLES has ${SLUG_ALIAS_TITLES.length} entries, expected ${GOLDEN.length}`,
@@ -36,52 +92,117 @@ for (const [from, title] of GOLDEN) {
   );
   assert(
     expected !== "/",
-    `${from} must 301 to the new event slug, not /`,
+    `${from} must alias to the new event slug, not /`,
   );
 }
 
 assert(
   !SLUG_ALIASES.has("events") && !SLUG_ALIASES.has("events.html"),
-  "SLUG_ALIASES must not swallow the retired /events → / redirect",
+  "SLUG_ALIASES must not swallow the retired /events redirect to /",
 );
-
-// The alias branch must answer before any feed lookup, so a context whose
-// feed access would throw is exactly the right probe.
-const explodingContext = {
-  env: {
-    ASSETS: { fetch: () => { throw new Error("ASSETS.fetch reached for an aliased path"); } },
-    OVERRIDES: { get: () => { throw new Error("KV reached for an aliased path"); } },
-  },
-};
 
 for (const [from, title] of GOLDEN) {
   const expected = `/${eventSlug(title)}`;
-  let response;
+
+  let threwResponse;
   try {
-    response = await slugRoute({
-      ...explodingContext,
-      params: { slug: from },
-      request: new Request(`https://otratickets.com/${from}`),
+    threwResponse = await callSlug(from, { getHomepageEvents: throwingFeed() });
+  } catch (error) {
+    failures.push(`/${from} threw on a failed feed: ${error.message}`);
+    threwResponse = null;
+  }
+  if (threwResponse) {
+    assert(threwResponse.status === 404, `/${from} on a throwing feed returned ${threwResponse.status}, expected 404`);
+    assert(
+      String(threwResponse.headers.get("cache-control") || "").includes("no-store"),
+      `/${from} on a throwing feed must not cache (got ${threwResponse.headers.get("cache-control")})`,
+    );
+  }
+
+  let emptyResponse;
+  try {
+    emptyResponse = await callSlug(from, { getHomepageEvents: jsonFeed({ events: [] }) });
+  } catch (error) {
+    failures.push(`/${from} threw on an empty feed: ${error.message}`);
+    emptyResponse = null;
+  }
+  if (emptyResponse) {
+    assert(emptyResponse.status === 404, `/${from} on an empty feed returned ${emptyResponse.status}, expected 404`);
+    assert(
+      String(emptyResponse.headers.get("cache-control") || "").includes("no-store"),
+      `/${from} on an empty feed must not cache (got ${emptyResponse.headers.get("cache-control")})`,
+    );
+  }
+
+  let failedStatusResponse;
+  try {
+    failedStatusResponse = await callSlug(from, { getHomepageEvents: jsonFeed({ events: FOUR_EVENTS }, 500) });
+  } catch (error) {
+    failures.push(`/${from} threw on a non-ok feed: ${error.message}`);
+    failedStatusResponse = null;
+  }
+  if (failedStatusResponse) {
+    assert(failedStatusResponse.status === 404, `/${from} on a non-ok feed returned ${failedStatusResponse.status}, expected 404`);
+    assert(
+      !failedStatusResponse.headers.get("location"),
+      `/${from} on a non-ok feed must not redirect (got ${failedStatusResponse.headers.get("location")})`,
+    );
+  }
+
+  let missingEventsResponse;
+  try {
+    missingEventsResponse = await callSlug(from, { getHomepageEvents: jsonFeed({}) });
+  } catch (error) {
+    failures.push(`/${from} threw when the feed omitted events: ${error.message}`);
+    missingEventsResponse = null;
+  }
+  if (missingEventsResponse) {
+    assert(missingEventsResponse.status === 404, `/${from} on a feed without events returned ${missingEventsResponse.status}, expected 404`);
+  }
+
+  let presentResponse;
+  try {
+    presentResponse = await callSlug(from, {
+      getHomepageEvents: jsonFeed({ events: FOUR_EVENTS }),
+      assets: eventAssets(),
     });
   } catch (error) {
-    failures.push(`/${from} did not short-circuit as an alias: ${error.message}`);
-    continue;
+    failures.push(`/${from} threw when the healthy feed listed the slug: ${error.message}`);
+    presentResponse = null;
   }
-  assert(response.status === 301, `/${from} returned ${response.status}, expected a 301`);
-  assert(
-    response.headers.get("location") === expected,
-    `/${from} redirects to ${response.headers.get("location")}, expected ${expected}`,
-  );
+  if (presentResponse) {
+    assert(presentResponse.status === 200, `/${from} on a healthy feed with the slug present returned ${presentResponse.status}, expected 200`);
+    assert(
+      !presentResponse.headers.get("location"),
+      `/${from} on a healthy feed with the slug present must not redirect (got ${presentResponse.headers.get("location")})`,
+    );
+  }
+
+  let missingResponse;
+  try {
+    missingResponse = await callSlug(from, {
+      getHomepageEvents: jsonFeed({
+        events: [{ id: "1", slug: "some-other-event", title: "Other Event" }],
+      }),
+    });
+  } catch (error) {
+    failures.push(`/${from} threw when the healthy feed omitted the slug: ${error.message}`);
+    missingResponse = null;
+  }
+  if (missingResponse) {
+    assert(missingResponse.status === 301, `/${from} on a healthy miss returned ${missingResponse.status}, expected 301`);
+    assert(
+      missingResponse.headers.get("location") === expected,
+      `/${from} on a healthy miss redirects to ${missingResponse.headers.get("location")}, expected ${expected}`,
+    );
+  }
 }
 
-// /events stays on the retired-path map, not the alias map.
+// /events stays on the retired-path map, not the alias map, and still 301s
+// home even when the feed would throw.
 let eventsResponse;
 try {
-  eventsResponse = await slugRoute({
-    ...explodingContext,
-    params: { slug: "events" },
-    request: new Request("https://otratickets.com/events"),
-  });
+  eventsResponse = await callSlug("events");
 } catch (error) {
   failures.push(`/events did not short-circuit as a retired path: ${error.message}`);
   eventsResponse = null;
@@ -100,4 +221,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log("PASS slug-aliases: old Iguana slugs 301 to the live Django slugs before feed/KV");
+console.log("PASS slug-aliases: freeze 200 on a healthy feed, 301 only on a healthy miss, 404 when the feed is empty or failed");
