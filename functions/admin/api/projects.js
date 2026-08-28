@@ -5,6 +5,7 @@
 // can build on this record.
 
 import { apiBase, requireStaff, json } from "./_auth.js";
+import { mintFrozenSlug } from "../../_lib/event-slug.js";
 
 const MAX_BYTES = 50 * 1024 * 1024;
 const DRAFT_PREFIX = "site-event:";
@@ -66,6 +67,8 @@ export async function onRequestPost(context) {
       publishedAt: "",
       archivedAt: "",
       adminOnly: false,
+      // New draft: mint the pretty URL from this clone's title at first publish.
+      frozenSlug: "",
       // The clone must never point at the original's Otra Guide event or
       // ticket types - publishing it will create its own.
       otraGuideId: "",
@@ -141,7 +144,18 @@ export async function onRequestPost(context) {
     const name = String((body && body.name) || "").trim().slice(0, 120);
     if (!name) return json({ error: "name is required" }, 400);
     const next = { ...project, title: name };
+    // Live pretty URL freezes at first publish. Renaming a published
+    // site-event updates the card/name only. Stamp frozenSlug from the
+    // pre-rename seed title when older published rows lack the field.
+    if (project.status === "published" || project.publishedAt) {
+      next.frozenSlug = mintFrozenSlug(project);
+    }
     await putProject(kv, next);
+    try {
+      await kv.delete("__homepage_feed_snapshot__");
+    } catch {
+      /* snapshot miss is fine */
+    }
     return json({ project: next });
   }
 
@@ -204,6 +218,7 @@ export async function onRequestPost(context) {
         publishedAt: new Date().toISOString(),
         otraGuidePublished: publishOtraGuide || reconciled.otraGuidePublished === true,
         syncError: photoWarning,
+        frozenSlug: mintFrozenSlug(reconciled),
       };
       await putProject(kv, next);
       return json(photoWarning ? { project: next, warning: photoWarning } : { project: next });
@@ -667,6 +682,7 @@ function normalizeProject(raw, id) {
     adminOnly: !!raw.adminOnly,
     otraGuidePublished: !!raw.otraGuidePublished,
     syncError: typeof raw.syncError === "string" ? raw.syncError : "",
+    frozenSlug: mintFrozenSlug({ frozenSlug: raw.frozenSlug, title: "" }),
   };
 }
 

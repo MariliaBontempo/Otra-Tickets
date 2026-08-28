@@ -7,7 +7,7 @@
 // and never touches the shared caches, so admin-only content can never leak
 // into a publicly cached response.
 
-import { eventSlug } from "./event-slug.js";
+import { eventSlug, eventSlugFromTitle, mintFrozenSlug } from "./event-slug.js";
 import { readHiddenPageIds } from "./hidden-pages.js";
 
 const API = "https://otraguide.com/api";
@@ -169,10 +169,10 @@ export function applyFixedRows(events, rows, now = Date.now()) {
 // slug and newer same-title events get a dated suffix — so publishing a new
 // event (e.g. a clone) only ever changes the new one's URL, never the URL of an
 // event that is already live, whatever date the new one lands on.
-function assignUniqueSlugs(events) {
+export function assignUniqueSlugs(events) {
   const groups = new Map();
   for (const event of events) {
-    const base = eventSlug(event[SLUG_SOURCE] || event.title);
+    const base = event[SLUG_SOURCE] ? eventSlug(event[SLUG_SOURCE]) : eventSlugFromTitle(event.title);
     event.slug = base;
     if (!groups.has(base)) groups.set(base, []);
     groups.get(base).push(event);
@@ -574,11 +574,11 @@ export async function buildPublishedSiteEvents(env, { includeAdminOnly = false }
         const liveTitle = detail && typeof detail.title === "string" ? detail.title.trim() : "";
         if (liveTitle) currentDetailTitle = liveTitle;
       }
-      // Freeze pretty URLs on the curated / seed title. Dated events keep
-      // bingo-bengo-sep-6; Iguana tours keep iguana-ride-e-scooter-... even
-      // when the card shows a live Django title or text:#evTitle.
+      // Freeze pretty URLs on the persisted first-published slug. Old
+      // published rows without frozenSlug implicitly freeze on the seed /
+      // curated title (iguana-ride-e-scooter-...), never displayTitle.
       const visibleTitle = pageTitle || currentDetailTitle || curatedTitle;
-      const slugSource = curatedTitle && curatedTitle !== visibleTitle ? curatedTitle : "";
+      const slugSource = mintFrozenSlug(project) || eventSlugFromTitle(curatedTitle);
       out.push({
         id,
         title: pageTitle || currentDetailTitle || curatedTitle,
@@ -828,7 +828,8 @@ export async function applyOverrides(events, env) {
 
 export function homepageEventSlugBase(event) {
   if (!event || typeof event !== "object") return "";
-  return eventSlug(event[SLUG_SOURCE] || event.title);
+  if (event[SLUG_SOURCE]) return eventSlug(event[SLUG_SOURCE]);
+  return eventSlugFromTitle(event.title);
 }
 
 export function homepageOverrideTitle(override) {

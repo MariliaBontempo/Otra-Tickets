@@ -875,6 +875,113 @@ assert(homepageEventSlugBase(fourById.get("6830")) === eventSlug(pundaSeed), "68
 assert(homepageEventSlugBase(fourById.get("6831")) === eventSlug(nightSeed), "6831 slug stays iguana-ride-e-scooter-night-tour");
 assert(homepageEventSlugBase(fourById.get("6832")) === eventSlug(sunsetSeed), "6832 slug stays iguana-ride-e-scooter-sunset-tour");
 
+// Frozen slug field on a published row wins over a later admin/card title.
+{
+  const frozenProjects = {
+    "site-event:draft-frozen-rename": {
+      id: "draft-frozen-rename",
+      otraGuideId: 6833,
+      title: "Admin Renamed After Publish",
+      frozenSlug: eventSlug(seedTitle),
+      status: "published",
+      startDate: "2999-03-13T12:00:00-04:00",
+      image: seedImg,
+    },
+  };
+  const frozenKv = {
+    async list({ prefix }) {
+      return {
+        keys: prefix === "site-event:" ? Object.keys(frozenProjects).map((name) => ({ name })) : [],
+        list_complete: true,
+      };
+    },
+    async get(key) {
+      return frozenProjects[key] || null;
+    },
+  };
+  const frozenSite = await buildPublishedSiteEvents({ OVERRIDES: frozenKv });
+  assert(
+    frozenSite[0]?.title === "Admin Renamed After Publish",
+    "published site-event with frozenSlug must still show the current card title"
+  );
+  assert(
+    homepageEventSlugBase(frozenSite[0]) === eventSlug(seedTitle),
+    "published site-event with frozenSlug must keep the pre-rename seed slug"
+  );
+  assert(
+    homepageEventSlugBase(frozenSite[0]) !== eventSlug("Admin Renamed After Publish"),
+    "frozenSlug must win over a later project.title when minting the pretty URL"
+  );
+}
+
+// Old published Iguana rows without frozenSlug stay on the seed e-scooter slug.
+{
+  const legacyProjects = {
+    "site-event:draft-legacy-iguana": {
+      id: "draft-legacy-iguana",
+      otraGuideId: 6831,
+      title: nightSeed,
+      status: "published",
+      isPerennial: true,
+      startDate: "2999-03-14T12:00:00-04:00",
+      image: seedImg,
+      claudeDesign: { displayTitle: sharedBrand },
+    },
+  };
+  const legacyKv = {
+    async list({ prefix }) {
+      return {
+        keys: prefix === "site-event:" ? Object.keys(legacyProjects).map((name) => ({ name })) : [],
+        list_complete: true,
+      };
+    },
+    async get(key) {
+      return legacyProjects[key] || null;
+    },
+  };
+  const legacyFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    if (String(url).endsWith("/events/details/6831/")) {
+      return new Response(JSON.stringify({
+        id: 6831,
+        title: nightDjango,
+        full_web_image_url: djangoImg,
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    return new Response("{}", { status: 404 });
+  };
+  let legacySite;
+  try {
+    legacySite = await buildPublishedSiteEvents({
+      OVERRIDES: legacyKv,
+      OTRA_API_URL: "https://mock.invalid/api",
+    });
+  } finally {
+    globalThis.fetch = legacyFetch;
+  }
+  assert(
+    homepageEventSlugBase(legacySite[0]) === eventSlug(nightSeed),
+    "old published Iguana without frozenSlug must implicitly freeze on the seed e-scooter title"
+  );
+  assert(
+    homepageEventSlugBase(legacySite[0]) !== eventSlug(nightDjango),
+    "old published Iguana without frozenSlug must not switch to the Django slug"
+  );
+  assert(
+    legacySite[0]?.title === nightDjango,
+    "old published Iguana card may still show the live Django title"
+  );
+}
+
+assert(
+  homepageEventSlugBase(null) === "",
+  "homepageEventSlugBase must tolerate a null event"
+);
+assert(
+  homepageEventSlugBase({ title: "Sunday Social (clone)" }) === eventSlug("Sunday Social"),
+  "clone in the title string must not appear in the pretty URL"
+);
+
 if (failures.length) {
   console.error("check-homepage-card-title FAILED:");
   failures.forEach((failure) => console.error(" - " + failure));
