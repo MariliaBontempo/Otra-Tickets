@@ -1,8 +1,9 @@
-import json
+import hashlib
 import inspect
+import json
+import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
-import unittest
 
 from scripts.ticket_number_extractor.extract_ticket_numbers import (
     PageValidationError,
@@ -61,9 +62,7 @@ class ParsePageNumberTests(unittest.TestCase):
         )
 
     def test_rejects_more_than_one_numeric_pair(self):
-        with self.assertRaisesRegex(
-            PageValidationError, r"^multiple numeric pairs$"
-        ):
+        with self.assertRaisesRegex(PageValidationError, r"^multiple numeric pairs$"):
             parse_page_number("39223 39223\n39224 39224\n")
 
 
@@ -78,7 +77,9 @@ class BuildReportTests(unittest.TestCase):
         )
 
         self.assertEqual(report["numbers"], ["00042", "00043", "00042"])
-        self.assertEqual(list(report), ["source", "numbers", "duplicates", "validation"])
+        self.assertEqual(
+            list(report), ["source", "numbers", "duplicates", "validation"]
+        )
         self.assertEqual(
             report["duplicates"],
             [{"number": "00042", "occurrences": 2, "pages": [1, 4]}],
@@ -146,28 +147,44 @@ class BuildReportTests(unittest.TestCase):
 
 
 class FileOutputTests(unittest.TestCase):
-    def test_hashes_source_bytes_and_writes_stable_json(self):
-        report = {
-            "source": {"filename": "source.bin", "sha256": "abc123"},
-            "numbers": ["00042"],
-            "duplicates": [],
-            "validation": {"page_count": 1},
-        }
-
+    def test_hashes_source_bytes(self):
         with TemporaryDirectory() as directory:
             source_path = Path(directory) / "source.bin"
-            output_path = Path(directory) / "nested" / "report.json"
             source_path.write_bytes(b"abc")
 
             self.assertEqual(
                 file_sha256(source_path),
                 "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
             )
+
+    def test_hashes_bytes_larger_than_one_megabyte(self):
+        payload = b"a" * (1024 * 1024) + b"b"
+
+        with TemporaryDirectory() as directory:
+            source_path = Path(directory) / "source.bin"
+            source_path.write_bytes(payload)
+
+            self.assertEqual(
+                file_sha256(source_path), hashlib.sha256(payload).hexdigest()
+            )
+
+    def test_writes_stable_json(self):
+        report = {
+            "source": {"filename": "café.bin", "sha256": "abc123"},
+            "numbers": ["00042"],
+            "duplicates": [],
+            "validation": {"page_count": 1},
+        }
+
+        with TemporaryDirectory() as directory:
+            output_path = Path(directory) / "nested" / "report.json"
             write_report(report, output_path)
 
-            self.assertEqual(json.loads(output_path.read_text(encoding="utf-8")), report)
+            output_text = output_path.read_text(encoding="utf-8")
+            self.assertIn(r"\u00e9", output_text)
+            self.assertEqual(json.loads(output_text), report)
             self.assertEqual(
-                output_path.read_text(encoding="utf-8"),
+                output_text,
                 json.dumps(report, indent=2, ensure_ascii=True) + "\n",
             )
 
@@ -175,7 +192,7 @@ class FileOutputTests(unittest.TestCase):
 class ExtractPageTextsTests(unittest.TestCase):
     def test_collects_valid_values_and_invalid_page_reasons(self):
         extracted, invalid_pages = extract_page_texts(
-            ["100 100\n", "200 201\n", "300 300\n"]
+            text for text in ("100 100\n", "200 201\n", "300 300\n")
         )
 
         self.assertEqual(extracted, [(1, "100"), (3, "300")])

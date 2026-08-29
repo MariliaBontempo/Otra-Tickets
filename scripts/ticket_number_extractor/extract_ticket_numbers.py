@@ -7,7 +7,6 @@ from collections import defaultdict
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 
-
 NUMERIC_PAIR_PATTERN = re.compile(r"^[ \t]*(\d+)[ \t]+(\d+)[ \t]*$")
 
 
