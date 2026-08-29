@@ -2,6 +2,8 @@ import hashlib
 import inspect
 import json
 import unittest
+from contextlib import redirect_stderr
+from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -10,6 +12,7 @@ from scripts.ticket_number_extractor.extract_ticket_numbers import (
     build_report,
     extract_page_texts,
     file_sha256,
+    main,
     parse_page_number,
     write_report,
 )
@@ -200,3 +203,18 @@ class ExtractPageTextsTests(unittest.TestCase):
             invalid_pages,
             [{"page": 2, "reason": "mismatched printed values: '200' and '201'"}],
         )
+
+
+class CliTests(unittest.TestCase):
+    def test_returns_two_when_input_file_does_not_exist(self):
+        with TemporaryDirectory() as directory:
+            missing_path = Path(directory) / "missing.pdf"
+            output_path = Path(directory) / "output" / "report.json"
+            stderr = StringIO()
+
+            with redirect_stderr(stderr):
+                exit_code = main([str(missing_path), "--output", str(output_path)])
+
+            self.assertEqual(exit_code, 2)
+            self.assertIn("could not process PDF", stderr.getvalue())
+            self.assertFalse(output_path.exists())

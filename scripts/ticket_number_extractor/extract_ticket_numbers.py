@@ -1,11 +1,16 @@
 #!/usr/bin/env python
 
+import argparse
 import hashlib
 import json
 import re
+import sys
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
 from pathlib import Path
+
+from pypdf import PdfReader
+from pypdf.errors import PdfReadError
 
 NUMERIC_PAIR_PATTERN = re.compile(r"^[ \t]*(\d+)[ \t]+(\d+)[ \t]*$")
 
@@ -60,6 +65,16 @@ def extract_page_texts(
     return extracted, invalid_pages
 
 
+def extract_pdf(
+    input_path: Path,
+) -> tuple[int, list[tuple[int, str]], list[dict[str, object]]]:
+    reader = PdfReader(input_path)
+    extracted, invalid_pages = extract_page_texts(
+        page.extract_text() or "" for page in reader.pages
+    )
+    return len(reader.pages), extracted, invalid_pages
+
+
 def build_report(
     *,
     source_filename: str,
@@ -98,3 +113,40 @@ def build_report(
             "invalid_pages": invalid_page_list,
         },
     }
+
+
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Extract repeated ticket numbers from PDF pages."
+    )
+    parser.add_argument("input_pdf", type=Path)
+    parser.add_argument("--output", required=True, type=Path)
+    return parser.parse_args(argv)
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = parse_args(argv)
+    try:
+        page_count, extracted, invalid_pages = extract_pdf(args.input_pdf)
+        report = build_report(
+            source_filename=args.input_pdf.name,
+            source_sha256=file_sha256(args.input_pdf),
+            page_count=page_count,
+            extracted=extracted,
+            invalid_pages=invalid_pages,
+        )
+        write_report(report, args.output)
+    except (OSError, PdfReadError) as error:
+        print(f"could not process PDF: {error}", file=sys.stderr)
+        return 2
+
+    print(
+        f"wrote {args.output}: {len(extracted)} numbers, "
+        f"{len(report['duplicates'])} duplicate values, "
+        f"{len(invalid_pages)} invalid pages"
+    )
+    return 1 if invalid_pages else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
