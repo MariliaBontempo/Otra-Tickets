@@ -49,7 +49,7 @@ def build_report(
         for number, pages in pages_by_number.items()
         if len(pages) > 1
     ]
-    invalid_page_list = list(invalid_pages)
+    invalid_page_list = [dict(item) for item in invalid_pages]
 
     return {
         "source": {"filename": source_filename, "sha256": source_sha256},

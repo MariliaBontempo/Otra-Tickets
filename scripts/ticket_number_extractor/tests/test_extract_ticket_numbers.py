@@ -98,13 +98,42 @@ class BuildReportTests(unittest.TestCase):
         report = build_report(
             source_filename="tickets.pdf",
             source_sha256="abc123",
-            page_count=4,
-            extracted=[(4, "00042"), (2, "00043"), (1, "00042")],
-            invalid_pages=[{"page": 3, "reason": "missing numeric pair"}],
+            page_count=5,
+            extracted=[
+                (4, "00042"),
+                (2, "00043"),
+                (1, "00042"),
+                (5, "00001"),
+                (3, "00001"),
+            ],
+            invalid_pages=[],
         )
 
-        self.assertEqual(report["numbers"], ["00042", "00043", "00042"])
+        self.assertEqual(
+            report["numbers"], ["00042", "00043", "00042", "00001", "00001"]
+        )
         self.assertEqual(
             report["duplicates"],
-            [{"number": "00042", "occurrences": 2, "pages": [1, 4]}],
+            [
+                {"number": "00042", "occurrences": 2, "pages": [1, 4]},
+                {"number": "00001", "occurrences": 2, "pages": [3, 5]},
+            ],
+        )
+
+    def test_snapshots_invalid_page_dictionaries(self):
+        invalid_page = {"page": 3, "reason": "missing numeric pair"}
+
+        report = build_report(
+            source_filename="tickets.pdf",
+            source_sha256="abc123",
+            page_count=4,
+            extracted=[(1, "00042"), (2, "00043"), (4, "00042")],
+            invalid_pages=[invalid_page],
+        )
+
+        invalid_page["reason"] = "changed after report"
+
+        self.assertEqual(
+            report["validation"]["invalid_pages"],
+            [{"page": 3, "reason": "missing numeric pair"}],
         )
