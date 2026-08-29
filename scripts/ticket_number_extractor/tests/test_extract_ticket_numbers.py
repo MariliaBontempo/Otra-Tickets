@@ -72,6 +72,7 @@ class BuildReportTests(unittest.TestCase):
         )
 
         self.assertEqual(report["numbers"], ["00042", "00043", "00042"])
+        self.assertEqual(list(report), ["source", "numbers", "duplicates", "validation"])
         self.assertEqual(
             report["duplicates"],
             [{"number": "00042", "occurrences": 2, "pages": [1, 4]}],
@@ -91,4 +92,19 @@ class BuildReportTests(unittest.TestCase):
                 "duplicate_extra_occurrence_count": 1,
                 "invalid_pages": [{"page": 3, "reason": "missing numeric pair"}],
             },
+        )
+
+    def test_sorts_duplicate_pages_without_sorting_numbers(self):
+        report = build_report(
+            source_filename="tickets.pdf",
+            source_sha256="abc123",
+            page_count=4,
+            extracted=[(4, "00042"), (2, "00043"), (1, "00042")],
+            invalid_pages=[{"page": 3, "reason": "missing numeric pair"}],
+        )
+
+        self.assertEqual(report["numbers"], ["00042", "00043", "00042"])
+        self.assertEqual(
+            report["duplicates"],
+            [{"number": "00042", "occurrences": 2, "pages": [1, 4]}],
         )
