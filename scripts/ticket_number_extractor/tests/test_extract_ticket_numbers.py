@@ -170,7 +170,7 @@ class FileOutputTests(unittest.TestCase):
 
     def test_writes_stable_json(self):
         report = {
-            "source": {"filename": "café.bin", "sha256": "abc123"},
+            "source": {"filename": "caf\u00e9.bin", "sha256": "abc123"},
             "numbers": ["00042"],
             "duplicates": [],
             "validation": {"page_count": 1},
