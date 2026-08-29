@@ -3,6 +3,7 @@ import unittest
 
 from scripts.ticket_number_extractor.extract_ticket_numbers import (
     PageValidationError,
+    build_report,
     parse_page_number,
 )
 
@@ -58,3 +59,36 @@ class ParsePageNumberTests(unittest.TestCase):
             PageValidationError, r"^multiple numeric pairs$"
         ):
             parse_page_number("39223 39223\n39224 39224\n")
+
+
+class BuildReportTests(unittest.TestCase):
+    def test_tracks_duplicates_by_page_and_builds_validation_counts(self):
+        report = build_report(
+            source_filename="tickets.pdf",
+            source_sha256="abc123",
+            page_count=4,
+            extracted=[(1, "00042"), (2, "00043"), (4, "00042")],
+            invalid_pages=[{"page": 3, "reason": "missing numeric pair"}],
+        )
+
+        self.assertEqual(report["numbers"], ["00042", "00043", "00042"])
+        self.assertEqual(
+            report["duplicates"],
+            [{"number": "00042", "occurrences": 2, "pages": [1, 4]}],
+        )
+        self.assertEqual(
+            report["source"], {"filename": "tickets.pdf", "sha256": "abc123"}
+        )
+        self.assertEqual(
+            report["validation"],
+            {
+                "page_count": 4,
+                "valid_page_count": 3,
+                "invalid_page_count": 1,
+                "extracted_number_count": 3,
+                "unique_number_count": 2,
+                "duplicate_number_count": 1,
+                "duplicate_extra_occurrence_count": 1,
+                "invalid_pages": [{"page": 3, "reason": "missing numeric pair"}],
+            },
+        )
