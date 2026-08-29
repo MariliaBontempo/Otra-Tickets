@@ -1,10 +1,16 @@
+import json
 import inspect
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
 
 from scripts.ticket_number_extractor.extract_ticket_numbers import (
     PageValidationError,
     build_report,
+    extract_page_texts,
+    file_sha256,
     parse_page_number,
+    write_report,
 )
 
 
@@ -136,4 +142,44 @@ class BuildReportTests(unittest.TestCase):
         self.assertEqual(
             report["validation"]["invalid_pages"],
             [{"page": 3, "reason": "missing numeric pair"}],
+        )
+
+
+class FileOutputTests(unittest.TestCase):
+    def test_hashes_source_bytes_and_writes_stable_json(self):
+        report = {
+            "source": {"filename": "source.bin", "sha256": "abc123"},
+            "numbers": ["00042"],
+            "duplicates": [],
+            "validation": {"page_count": 1},
+        }
+
+        with TemporaryDirectory() as directory:
+            source_path = Path(directory) / "source.bin"
+            output_path = Path(directory) / "nested" / "report.json"
+            source_path.write_bytes(b"abc")
+
+            self.assertEqual(
+                file_sha256(source_path),
+                "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+            )
+            write_report(report, output_path)
+
+            self.assertEqual(json.loads(output_path.read_text(encoding="utf-8")), report)
+            self.assertEqual(
+                output_path.read_text(encoding="utf-8"),
+                json.dumps(report, indent=2, ensure_ascii=True) + "\n",
+            )
+
+
+class ExtractPageTextsTests(unittest.TestCase):
+    def test_collects_valid_values_and_invalid_page_reasons(self):
+        extracted, invalid_pages = extract_page_texts(
+            ["100 100\n", "200 201\n", "300 300\n"]
+        )
+
+        self.assertEqual(extracted, [(1, "100"), (3, "300")])
+        self.assertEqual(
+            invalid_pages,
+            [{"page": 2, "reason": "mismatched printed values: '200' and '201'"}],
         )

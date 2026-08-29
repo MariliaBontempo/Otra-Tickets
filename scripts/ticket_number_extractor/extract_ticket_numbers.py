@@ -1,8 +1,11 @@
 #!/usr/bin/env python
 
+import hashlib
+import json
 import re
 from collections import defaultdict
-from typing import Sequence
+from collections.abc import Iterable, Sequence
+from pathlib import Path
 
 
 NUMERIC_PAIR_PATTERN = re.compile(r"^[ \t]*(\d+)[ \t]+(\d+)[ \t]*$")
@@ -10,6 +13,21 @@ NUMERIC_PAIR_PATTERN = re.compile(r"^[ \t]*(\d+)[ \t]+(\d+)[ \t]*$")
 
 class PageValidationError(ValueError):
     """Raised when a PDF page does not contain one valid repeated number pair."""
+
+
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        while chunk := source.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def write_report(report: dict[str, object], output_path: Path) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(
+        json.dumps(report, indent=2, ensure_ascii=True) + "\n", encoding="utf-8"
+    )
 
 
 def parse_page_number(text: str) -> str:
@@ -28,6 +46,19 @@ def parse_page_number(text: str) -> str:
     if left != right:
         raise PageValidationError(f"mismatched printed values: {left!r} and {right!r}")
     return left
+
+
+def extract_page_texts(
+    page_texts: Iterable[str],
+) -> tuple[list[tuple[int, str]], list[dict[str, object]]]:
+    extracted: list[tuple[int, str]] = []
+    invalid_pages: list[dict[str, object]] = []
+    for page, text in enumerate(page_texts, start=1):
+        try:
+            extracted.append((page, parse_page_number(text)))
+        except PageValidationError as error:
+            invalid_pages.append({"page": page, "reason": str(error)})
+    return extracted, invalid_pages
 
 
 def build_report(
