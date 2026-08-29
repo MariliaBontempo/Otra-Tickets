@@ -14,8 +14,20 @@ class ParsePageNumberTests(unittest.TestCase):
         self.assertEqual(parse_page_number(page_text), "00042")
 
     def test_rejects_page_without_numeric_pair(self):
-        with self.assertRaisesRegex(PageValidationError, "missing numeric pair"):
+        with self.assertRaisesRegex(PageValidationError, r"^missing numeric pair$"):
             parse_page_number("KAYA-KAYA-2026-PRINT-000001\n")
+
+    def test_rejects_non_pair_numeric_lines(self):
+        for line in (
+            "ticket 39223 39223",
+            "39223 39223 suffix",
+            "39223 39223 39223",
+        ):
+            with self.subTest(line=line):
+                with self.assertRaisesRegex(
+                    PageValidationError, r"^missing numeric pair$"
+                ):
+                    parse_page_number(line + "\n")
 
     def test_rejects_mismatched_printed_values(self):
         with self.assertRaisesRegex(
@@ -42,5 +54,7 @@ class ParsePageNumberTests(unittest.TestCase):
         )
 
     def test_rejects_more_than_one_numeric_pair(self):
-        with self.assertRaisesRegex(PageValidationError, "multiple numeric pairs"):
+        with self.assertRaisesRegex(
+            PageValidationError, r"^multiple numeric pairs$"
+        ):
             parse_page_number("39223 39223\n39224 39224\n")

@@ -11,11 +11,11 @@ class PageValidationError(ValueError):
 
 
 def parse_page_number(text: str) -> str:
-    pairs = []
+    pairs: list[tuple[str, str]] = []
     for line in text.splitlines():
         match = NUMERIC_PAIR_PATTERN.fullmatch(line)
         if match:
-            pairs.append(match.groups())
+            pairs.append((match.group(1), match.group(2)))
 
     if not pairs:
         raise PageValidationError("missing numeric pair")
