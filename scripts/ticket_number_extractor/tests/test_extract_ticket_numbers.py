@@ -1,3 +1,4 @@
+import inspect
 import unittest
 
 from scripts.ticket_number_extractor.extract_ticket_numbers import (
@@ -18,9 +19,27 @@ class ParsePageNumberTests(unittest.TestCase):
 
     def test_rejects_mismatched_printed_values(self):
         with self.assertRaisesRegex(
-            PageValidationError, "mismatched printed values"
+            PageValidationError,
+            r"^mismatched printed values: '39223' and '39224'$",
         ):
             parse_page_number("39223 39224\n")
+
+    def test_parse_page_number_has_annotated_signature(self):
+        signature = inspect.signature(parse_page_number)
+
+        self.assertEqual(
+            signature,
+            inspect.Signature(
+                parameters=[
+                    inspect.Parameter(
+                        "text",
+                        inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                        annotation=str,
+                    )
+                ],
+                return_annotation=str,
+            ),
+        )
 
     def test_rejects_more_than_one_numeric_pair(self):
         with self.assertRaisesRegex(PageValidationError, "multiple numeric pairs"):

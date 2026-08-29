@@ -10,9 +10,9 @@ class PageValidationError(ValueError):
     """Raised when a PDF page does not contain one valid repeated number pair."""
 
 
-def parse_page_number(page_text):
+def parse_page_number(text: str) -> str:
     pairs = []
-    for line in page_text.splitlines():
+    for line in text.splitlines():
         match = NUMERIC_PAIR_PATTERN.fullmatch(line)
         if match:
             pairs.append(match.groups())
@@ -24,5 +24,5 @@ def parse_page_number(page_text):
 
     left, right = pairs[0]
     if left != right:
-        raise PageValidationError("mismatched printed values")
+        raise PageValidationError(f"mismatched printed values: {left!r} and {right!r}")
     return left
