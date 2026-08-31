@@ -4,7 +4,8 @@
 // images in the OVERRIDES KV namespace and serve them from /override-images/.
 // Videos are R2-only: they are far too large for the KV fallback.
 
-import { requireStaff, json } from "./_auth.js";
+import { staffSession, json } from "./_auth.js";
+import { actorFromSession, appendAudit } from "./_audit.js";
 
 const MAX_BYTES = 8 * 1024 * 1024;
 const KV_MAX_BYTES = 2 * 1024 * 1024;
@@ -23,7 +24,8 @@ const VIDEO_TYPES = {
 };
 
 export async function onRequestPost(context) {
-  if (!(await requireStaff(context.request, context.env))) return json({ error: "unauthorized" }, 401);
+  const session = await staffSession(context.request, context.env);
+  if (!session) return json({ error: "unauthorized" }, 401);
 
   let form;
   try {
@@ -45,6 +47,7 @@ export async function onRequestPost(context) {
   const key = `${id}/${crypto.randomUUID()}.${isVideo ? VIDEO_TYPES[file.type] : TYPES[file.type]}`;
   const bucket = context.env.OVERRIDE_IMAGES;
   if (isVideo && !bucket) return json({ error: "video upload requires R2 storage" }, 503);
+  const kv = context.env.OVERRIDES;
   if (bucket) {
     await bucket.put(key, file.stream(), {
       httpMetadata: {
@@ -57,7 +60,6 @@ export async function onRequestPost(context) {
       },
     });
   } else {
-    const kv = context.env.OVERRIDES;
     if (!kv) return json({ error: "image store not configured" }, 503);
     if (file.size > KV_MAX_BYTES) return json({ error: "image must be 2MB or smaller" }, 400);
     const dataUrl = await fileToDataUrl(file);
@@ -71,6 +73,19 @@ export async function onRequestPost(context) {
         uploadedAt: new Date().toISOString(),
       })
     );
+  }
+
+  if (kv) {
+    await appendAudit(kv, {
+      actor: actorFromSession(session.token, session.role),
+      action: "upload",
+      pageId: id,
+      file: {
+        name: file.name || "upload",
+        key,
+        contentType: file.type,
+      },
+    });
   }
 
   return json({ url: `/override-images/${key}`, key });

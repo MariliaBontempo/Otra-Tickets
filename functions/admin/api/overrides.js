@@ -3,7 +3,8 @@
 // Staff-only editor API. Overrides live in Cloudflare KV and can target the
 // main event description/image plus arbitrary page fields.
 
-import { requireStaff, json } from "./_auth.js";
+import { requireStaff, staffSession, json } from "./_auth.js";
+import { actorFromSession, appendAudit, changedOverrideFields } from "./_audit.js";
 import { resyncPublishedProjectPhotos } from "./projects.js";
 
 const KEY = (id) => `event:${id}`;
@@ -24,7 +25,8 @@ export async function onRequestGet(context) {
 export async function onRequestPut(context) {
   const id = getId(context.request);
   if (!id) return json({ error: "invalid id" }, 400);
-  if (!(await requireStaff(context.request, context.env))) return json({ error: "unauthorized" }, 401);
+  const session = await staffSession(context.request, context.env);
+  if (!session) return json({ error: "unauthorized" }, 401);
 
   const kv = context.env.OVERRIDES;
   if (!kv) return json({ error: "overrides store not configured" }, 503);
@@ -66,6 +68,12 @@ export async function onRequestPut(context) {
   };
   const previous = await readOverride(kv, id);
   await kv.put(KEY(id), JSON.stringify(override));
+  await appendAudit(kv, {
+    actor: actorFromSession(session.token, session.role),
+    action: "save",
+    pageId: id,
+    changedFields: changedOverrideFields(previous, override),
+  });
   // Drop the public homepage snapshot so the next /api/homepage-events rebuild
   // picks up renamed titles and new hero photos instead of serving stale cards.
   try {
@@ -80,7 +88,7 @@ export async function onRequestPut(context) {
   // never fails the save (the editor sees a warning instead).
   let photoSyncWarning = "";
   if (photoSignature(previous) !== photoSignature(override)) {
-    const accessToken = (context.request.headers.get("authorization") || "").replace(/^Bearer /, "");
+    const accessToken = session.token;
     try {
       await resyncPublishedProjectPhotos(context, accessToken, id, override);
     } catch (error) {

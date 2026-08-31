@@ -8,7 +8,8 @@
 // so the editor can show them locked in place, and PUT strips them so they
 // never enter the saved layout.
 
-import { requireStaff, json } from "./_auth.js";
+import { requireStaff, staffSession, json } from "./_auth.js";
+import { actorFromSession, appendAudit, HOMEPAGE_AUDIT_ID } from "./_audit.js";
 import { applyFixedRows, isFixedHomepageRow } from "../../_lib/homepage-feed.js";
 
 const KEY = "homepage:layout";
@@ -33,7 +34,8 @@ export async function onRequestGet(context) {
 }
 
 export async function onRequestPut(context) {
-  if (!(await requireStaff(context.request, context.env))) return json({ error: "unauthorized" }, 401);
+  const session = await staffSession(context.request, context.env);
+  if (!session) return json({ error: "unauthorized" }, 401);
 
   const kv = context.env.OVERRIDES;
   if (!kv) return json({ error: "overrides store not configured" }, 503);
@@ -51,8 +53,22 @@ export async function onRequestPut(context) {
   // The fixed rows always exist on top, so an empty curated layout is valid.
   const rows = normalizeRows(body && body.rows, existing).filter((row) => !isFixedHomepageRow(row));
 
+  let previousRows = [];
+  try {
+    const previous = await kv.get(KEY, "json");
+    previousRows = previous && Array.isArray(previous.rows) ? previous.rows : [];
+  } catch {
+    previousRows = [];
+  }
+
   const layout = { rows, updatedAt: new Date().toISOString() };
   await kv.put(KEY, JSON.stringify(layout));
+  await appendAudit(kv, {
+    actor: actorFromSession(session.token, session.role),
+    action: "save",
+    pageId: HOMEPAGE_AUDIT_ID,
+    changedFields: JSON.stringify(previousRows) === JSON.stringify(rows) ? [] : ["rows"],
+  });
   return json({ rows: markFixedRows(applyFixedRows(events, rows)) });
 }
 
