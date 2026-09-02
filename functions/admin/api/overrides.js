@@ -4,7 +4,7 @@
 // main event description/image plus arbitrary page fields.
 
 import { requireStaff, staffSession, json } from "./_auth.js";
-import { actorFromSession, appendAudit, changedOverrideFields } from "./_audit.js";
+import { actorForAudit, appendAudit, changedOverrideFields } from "./_audit.js";
 import { resyncPublishedProjectPhotos } from "./projects.js";
 
 const KEY = (id) => `event:${id}`;
@@ -69,7 +69,7 @@ export async function onRequestPut(context) {
   const previous = await readOverride(kv, id);
   await kv.put(KEY(id), JSON.stringify(override));
   await appendAudit(kv, {
-    actor: actorFromSession(session.token, session.role),
+    actor: await actorForAudit(session.token, session.role, context.env),
     action: "save",
     pageId: id,
     changedFields: changedOverrideFields(previous, override),

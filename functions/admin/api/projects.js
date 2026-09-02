@@ -5,7 +5,7 @@
 // can build on this record.
 
 import { apiBase, requireStaff, staffSession, json } from "./_auth.js";
-import { actorFromSession, appendAudit } from "./_audit.js";
+import { actorForAudit, appendAudit } from "./_audit.js";
 import { mintFrozenSlug, liveSlugBase } from "../../_lib/event-slug.js";
 
 const MAX_BYTES = 50 * 1024 * 1024;
@@ -91,7 +91,7 @@ export async function onRequestPost(context) {
       if (override && typeof override === "object") {
         await kv.put(`event:${cloneId}`, JSON.stringify({ ...override, id: cloneId }));
         await appendAudit(kv, {
-          actor: actorFromSession(session.token, session.role),
+          actor: await actorForAudit(session.token, session.role, context.env),
           action: "save",
           pageId: cloneId,
           changedFields: ["clone"],

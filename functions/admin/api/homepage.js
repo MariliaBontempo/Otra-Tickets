@@ -9,7 +9,7 @@
 // never enter the saved layout.
 
 import { requireStaff, staffSession, json } from "./_auth.js";
-import { actorFromSession, appendAudit, HOMEPAGE_AUDIT_ID } from "./_audit.js";
+import { actorForAudit, appendAudit, HOMEPAGE_AUDIT_ID } from "./_audit.js";
 import { applyFixedRows, isFixedHomepageRow } from "../../_lib/homepage-feed.js";
 
 const KEY = "homepage:layout";
@@ -64,7 +64,7 @@ export async function onRequestPut(context) {
   const layout = { rows, updatedAt: new Date().toISOString() };
   await kv.put(KEY, JSON.stringify(layout));
   await appendAudit(kv, {
-    actor: actorFromSession(session.token, session.role),
+    actor: await actorForAudit(session.token, session.role, context.env),
     action: "save",
     pageId: HOMEPAGE_AUDIT_ID,
     changedFields: JSON.stringify(previousRows) === JSON.stringify(rows) ? [] : ["rows"],

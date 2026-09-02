@@ -1454,9 +1454,24 @@
   });
   $("historyBtn").addEventListener("click", toggleHistory);
 
+  function isOpaqueActorId(value, userId) {
+    const text = String(value || "").trim();
+    if (!text) return true;
+    if (userId != null && userId !== "" && text === String(userId).trim()) return true;
+    if (/^\d+$/.test(text)) return true;
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(text)) return true;
+    if (/^[0-9a-f]{32}$/i.test(text)) return true;
+    return false;
+  }
+
   function actorLabel(actor) {
-    if (!actor || typeof actor !== "object") return "staff";
-    return actor.email || actor.username || actor.userId || actor.label || "staff";
+    if (!actor || typeof actor !== "object") return "Unknown";
+    const userId = actor.userId == null ? "" : String(actor.userId).trim();
+    const candidates = [actor.name, actor.displayName, actor.display_name, actor.username, actor.email, actor.label];
+    for (const value of candidates) {
+      if (typeof value === "string" && value.trim() && !isOpaqueActorId(value, userId)) return value.trim();
+    }
+    return "Unknown";
   }
 
   function historySummary(entry) {

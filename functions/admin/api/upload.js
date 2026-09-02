@@ -5,7 +5,7 @@
 // Videos are R2-only: they are far too large for the KV fallback.
 
 import { staffSession, json } from "./_auth.js";
-import { actorFromSession, appendAudit } from "./_audit.js";
+import { actorForAudit, appendAudit } from "./_audit.js";
 
 const MAX_BYTES = 8 * 1024 * 1024;
 const KV_MAX_BYTES = 2 * 1024 * 1024;
@@ -77,7 +77,7 @@ export async function onRequestPost(context) {
 
   if (kv) {
     await appendAudit(kv, {
-      actor: actorFromSession(session.token, session.role),
+      actor: await actorForAudit(session.token, session.role, context.env),
       action: "upload",
       pageId: id,
       file: {

@@ -36,6 +36,22 @@ async function fetchStaffRole(accessToken, env) {
   }
 }
 
+// Best-effort profile for History names. A miss must never fail login or save.
+export async function fetchUserProfile(accessToken, env) {
+  try {
+    const resp = await fetch(`${apiBase(env)}/users/profile/`, {
+      headers: { authorization: `Bearer ${accessToken}`, accept: "application/json" },
+    });
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    if (Array.isArray(data)) return data[0] && typeof data[0] === "object" ? data[0] : null;
+    if (Array.isArray(data && data.results)) return data.results[0] && typeof data.results[0] === "object" ? data.results[0] : null;
+    return data && typeof data === "object" ? data : null;
+  } catch {
+    return null;
+  }
+}
+
 // Verify a JWT belongs to a staff/admin account via Otra Guide.
 export async function checkStaff(accessToken, env) {
   return !!(await fetchStaffRole(accessToken, env));

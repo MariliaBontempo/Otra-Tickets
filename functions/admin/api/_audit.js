@@ -1,10 +1,11 @@
 // Shared audit log for admin override saves and media uploads.
 // Files starting with "_" are not routed by Pages. They are import-only.
 
-import { decodeJwtPayload } from "./_auth.js";
+import { decodeJwtPayload, fetchUserProfile } from "./_auth.js";
 
 export const AUDIT_CAP = 200;
 export const HOMEPAGE_AUDIT_ID = "homepage";
+export const UNKNOWN_ACTOR = "Unknown";
 
 export function auditKey(pageId) {
   return `audit:event:${pageId}`;
@@ -26,20 +27,138 @@ function firstString(...values) {
   return "";
 }
 
+export function isOpaqueActorId(value, userId) {
+  const text = String(value || "").trim();
+  if (!text) return true;
+  if (userId != null && userId !== "" && text === String(userId).trim()) return true;
+  if (/^\d+$/.test(text)) return true;
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(text)) return true;
+  if (/^[0-9a-f]{32}$/i.test(text)) return true;
+  return false;
+}
+
+function firstHumanString(userId, ...values) {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim() && !isOpaqueActorId(value, userId)) {
+      return value.trim();
+    }
+  }
+  return "";
+}
+
+function identitySources(role, payload) {
+  const roleObj = role && typeof role === "object" ? role : {};
+  const payloadObj = payload && typeof payload === "object" ? payload : {};
+  return [roleObj, payloadObj, roleObj.user, payloadObj.user].filter((src) => src && typeof src === "object");
+}
+
+function joinNames(first, last) {
+  return [first, last]
+    .map((value) => (typeof value === "string" ? value.trim() : ""))
+    .filter(Boolean)
+    .join(" ");
+}
+
+function pickUserId(sources, jwtSources = []) {
+  for (const key of ["user_id", "userId", "sub"]) {
+    for (const src of sources) {
+      const value = src[key];
+      if (value !== undefined && value !== null && String(value).trim()) return String(value).trim();
+    }
+  }
+  // Only the JWT payload (not the profile) may contribute a bare .id, so a
+  // Django profile row id cannot collide with another staff member's user id.
+  for (const src of jwtSources) {
+    const value = src && src.id;
+    if (value !== undefined && value !== null && String(value).trim()) return String(value).trim();
+  }
+  return "";
+}
+
 export function actorFromSession(token, role) {
   const payload = decodeJwtPayload(token) || {};
-  const roleObj = role && typeof role === "object" ? role : {};
-  const userId = payload.user_id ?? payload.userId ?? payload.sub;
-  const email = firstString(roleObj.email, payload.email);
-  const username = firstString(roleObj.username, roleObj.name, payload.username, payload.name);
+  const sources = identitySources(role, payload);
+  const jwtSources = [payload, payload.user].filter((src) => src && typeof src === "object");
+  const userId = pickUserId(sources, jwtSources);
+  const name = firstHumanString(
+    userId,
+    ...sources.flatMap((src) => [
+      src.display_name,
+      src.displayName,
+      src.full_name,
+      src.fullName,
+      joinNames(src.first_name, src.last_name),
+      joinNames(src.firstName, src.lastName),
+      src.name,
+    ])
+  );
+  const username = firstHumanString(
+    userId,
+    ...sources.flatMap((src) => [src.username, src.preferred_username, src.preferredUsername])
+  );
+  const email = firstString(...sources.map((src) => src.email), ...sources.map((src) => src.user_email));
   const actor = {};
-  if (userId !== undefined && userId !== null && String(userId).trim()) {
-    actor.userId = String(userId);
-  }
+  if (userId) actor.userId = userId;
+  if (name) actor.name = name;
   if (email) actor.email = email;
   if (username) actor.username = username;
-  if (!actor.userId && !actor.email && !actor.username) actor.label = "staff";
+  if (!actor.userId && !actor.name && !actor.email && !actor.username) actor.label = "staff";
   return actor;
+}
+
+export async function actorForAudit(token, role, env) {
+  try {
+    const fromSession = actorFromSession(token, role);
+    if (fromSession.name || fromSession.username || fromSession.email || !env) return fromSession;
+    const profile = await fetchUserProfile(token, env);
+    if (!profile) return fromSession;
+    return actorFromSession(token, { ...(role && typeof role === "object" ? role : {}), ...profile });
+  } catch {
+    return actorFromSession(token, role);
+  }
+}
+
+export function actorDisplayName(actor) {
+  if (!actor || typeof actor !== "object") return UNKNOWN_ACTOR;
+  const userId = actor.userId == null ? "" : String(actor.userId).trim();
+  const candidates = [actor.name, actor.displayName, actor.display_name, actor.username, actor.email, actor.label];
+  for (const value of candidates) {
+    if (typeof value === "string" && value.trim() && !isOpaqueActorId(value, userId)) return value.trim();
+  }
+  return UNKNOWN_ACTOR;
+}
+
+function sanitizeActor(actor) {
+  const src = actor && typeof actor === "object" ? actor : {};
+  const userId = src.userId != null ? String(src.userId).trim().slice(0, 80) : "";
+  const name = firstHumanString(userId, src.name, src.displayName, src.display_name);
+  const email = firstString(src.email);
+  const username = firstHumanString(userId, src.username);
+  const next = {};
+  if (userId) next.userId = userId;
+  if (name) next.name = name.slice(0, 120);
+  if (email) next.email = email.slice(0, 200);
+  if (username) next.username = username.slice(0, 80);
+  if (!next.userId && !next.name && !next.email && !next.username) {
+    const label = firstHumanString("", src.label) || "staff";
+    next.label = label.slice(0, 40);
+  }
+  return next;
+}
+
+export function resolveActorForRead(entryActor, sessionActor) {
+  const stored = sanitizeActor(entryActor);
+  if (actorDisplayName(stored) !== UNKNOWN_ACTOR) return stored;
+  const session = sanitizeActor(sessionActor);
+  if (stored.userId && session.userId && stored.userId === session.userId) {
+    return sanitizeActor({
+      ...stored,
+      name: session.name,
+      email: session.email,
+      username: session.username,
+    });
+  }
+  return stored;
 }
 
 function fieldSnapshot(value) {
@@ -72,7 +191,7 @@ function sanitizeEntry(entry) {
   const pageId = String((entry && entry.pageId) || "").trim();
   const next = {
     at: typeof entry.at === "string" && entry.at ? entry.at : new Date().toISOString(),
-    actor: entry.actor && typeof entry.actor === "object" ? entry.actor : { label: "staff" },
+    actor: sanitizeActor(entry && entry.actor),
     action: entry.action === "upload" ? "upload" : "save",
     pageId,
   };
@@ -112,14 +231,17 @@ export async function appendAudit(kv, entry) {
   }
 }
 
-export async function readAudit(kv, pageId) {
+export async function readAudit(kv, pageId, sessionActor) {
   if (!kv || !isAuditPageId(pageId)) return [];
   try {
     const raw = await kv.get(auditKey(pageId));
     if (!raw) return [];
     const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
     if (!Array.isArray(parsed)) return [];
-    return parsed.slice().reverse();
+    return parsed.slice().reverse().map((entry) => {
+      if (!entry || typeof entry !== "object") return entry;
+      return { ...entry, actor: resolveActorForRead(entry.actor, sessionActor) };
+    });
   } catch {
     return [];
   }
