@@ -4,7 +4,8 @@
 // event record is stored in KV. Publishing the draft into the public homepage
 // can build on this record.
 
-import { apiBase, requireStaff, json } from "./_auth.js";
+import { apiBase, requireStaff, staffSession, json } from "./_auth.js";
+import { actorForAudit, appendAudit } from "./_audit.js";
 import { mintFrozenSlug, liveSlugBase } from "../../_lib/event-slug.js";
 
 const MAX_BYTES = 50 * 1024 * 1024;
@@ -21,8 +22,9 @@ export async function onRequestGet(context) {
 }
 
 export async function onRequestPost(context) {
-  const accessToken = await requireStaff(context.request, context.env);
-  if (!accessToken) return json({ error: "unauthorized" }, 401);
+  const session = await staffSession(context.request, context.env);
+  if (!session) return json({ error: "unauthorized" }, 401);
+  const accessToken = session.token;
 
   const url = new URL(context.request.url);
   if (url.searchParams.get("action") === "archive") {
@@ -88,6 +90,12 @@ export async function onRequestPost(context) {
         (await kv.get(`override:${sourcePageId}`, "json"));
       if (override && typeof override === "object") {
         await kv.put(`event:${cloneId}`, JSON.stringify({ ...override, id: cloneId }));
+        await appendAudit(kv, {
+          actor: await actorForAudit(session.token, session.role, context.env),
+          action: "save",
+          pageId: cloneId,
+          changedFields: ["clone"],
+        });
       }
     } catch {}
 
