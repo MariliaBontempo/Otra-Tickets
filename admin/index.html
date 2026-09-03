@@ -2756,13 +2756,32 @@
     warn.textContent = notes.join(". ") + ".";
   }
 
+  async function loadCloneSourceRates() {
+    if (!selected) return [];
+    try {
+      const data = await api("/admin/api/projects", { headers: authHeaders() });
+      const projects = Array.isArray(data.projects) ? data.projects : [];
+      let project = null;
+      if (isDraft(selected)) {
+        project = projects.find((entry) => String(entry.id) === String(selected.id)) || null;
+      } else {
+        const eventId = eventIdForPage(selected);
+        project = projects.find((entry) => String(entry.otraGuideId || "") === String(eventId)) || null;
+      }
+      const rates = project && project.claudeDesign && Array.isArray(project.claudeDesign.rates)
+        ? project.claudeDesign.rates
+        : [];
+      return rates;
+    } catch {
+      return [];
+    }
+  }
+
   async function loadCloneSaleWindows(preferredEventId) {
     $("cloneSaleHint").textContent = "Loading ticket sale windows...";
     renderCloneSaleWindows([]);
     const eventDay = $("cloneEventDate").value || cloneSourceDate || todayCloneDay();
-    const rates = (selected && selected.claudeDesign && Array.isArray(selected.claudeDesign.rates)
-      ? selected.claudeDesign.rates
-      : []);
+    const rates = await loadCloneSourceRates();
     let tickets = [];
     const eventId = preferredEventId || eventIdForPage(selected) || linkedEventIdForPage();
     if (eventId) {

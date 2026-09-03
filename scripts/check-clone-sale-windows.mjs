@@ -93,6 +93,10 @@ assert(adminHtml.includes('id="cloneSaleConfirmed"'), 'clone modal must require 
 assert(adminHtml.includes('id="cloneSaleWindows"'), 'clone modal must list editable sale windows');
 assert(/ticketSaleWindows/.test(adminHtml), 'clone request must send confirmed ticketSaleWindows');
 assert(/normalizeCloneSaleWindows/.test(projectsJs), 'clone API must validate confirmed sale windows');
+assert(
+  projectsJs.includes('from "../../_lib/clone-sale-windows.js"'),
+  'clone API must use the shared sale window helpers'
+);
 assert(/sale_start_time:\s*window\.sale_start_time/.test(projectsJs), 'clone ticket create must apply confirmed sale start');
 assert(/sale_end_time:\s*window\.sale_end_time/.test(projectsJs), 'clone ticket create must apply confirmed sale end');
 assert(/applyConfirmedSaleWindows/.test(projectsJs), 'existing event clones must patch confirmed sale windows');
@@ -101,6 +105,12 @@ assert(/skipTicketSaleSync/.test(fs.readFileSync(new URL('../functions/admin/api
 assert(
   !/function loadCloneSaleWindows[\s\S]*?inspectedProject\.rates/.test(adminHtml),
   'clone sale rows must not seed from inspectedProject'
+);
+assert(/async function loadCloneSourceRates/.test(adminHtml), 'clone must load rates from the projects API');
+assert(/api\("\/admin\/api\/projects"/.test(adminHtml), 'clone rate loader must call /admin/api/projects');
+assert(
+  /const rates = await loadCloneSourceRates\(\)/.test(adminHtml),
+  'new clone mode must await loaded project rates, not selected.claudeDesign'
 );
 assert(/America\/Curacao/.test(adminHtml), 'clone defaults must use Curacao local today');
 
