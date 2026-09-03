@@ -122,6 +122,7 @@ assert(
 );
 assert(/async function loadCloneSourceRates/.test(adminHtml), 'clone must load rates from the projects API');
 assert(/inventDefaults:\s*false/.test(adminHtml), 'existing mode must not invent missing live sale dates');
+assert(/requireDates:\s*mode === "new"/.test(adminHtml), 'HTML required must apply only in new mode');
 assert(/cloneAlignedEventDay/.test(adminHtml), 'clone date changes must track the aligned event day');
 assert(/fetchEventTickets\(context, accessToken, existingEventIdForCount\)/.test(
   fs.readFileSync(new URL('../functions/admin/api/projects.js', import.meta.url), 'utf8')

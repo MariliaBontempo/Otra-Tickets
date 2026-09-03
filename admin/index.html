@@ -2689,6 +2689,7 @@
   function renderCloneSaleWindows(rows, options = {}) {
     cloneSaleRows = Array.isArray(rows) ? rows : [];
     const readonly = !!options.readonly;
+    const requireDates = options.requireDates !== false;
     const host = $("cloneSaleWindows");
     const warn = $("cloneSaleWarnings");
     $("cloneSaleConfirmed").checked = false;
@@ -2706,10 +2707,10 @@
         <strong>${esc(row.name)}</strong>
         <div class="clone-sale-fields">
           <label>Sale start
-            <input data-clone-sale-start="${index}" type="date" required value="${esc(row.saleStartDate)}" ${readonly ? "readonly" : ""} />
+            <input data-clone-sale-start="${index}" type="date" ${requireDates ? "required " : ""}value="${esc(row.saleStartDate)}" ${readonly ? "readonly" : ""} />
           </label>
           <label>Sale end
-            <input data-clone-sale-end="${index}" type="date" required value="${esc(row.saleEndDate)}" ${readonly ? "readonly" : ""} />
+            <input data-clone-sale-end="${index}" type="date" ${requireDates ? "required " : ""}value="${esc(row.saleEndDate)}" ${readonly ? "readonly" : ""} />
           </label>
           <label class="clone-sale-active">
             <input data-clone-sale-active="${index}" type="checkbox" ${row.isActive ? "checked" : ""} disabled />
@@ -2817,7 +2818,7 @@
           $("cloneEventDate").value || eventDay,
           { inventDefaults: true }
         );
-    renderCloneSaleWindows(rows);
+    renderCloneSaleWindows(rows, { readonly: false, requireDates: mode === "new" });
     if (!rows.length) {
       $("cloneSaleHint").textContent = "No ticket types found yet. Confirm below to clone without sale windows.";
     } else if (mode === "existing") {
