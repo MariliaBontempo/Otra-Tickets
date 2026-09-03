@@ -704,9 +704,7 @@ function publishedDraft(overrides = {}) {
         method: "POST",
         headers: { authorization: "Bearer test-token", "content-type": "application/json" },
         body: JSON.stringify({
-          ticketSaleWindows: [
-            { name: "General Admission", saleStartDate: "2026-09-03", saleEndDate: "2026-09-20", isActive: true },
-          ],
+          ticketSaleWindows: [],
         }),
       }),
       env: { OVERRIDES: kv, OTRA_API_URL: "https://og.test/api" },

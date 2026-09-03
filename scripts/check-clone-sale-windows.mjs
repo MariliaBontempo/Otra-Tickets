@@ -57,7 +57,15 @@ try {
 } catch (error) {
   missingError = error.message;
 }
-assert(/confirm ticket sale/i.test(missingError), 'empty confirmation must fail closed');
+assert(/confirm ticket sale/i.test(missingError), 'empty confirmation must fail closed by default');
+assert(normalizeCloneSaleWindows([], { allowEmpty: true }).length === 0, 'explicit empty confirmation is allowed when there are no tickets');
+let countError = '';
+try {
+  normalizeCloneSaleWindows([], { expectedCount: 2 });
+} catch (error) {
+  countError = error.message;
+}
+assert(/all 2 ticket types/i.test(countError), 'window count must match expected ticket types');
 
 const normalized = normalizeCloneSaleWindows([
   { name: 'General Admission', saleStartDate: '2026-09-03', saleEndDate: '2026-09-20', isActive: true },
@@ -88,6 +96,13 @@ assert(/normalizeCloneSaleWindows/.test(projectsJs), 'clone API must validate co
 assert(/sale_start_time:\s*window\.sale_start_time/.test(projectsJs), 'clone ticket create must apply confirmed sale start');
 assert(/sale_end_time:\s*window\.sale_end_time/.test(projectsJs), 'clone ticket create must apply confirmed sale end');
 assert(/applyConfirmedSaleWindows/.test(projectsJs), 'existing event clones must patch confirmed sale windows');
+assert(/skipTicketSaleSync:\s*true/.test(adminHtml), 'clone date move must skip sale end overwrite');
+assert(/skipTicketSaleSync/.test(fs.readFileSync(new URL('../functions/admin/api/events.js', import.meta.url), 'utf8')), 'date sync must honor skipTicketSaleSync');
+assert(
+  !/function loadCloneSaleWindows[\s\S]*?inspectedProject\.rates/.test(adminHtml),
+  'clone sale rows must not seed from inspectedProject'
+);
+assert(/America\/Curacao/.test(adminHtml), 'clone defaults must use Curacao local today');
 
 if (failures.length) {
   console.error('check-clone-sale-windows FAILED:');

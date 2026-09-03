@@ -63,9 +63,16 @@ export async function onRequestPost(context) {
 
     // Ticket sale windows must be confirmed in the admin clone modal so a
     // clone never ships with closed or inactive windows unnoticed.
+    const existingEventIdForCount = cleanInteger(body && body.existingEventId);
+    const expectedWindowCount = existingEventIdForCount
+      ? null
+      : ((source.claudeDesign && Array.isArray(source.claudeDesign.rates)) ? source.claudeDesign.rates.length : 0);
     let confirmedSaleWindows;
     try {
-      confirmedSaleWindows = normalizeCloneSaleWindows(body && body.ticketSaleWindows);
+      confirmedSaleWindows = normalizeCloneSaleWindows(body && body.ticketSaleWindows, {
+        expectedCount: expectedWindowCount,
+        allowEmpty: expectedWindowCount === 0,
+      });
     } catch (error) {
       return json({ error: error.message }, 400);
     }
@@ -118,6 +125,10 @@ export async function onRequestPost(context) {
       if (existingEventId) {
         bound = await createDraftFromExistingEvent(context, accessToken, clone, existingEventId);
         await putProject(kv, bound);
+        const existingCount = (bound.ticketTypeIds || []).length;
+        if (confirmedSaleWindows.length !== existingCount) {
+          throw new Error(`confirm sale windows for all ${existingCount} ticket types before cloning`);
+        }
         bound = await applyConfirmedSaleWindows(context, accessToken, bound, confirmedSaleWindows);
         await putProject(kv, bound);
       } else {
@@ -522,7 +533,7 @@ async function createDraftFromExistingEvent(context, accessToken, project, event
       const quantity = Number.parseInt(ticket.quantity, 10);
       return Number.isSafeInteger(quantity) && quantity > 0 ? quantity : 500;
     }),
-    ticketTypeIds: tickets.map((ticket) => ticket.id).filter(Boolean),
+    ticketTypeIds: tickets.map((ticket) => ticket.id || null),
     otraGuideId: String(detail.id || eventId),
     otraGuideSlug: detail.slug || String(eventId),
     usesExistingOtraGuideEvent: true,
@@ -611,11 +622,13 @@ async function reconcileTickets(context, accessToken, project, confirmedSaleWind
 async function applyConfirmedSaleWindows(context, accessToken, project, confirmedSaleWindows) {
   const windows = Array.isArray(confirmedSaleWindows) ? confirmedSaleWindows : [];
   const ids = [...(project.ticketTypeIds || [])];
-  const count = Math.min(windows.length, ids.length);
-  for (let index = 0; index < count; index += 1) {
+  if (windows.length !== ids.length) {
+    throw new Error(`confirm sale windows for all ${ids.length} ticket types before cloning`);
+  }
+  for (let index = 0; index < windows.length; index += 1) {
     const ticketId = ids[index];
     const window = windows[index];
-    if (!ticketId || !window) continue;
+    if (!ticketId) throw new Error(`missing ticket type id for ${window.name}`);
     await otraFetch(context, accessToken, `/ticket/create/tickets/${project.otraGuideId}/${ticketId}/`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },

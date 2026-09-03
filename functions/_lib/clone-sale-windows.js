@@ -69,11 +69,28 @@ export function normalizeCloneSaleWindow(input, index = 0) {
   };
 }
 
-export function normalizeCloneSaleWindows(rawWindows) {
-  if (!Array.isArray(rawWindows) || rawWindows.length === 0) {
+export function normalizeCloneSaleWindows(rawWindows, options = {}) {
+  if (!Array.isArray(rawWindows)) {
+    throw new Error("confirm ticket sale start and end dates before cloning");
+  }
+  const expectedCount = Number.isInteger(options.expectedCount) ? options.expectedCount : null;
+  if (expectedCount != null && rawWindows.length !== expectedCount) {
+    throw new Error(`confirm sale windows for all ${expectedCount} ticket types before cloning`);
+  }
+  if (rawWindows.length === 0) {
+    if (options.allowEmpty) return [];
     throw new Error("confirm ticket sale start and end dates before cloning");
   }
   return rawWindows.map((window, index) => normalizeCloneSaleWindow(window, index));
+}
+
+export function curacaoToday(now = new Date()) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Curacao",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now);
 }
 
 export function cloneSaleWindowWarnings(windows, options = {}) {

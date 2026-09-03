@@ -317,17 +317,20 @@ async function updateEventDate(context, accessToken, body) {
   // Ticket sale windows end at the event start; moving the event without
   // moving them leaves tickets "Currently Unavailable" (or closes sales too
   // late). Keep every ticket sellable right up to the new start.
-  try {
-    const ticketData = await otraJson(context, accessToken, `/ticket/purchase/tickets/${eventId}/`);
-    const ticketList = (ticketData && Array.isArray(ticketData.results)) ? ticketData.results : [];
-    for (const ticket of ticketList) {
-      await otraWrite(context, accessToken, `/ticket/create/tickets/${eventId}/${ticket.id}/`, {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ sale_end_time: newStartIso }),
-      });
-    }
-  } catch {}
+  // Clone confirmation can skip this so a just-confirmed sale end is not wiped.
+  if (!body.skipTicketSaleSync) {
+    try {
+      const ticketData = await otraJson(context, accessToken, `/ticket/purchase/tickets/${eventId}/`);
+      const ticketList = (ticketData && Array.isArray(ticketData.results)) ? ticketData.results : [];
+      for (const ticket of ticketList) {
+        await otraWrite(context, accessToken, `/ticket/create/tickets/${eventId}/${ticket.id}/`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ sale_end_time: newStartIso }),
+        });
+      }
+    } catch {}
+  }
 
   // The event page hero and the homepage cards read the site's own copies
   // (KV site-event dates + cached feed), not Django - keep them in step and
