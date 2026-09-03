@@ -703,7 +703,11 @@ function publishedDraft(overrides = {}) {
       request: new Request("https://otratickets.com/admin/api/projects?action=clone&id=draft-night", {
         method: "POST",
         headers: { authorization: "Bearer test-token", "content-type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({
+          ticketSaleWindows: [
+            { name: "General Admission", saleStartDate: "2026-09-03", saleEndDate: "2026-09-20", isActive: true },
+          ],
+        }),
       }),
       env: { OVERRIDES: kv, OTRA_API_URL: "https://og.test/api" },
     });

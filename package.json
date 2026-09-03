@@ -19,6 +19,7 @@
     "check:admin-video": "node scripts/check-admin-video-upload.mjs",
     "check:admin-responsive": "node scripts/check-admin-responsive.mjs",
     "check:clone-sync": "node scripts/check-clone-date-card-sync.mjs",
+    "check:clone-sale-windows": "node scripts/check-clone-sale-windows.mjs",
     "check:homepage-hero": "node scripts/check-homepage-hero-image.mjs",
     "check:homepage-title": "node scripts/check-homepage-card-title.mjs",
     "check:overrides": "node scripts/check-overrides-idempotent.mjs",
