@@ -80,6 +80,7 @@ export async function onRequestPost(context) {
       confirmedSaleWindows = normalizeCloneSaleWindows(body && body.ticketSaleWindows, {
         expectedCount: expectedWindowCount,
         allowEmpty: expectedWindowCount === 0,
+        allowBlankDates: !!existingEventIdForCount,
       });
     } catch (error) {
       return json({ error: error.message }, 400);
@@ -603,7 +604,7 @@ async function reconcileTickets(context, accessToken, project, confirmedSaleWind
       quantity: project.ticketQuantities[index] || 500,
       base_currency: ["USD", "EUR", "ANG"].includes(rate.currency) ? rate.currency : "USD",
     };
-    if (window) {
+    if (window && window.sale_start_time && window.sale_end_time) {
       payload.sale_start_time = window.sale_start_time;
       payload.sale_end_time = window.sale_end_time;
     }

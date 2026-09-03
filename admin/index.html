@@ -2712,8 +2712,8 @@
             <input data-clone-sale-end="${index}" type="date" required value="${esc(row.saleEndDate)}" ${readonly ? "readonly" : ""} />
           </label>
           <label class="clone-sale-active">
-            <input data-clone-sale-active="${index}" type="checkbox" ${row.isActive ? "checked" : ""} ${readonly ? "disabled" : ""} />
-            <span>Active</span>
+            <input data-clone-sale-active="${index}" type="checkbox" ${row.isActive ? "checked" : ""} disabled />
+            <span>${row.isActive ? "Active" : "Inactive"}</span>
           </label>
         </div>
       </div>
@@ -2823,7 +2823,7 @@
     } else if (mode === "existing") {
       const missing = rows.some((row) => row.missingSaleDates);
       $("cloneSaleHint").textContent = missing
-        ? "Otra Guide did not return some sale dates. Enter the real sale start and sale end before binding. Clone does not rewrite live tickets."
+        ? "Otra Guide did not return some sale dates. Review what is shown, then confirm. Clone does not rewrite live tickets; fix windows later in Checkout if needed."
         : "Review these live ticket sale windows before binding. They are not changed by clone; edit them later in Checkout if needed.";
     } else {
       $("cloneSaleHint").textContent = "Review sale start and sale end for every ticket type before cloning.";
@@ -2958,12 +2958,12 @@
       return;
     }
     for (const window of ticketSaleWindows) {
-      if (!window.saleStartDate || !window.saleEndDate) {
+      if (mode === "new" && (!window.saleStartDate || !window.saleEndDate)) {
         $("cloneStatus").textContent = `Sale start and sale end are required for ${window.name}.`;
         $("cloneStatus").className = "status error";
         return;
       }
-      if (window.saleEndDate < window.saleStartDate) {
+      if (window.saleStartDate && window.saleEndDate && window.saleEndDate < window.saleStartDate) {
         $("cloneStatus").textContent = `Sale end must be on or after sale start for ${window.name}.`;
         $("cloneStatus").className = "status error";
         return;

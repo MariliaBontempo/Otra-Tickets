@@ -50,13 +50,14 @@ export function buildCloneSaleWindowsFromSource(tickets, rates, options = {}) {
   return windows;
 }
 
-export function normalizeCloneSaleWindow(input, index = 0) {
+export function normalizeCloneSaleWindow(input, index = 0, options = {}) {
   const name = String((input && input.name) || "").trim() || `Ticket ${index + 1}`;
   const saleStartDate = toDay(input && input.saleStartDate);
   const saleEndDate = toDay(input && input.saleEndDate);
-  if (!saleStartDate) throw new Error(`sale start is required for ${name}`);
-  if (!saleEndDate) throw new Error(`sale end is required for ${name}`);
-  if (saleEndDate < saleStartDate) {
+  const allowBlankDates = !!options.allowBlankDates;
+  if (!allowBlankDates && !saleStartDate) throw new Error(`sale start is required for ${name}`);
+  if (!allowBlankDates && !saleEndDate) throw new Error(`sale end is required for ${name}`);
+  if (saleStartDate && saleEndDate && saleEndDate < saleStartDate) {
     throw new Error(`sale end must be on or after sale start for ${name}`);
   }
   return {
@@ -64,8 +65,8 @@ export function normalizeCloneSaleWindow(input, index = 0) {
     saleStartDate,
     saleEndDate,
     isActive: !input || input.isActive !== false,
-    sale_start_time: dayToSaleStartIso(saleStartDate),
-    sale_end_time: dayToSaleEndIso(saleEndDate),
+    sale_start_time: saleStartDate ? dayToSaleStartIso(saleStartDate) : "",
+    sale_end_time: saleEndDate ? dayToSaleEndIso(saleEndDate) : "",
   };
 }
 
@@ -81,7 +82,7 @@ export function normalizeCloneSaleWindows(rawWindows, options = {}) {
     if (options.allowEmpty) return [];
     throw new Error("confirm ticket sale start and end dates before cloning");
   }
-  return rawWindows.map((window, index) => normalizeCloneSaleWindow(window, index));
+  return rawWindows.map((window, index) => normalizeCloneSaleWindow(window, index, options));
 }
 
 export function curacaoToday(now = new Date()) {

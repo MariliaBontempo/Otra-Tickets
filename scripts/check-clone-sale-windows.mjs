@@ -72,6 +72,11 @@ const normalized = normalizeCloneSaleWindows([
 ]);
 assert(normalized[0].sale_start_time === '2026-09-03T00:00:00-04:00', 'confirmed start must become an API timestamp');
 assert(normalized[0].sale_end_time === '2026-09-20T23:59:59-04:00', 'confirmed end must become an API timestamp');
+const blankOk = normalizeCloneSaleWindows(
+  [{ name: 'General Admission', saleStartDate: '', saleEndDate: '', isActive: false }],
+  { expectedCount: 1, allowBlankDates: true }
+);
+assert(blankOk[0].sale_start_time === '' && blankOk[0].sale_end_time === '', 'existing mode may confirm blank live dates');
 
 let orderError = '';
 try {
@@ -90,6 +95,8 @@ assert(fromRatesOnly[0].saleStartDate === '2026-09-03', 'rate only rows default 
 assert(fromRatesOnly[0].saleEndDate === '2026-09-20', 'rate only rows default sale end to the event day');
 
 assert(adminHtml.includes('id="cloneSaleConfirmed"'), 'clone modal must require an explicit confirmation checkbox');
+assert(/data-clone-sale-active="\$\{index\}"[^>]*disabled/.test(adminHtml), 'Active status must be display only');
+assert(/allowBlankDates:\s*!!existingEventIdForCount/.test(fs.readFileSync(new URL('../functions/admin/api/projects.js', import.meta.url), 'utf8')), 'existing bind must allow blank live sale dates');
 assert(adminHtml.includes('id="cloneSaleWindows"'), 'clone modal must list editable sale windows');
 assert(/ticketSaleWindows/.test(adminHtml), 'clone request must send confirmed ticketSaleWindows');
 assert(/normalizeCloneSaleWindows/.test(projectsJs), 'clone API must validate confirmed sale windows');
