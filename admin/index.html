@@ -415,6 +415,34 @@
   }
   .checkout-ticket textarea { min-height: 88px; }
   .checkout-ticket-note { color: var(--muted); font-size: 12px; }
+  .clone-sale-list { display: grid; gap: 10px; max-height: 280px; overflow: auto; }
+  .clone-sale-row {
+    display: grid;
+    gap: 10px;
+    padding: 12px;
+    background: #0b0d11;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+  }
+  .clone-sale-row strong { display: block; }
+  .clone-sale-fields {
+    display: grid;
+    grid-template-columns: 1fr 1fr auto;
+    gap: 10px;
+    align-items: end;
+  }
+  .clone-sale-active {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    min-height: 42px;
+    white-space: nowrap;
+  }
+  .clone-sale-active input { width: auto; }
+  .clone-sale-warning { color: #f0b429; font-size: 12px; }
+  @media (max-width: 720px) {
+    .clone-sale-fields { grid-template-columns: 1fr; }
+  }
 
   .icon-btn {
     width: 42px;
@@ -838,6 +866,16 @@
         </label>
         <div class="stack" id="cloneEventResults"></div>
         <div class="muted" id="cloneEventSelected"></div>
+        <div class="stack" id="cloneSaleSection" style="gap:10px">
+          <strong>Confirm ticket sale windows</strong>
+          <p class="muted" id="cloneSaleHint">Review sale start and sale end for every ticket type before cloning.</p>
+          <div class="clone-sale-list" id="cloneSaleWindows"></div>
+          <p class="clone-sale-warning hidden" id="cloneSaleWarnings"></p>
+          <label class="clone-sale-active" id="cloneSaleConfirmLabel">
+            <input id="cloneSaleConfirmed" type="checkbox" />
+            <span id="cloneSaleConfirmText">I confirmed these ticket sale start and end dates</span>
+          </label>
+        </div>
         <div class="status" id="cloneStatus"></div>
       </div>
       <div class="row">
@@ -2602,9 +2640,195 @@
   let cloneChosenEvent = null;
   let cloneSearchTimer = null;
   let cloneSourceDate = "";
+  let cloneAlignedEventDay = "";
+  let cloneSaleRows = [];
 
   function cleanCloneTitle(value) {
     return String(value || "").replace(/(?:\s*\(clone\))+\s*$/i, "").trim();
+  }
+
+  function cloneDayValue(value) {
+    const raw = String(value || "").trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+    if (/^\d{4}-\d{2}-\d{2}T/.test(raw)) return raw.slice(0, 10);
+    return "";
+  }
+
+  function todayCloneDay() {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/Curacao",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date());
+  }
+
+  function buildCloneSaleRows(tickets, rates, eventDay, options = {}) {
+    const sourceTickets = Array.isArray(tickets) ? tickets : [];
+    const sourceRates = Array.isArray(rates) ? rates : [];
+    const count = Math.max(sourceTickets.length, sourceRates.length);
+    const today = todayCloneDay();
+    const inventDefaults = options.inventDefaults !== false;
+    const rows = [];
+    for (let index = 0; index < count; index += 1) {
+      const ticket = sourceTickets[index] || null;
+      const rate = sourceRates[index] || null;
+      const knownStart = cloneDayValue(ticket && ticket.saleStartDate);
+      const knownEnd = cloneDayValue(ticket && ticket.saleEndDate);
+      rows.push({
+        name: String((ticket && ticket.name) || (rate && rate.name) || ("Ticket " + (index + 1))).trim(),
+        saleStartDate: knownStart || (inventDefaults ? today : ""),
+        saleEndDate: knownEnd || (inventDefaults ? (eventDay || today) : ""),
+        isActive: ticket ? ticket.isActive !== false : true,
+        missingSaleDates: !knownStart || !knownEnd,
+      });
+    }
+    return rows;
+  }
+
+  function renderCloneSaleWindows(rows, options = {}) {
+    cloneSaleRows = Array.isArray(rows) ? rows : [];
+    const readonly = !!options.readonly;
+    const requireDates = options.requireDates !== false;
+    const host = $("cloneSaleWindows");
+    const warn = $("cloneSaleWarnings");
+    $("cloneSaleConfirmed").checked = false;
+    const confirmText = $("cloneSaleConfirmText");
+    if (!cloneSaleRows.length) {
+      host.innerHTML = "<span class=\"muted\">No ticket types found yet. You can still clone after confirming below.</span>";
+      warn.classList.add("hidden");
+      warn.textContent = "";
+      if (confirmText) confirmText.textContent = "I confirmed this clone has no ticket sale windows yet";
+      return;
+    }
+    if (confirmText) confirmText.textContent = "I confirmed these ticket sale start and end dates";
+    host.innerHTML = cloneSaleRows.map((row, index) => `
+      <div class="clone-sale-row" data-clone-sale-index="${index}">
+        <strong>${esc(row.name)}</strong>
+        <div class="clone-sale-fields">
+          <label>Sale start
+            <input data-clone-sale-start="${index}" type="date" ${requireDates ? "required " : ""}value="${esc(row.saleStartDate)}" ${readonly ? "readonly" : ""} />
+          </label>
+          <label>Sale end
+            <input data-clone-sale-end="${index}" type="date" ${requireDates ? "required " : ""}value="${esc(row.saleEndDate)}" ${readonly ? "readonly" : ""} />
+          </label>
+          <label class="clone-sale-active">
+            <input data-clone-sale-active="${index}" type="checkbox" ${row.isActive ? "checked" : ""} disabled />
+            <span>${row.isActive ? "Active" : "Inactive"}</span>
+          </label>
+        </div>
+      </div>
+    `).join("");
+    refreshCloneSaleWarnings();
+    host.querySelectorAll("input").forEach((input) => {
+      input.addEventListener("input", refreshCloneSaleWarnings);
+      input.addEventListener("change", refreshCloneSaleWarnings);
+    });
+  }
+
+  function readCloneSaleWindowsFromForm() {
+    return cloneSaleRows.map((row, index) => {
+      const start = document.querySelector(`[data-clone-sale-start="${index}"]`);
+      const end = document.querySelector(`[data-clone-sale-end="${index}"]`);
+      const active = document.querySelector(`[data-clone-sale-active="${index}"]`);
+      return {
+        name: row.name,
+        saleStartDate: start ? start.value : "",
+        saleEndDate: end ? end.value : "",
+        isActive: active ? active.checked : true,
+      };
+    });
+  }
+
+  function refreshCloneSaleWarnings() {
+    const today = todayCloneDay();
+    const windows = readCloneSaleWindowsFromForm();
+    const notes = [];
+    for (const window of windows) {
+      if (window.saleEndDate && window.saleEndDate < today) {
+        notes.push(`${window.name} sale end is in the past`);
+      }
+      if (!window.isActive) notes.push(`${window.name} is marked inactive`);
+      if (window.saleStartDate && window.saleEndDate && window.saleEndDate < window.saleStartDate) {
+        notes.push(`${window.name} sale end is before sale start`);
+      }
+    }
+    const warn = $("cloneSaleWarnings");
+    if (!notes.length) {
+      warn.classList.add("hidden");
+      warn.textContent = "";
+      return;
+    }
+    warn.classList.remove("hidden");
+    warn.textContent = notes.join(". ") + ".";
+  }
+
+  async function loadCloneSourceRates() {
+    if (!selected) return [];
+    try {
+      const data = await api("/admin/api/projects", { headers: authHeaders() });
+      const projects = Array.isArray(data.projects) ? data.projects : [];
+      let project = null;
+      if (isDraft(selected)) {
+        project = projects.find((entry) => String(entry.id) === String(selected.id)) || null;
+      } else {
+        const eventId = eventIdForPage(selected);
+        project = projects.find((entry) => String(entry.otraGuideId || "") === String(eventId)) || null;
+      }
+      const rates = project && project.claudeDesign && Array.isArray(project.claudeDesign.rates)
+        ? project.claudeDesign.rates
+        : [];
+      return rates;
+    } catch {
+      return [];
+    }
+  }
+
+  async function loadCloneSaleWindows(preferredEventId) {
+    $("cloneSaleHint").textContent = "Loading ticket sale windows...";
+    renderCloneSaleWindows([]);
+    const eventDay = $("cloneEventDate").value || cloneSourceDate || todayCloneDay();
+    const rates = await loadCloneSourceRates();
+    let tickets = [];
+    const eventId = preferredEventId || eventIdForPage(selected) || linkedEventIdForPage();
+    if (eventId) {
+      try {
+        const data = await api(`/admin/api/events?id=${encodeURIComponent(eventId)}`, { headers: authHeaders() });
+        const event = data.events && data.events[0] ? data.events[0] : null;
+        tickets = event && Array.isArray(event.tickets) ? event.tickets : [];
+        if (!preferredEventId && event && event.startDate) {
+          cloneSourceDate = cloneDayValue(event.startDate) || cloneSourceDate;
+          if (cloneSourceDate && !$("cloneEventDate").value) $("cloneEventDate").value = cloneSourceDate;
+        }
+      } catch (err) {
+        $("cloneSaleHint").textContent = `Could not load source tickets (${err.message}). Confirm dates from the design rates below.`;
+      }
+    }
+    const mode = document.querySelector('input[name="cloneEventMode"]:checked').value;
+    const rows = mode === "existing"
+      ? buildCloneSaleRows(tickets, [], $("cloneEventDate").value || eventDay, { inventDefaults: false })
+      : buildCloneSaleRows(
+          rates.map((rate, index) => ({
+            name: rate.name,
+            saleStartDate: tickets[index] && tickets[index].saleStartDate,
+            saleEndDate: tickets[index] && tickets[index].saleEndDate,
+            isActive: tickets[index] ? tickets[index].isActive !== false : true,
+          })),
+          rates,
+          $("cloneEventDate").value || eventDay,
+          { inventDefaults: true }
+        );
+    renderCloneSaleWindows(rows, { readonly: false, requireDates: mode === "new" });
+    if (!rows.length) {
+      $("cloneSaleHint").textContent = "No ticket types found yet. Confirm below to clone without sale windows.";
+    } else if (mode === "existing") {
+      const missing = rows.some((row) => row.missingSaleDates);
+      $("cloneSaleHint").textContent = missing
+        ? "Otra Guide did not return some sale dates. Review what is shown, then confirm. Clone does not rewrite live tickets; fix windows later in Checkout if needed."
+        : "Review these live ticket sale windows before binding. They are not changed by clone; edit them later in Checkout if needed.";
+    } else {
+      $("cloneSaleHint").textContent = "Review sale start and sale end for every ticket type before cloning.";
+    }
   }
 
   function cloneSelectedPage() {
@@ -2617,19 +2841,23 @@
     $("cloneEventSelected").textContent = "";
     cloneChosenEvent = null;
     cloneSourceDate = "";
+    cloneAlignedEventDay = "";
     $("cloneEventTitle").value = cleanCloneTitle(selected.title);
     $("cloneEventDate").value = "";
     $("cloneEventDate").disabled = false;
+    $("cloneSaleConfirmed").checked = false;
     $("cloneModal").classList.remove("hidden");
-    const eventId = linkedEventIdForPage();
+    const eventId = eventIdForPage(selected) || linkedEventIdForPage();
     if (eventId) {
       pipelineFetch(`/event-slug/${eventId}/`, { headers: authHeaders() })
         .then((info) => {
           cloneSourceDate = String(info.startDate || "").slice(0, 10);
           if (cloneSourceDate && !$("cloneEventDate").value) $("cloneEventDate").value = cloneSourceDate;
+          if (cloneSourceDate && !cloneAlignedEventDay) cloneAlignedEventDay = cloneSourceDate;
         })
         .catch(() => {});
     }
+    loadCloneSaleWindows(eventId);
   }
 
   $("cloneEventSearch").addEventListener("input", () => {
@@ -2666,6 +2894,7 @@
           document.querySelector('input[name="cloneEventMode"][value="existing"]').checked = true;
           $("cloneEventDate").disabled = true;
           $("cloneEventSelected").textContent = `Selected: ${event.title} (#${event.id})`;
+          loadCloneSaleWindows(event.id);
         });
         $("cloneEventResults").appendChild(btn);
       }
@@ -2679,8 +2908,30 @@
   for (const radio of document.querySelectorAll('input[name="cloneEventMode"]')) {
     radio.addEventListener("change", () => {
       $("cloneEventDate").disabled = radio.value === "existing" && radio.checked;
+      if (radio.checked && radio.value === "new") {
+        loadCloneSaleWindows(eventIdForPage(selected) || linkedEventIdForPage());
+      } else if (radio.checked && radio.value === "existing" && cloneChosenEvent) {
+        loadCloneSaleWindows(cloneChosenEvent.id);
+      }
     });
   }
+  $("cloneEventDate").addEventListener("change", () => {
+    if (document.querySelector('input[name="cloneEventMode"]:checked').value !== "new") return;
+    const windows = readCloneSaleWindowsFromForm();
+    if (!windows.length) return;
+    // Keep end dates aligned with the newly chosen event day when they still
+    // match the previous aligned/source day.
+    const previousDefault = cloneAlignedEventDay || cloneSourceDate || todayCloneDay();
+    const nextDay = $("cloneEventDate").value;
+    windows.forEach((window, index) => {
+      const endInput = document.querySelector(`[data-clone-sale-end="${index}"]`);
+      if (!endInput || !nextDay) return;
+      if (!endInput.value || endInput.value === previousDefault) endInput.value = nextDay;
+    });
+    if (nextDay) cloneAlignedEventDay = nextDay;
+    $("cloneSaleConfirmed").checked = false;
+    refreshCloneSaleWarnings();
+  });
   let cloneBusy = false;
   $("cancelCloneBtn").addEventListener("click", () => {
     if (cloneBusy) return;
@@ -2701,6 +2952,29 @@
       $("cloneStatus").className = "status error";
       return;
     }
+    const ticketSaleWindows = readCloneSaleWindowsFromForm();
+    if (!ticketSaleWindows.length && !$("cloneSaleConfirmed").checked) {
+      $("cloneStatus").textContent = "Confirm ticket sale start and end dates before cloning.";
+      $("cloneStatus").className = "status error";
+      return;
+    }
+    for (const window of ticketSaleWindows) {
+      if (mode === "new" && (!window.saleStartDate || !window.saleEndDate)) {
+        $("cloneStatus").textContent = `Sale start and sale end are required for ${window.name}.`;
+        $("cloneStatus").className = "status error";
+        return;
+      }
+      if (window.saleStartDate && window.saleEndDate && window.saleEndDate < window.saleStartDate) {
+        $("cloneStatus").textContent = `Sale end must be on or after sale start for ${window.name}.`;
+        $("cloneStatus").className = "status error";
+        return;
+      }
+    }
+    if (!$("cloneSaleConfirmed").checked) {
+      $("cloneStatus").textContent = "Check the box to confirm ticket sale start and end dates.";
+      $("cloneStatus").className = "status error";
+      return;
+    }
     const btn = $("confirmCloneBtn");
     btn.disabled = true;
     cloneBusy = true;
@@ -2715,8 +2989,8 @@
         method: "POST",
         headers: authHeaders({ "content-type": "application/json" }),
         body: JSON.stringify(mode === "existing"
-          ? { existingEventId: Number(existingEventId), title: cloneTitle }
-          : { title: cloneTitle }),
+          ? { existingEventId: Number(existingEventId), title: cloneTitle, ticketSaleWindows }
+          : { title: cloneTitle, ticketSaleWindows }),
       });
       const chosenDate = $("cloneEventDate").value;
       let dateNote = "";
@@ -2729,6 +3003,7 @@
               eventId: Number(data.project.otraGuideId),
               draftId: data.project.id,
               startDate: chosenDate,
+              skipTicketSaleSync: true,
             }),
           });
           dateNote = ` Event moved to ${chosenDate}.`;

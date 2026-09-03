@@ -7,6 +7,7 @@
 import { apiBase, requireStaff, staffSession, json } from "./_auth.js";
 import { actorForAudit, appendAudit } from "./_audit.js";
 import { mintFrozenSlug, liveSlugBase } from "../../_lib/event-slug.js";
+import { normalizeCloneSaleWindows } from "../../_lib/clone-sale-windows.js";
 
 const MAX_BYTES = 50 * 1024 * 1024;
 const DRAFT_PREFIX = "site-event:";
@@ -60,6 +61,31 @@ export async function onRequestPost(context) {
       body = await context.request.json();
     } catch {}
 
+    // Ticket sale windows must be confirmed in the admin clone modal so a
+    // clone never ships with closed or inactive windows unnoticed.
+    const existingEventIdForCount = cleanInteger(body && body.existingEventId);
+    let expectedWindowCount = existingEventIdForCount
+      ? null
+      : ((source.claudeDesign && Array.isArray(source.claudeDesign.rates)) ? source.claudeDesign.rates.length : 0);
+    if (existingEventIdForCount) {
+      try {
+        const existingTickets = await fetchEventTickets(context, accessToken, existingEventIdForCount);
+        expectedWindowCount = existingTickets.length;
+      } catch (error) {
+        return json({ error: error.message || "could not load ticket types for confirmation" }, 400);
+      }
+    }
+    let confirmedSaleWindows;
+    try {
+      confirmedSaleWindows = normalizeCloneSaleWindows(body && body.ticketSaleWindows, {
+        expectedCount: expectedWindowCount,
+        allowEmpty: expectedWindowCount === 0,
+        allowBlankDates: !!existingEventIdForCount,
+      });
+    } catch (error) {
+      return json({ error: error.message }, 400);
+    }
+
     const cloneId = `draft-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
     const clone = {
       ...source,
@@ -108,6 +134,8 @@ export async function onRequestPost(context) {
       if (existingEventId) {
         bound = await createDraftFromExistingEvent(context, accessToken, clone, existingEventId);
         await putProject(kv, bound);
+        // Existing bind reuses live ticket types. Windows were confirmed above
+        // before the draft was created; Checkout remains the write path.
       } else {
         // Drafts don't always carry dates/location; backfill from the
         // original's Otra Guide event before creating the clone's own event.
@@ -126,7 +154,7 @@ export async function onRequestPost(context) {
         }
         bound = await createOtraGuideEvent(context, accessToken, bound, {});
         await putProject(kv, bound);
-        bound = await reconcileTickets(context, accessToken, bound);
+        bound = await reconcileTickets(context, accessToken, bound, confirmedSaleWindows);
         bound = { ...bound, syncError: "" };
         await putProject(kv, bound);
       }
@@ -510,7 +538,7 @@ async function createDraftFromExistingEvent(context, accessToken, project, event
       const quantity = Number.parseInt(ticket.quantity, 10);
       return Number.isSafeInteger(quantity) && quantity > 0 ? quantity : 500;
     }),
-    ticketTypeIds: tickets.map((ticket) => ticket.id).filter(Boolean),
+    ticketTypeIds: tickets.map((ticket) => ticket.id || null),
     otraGuideId: String(detail.id || eventId),
     otraGuideSlug: detail.slug || String(eventId),
     usesExistingOtraGuideEvent: true,
@@ -562,11 +590,13 @@ async function createOtraGuideEvent(context, accessToken, project, eventFiles = 
   };
 }
 
-async function reconcileTickets(context, accessToken, project) {
+async function reconcileTickets(context, accessToken, project, confirmedSaleWindows = null) {
   const rates = (project.claudeDesign && project.claudeDesign.rates) || [];
   const ids = [...(project.ticketTypeIds || [])];
+  const windows = Array.isArray(confirmedSaleWindows) ? confirmedSaleWindows : [];
   for (let index = 0; index < rates.length; index += 1) {
     const rate = rates[index];
+    const window = windows[index] || null;
     const payload = {
       name: rate.name,
       description: rate.description || "",
@@ -574,6 +604,10 @@ async function reconcileTickets(context, accessToken, project) {
       quantity: project.ticketQuantities[index] || 500,
       base_currency: ["USD", "EUR", "ANG"].includes(rate.currency) ? rate.currency : "USD",
     };
+    if (window && window.sale_start_time && window.sale_end_time) {
+      payload.sale_start_time = window.sale_start_time;
+      payload.sale_end_time = window.sale_end_time;
+    }
     const existingId = ids[index];
     const path = existingId
       ? `/ticket/create/tickets/${project.otraGuideId}/${existingId}/`
@@ -589,6 +623,7 @@ async function reconcileTickets(context, accessToken, project) {
   }
   return project;
 }
+
 
 async function fetchEventTickets(context, accessToken, eventId) {
   try {
