@@ -2681,8 +2681,9 @@
     return rows;
   }
 
-  function renderCloneSaleWindows(rows) {
+  function renderCloneSaleWindows(rows, options = {}) {
     cloneSaleRows = Array.isArray(rows) ? rows : [];
+    const readonly = !!options.readonly;
     const host = $("cloneSaleWindows");
     const warn = $("cloneSaleWarnings");
     $("cloneSaleConfirmed").checked = false;
@@ -2700,13 +2701,13 @@
         <strong>${esc(row.name)}</strong>
         <div class="clone-sale-fields">
           <label>Sale start
-            <input data-clone-sale-start="${index}" type="date" required value="${esc(row.saleStartDate)}" />
+            <input data-clone-sale-start="${index}" type="date" required value="${esc(row.saleStartDate)}" ${readonly ? "readonly" : ""} />
           </label>
           <label>Sale end
-            <input data-clone-sale-end="${index}" type="date" required value="${esc(row.saleEndDate)}" />
+            <input data-clone-sale-end="${index}" type="date" required value="${esc(row.saleEndDate)}" ${readonly ? "readonly" : ""} />
           </label>
           <label class="clone-sale-active">
-            <input data-clone-sale-active="${index}" type="checkbox" ${row.isActive ? "checked" : ""} />
+            <input data-clone-sale-active="${index}" type="checkbox" ${row.isActive ? "checked" : ""} ${readonly ? "disabled" : ""} />
             <span>Active</span>
           </label>
         </div>
@@ -2814,7 +2815,7 @@
     if (!rows.length) {
       $("cloneSaleHint").textContent = "No ticket types found yet. Confirm below to clone without sale windows.";
     } else if (mode === "existing") {
-      $("cloneSaleHint").textContent = "These sale windows will be written onto the selected live Otra Guide event. Review them carefully.";
+      $("cloneSaleHint").textContent = "Review these live ticket sale windows before binding. They are not changed by clone; edit them later in Checkout if needed.";
     } else {
       $("cloneSaleHint").textContent = "Review sale start and sale end for every ticket type before cloning.";
     }

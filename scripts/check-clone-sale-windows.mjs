@@ -97,9 +97,16 @@ assert(
   projectsJs.includes('from "../../_lib/clone-sale-windows.js"'),
   'clone API must use the shared sale window helpers'
 );
-assert(/sale_start_time:\s*window\.sale_start_time/.test(projectsJs), 'clone ticket create must apply confirmed sale start');
-assert(/sale_end_time:\s*window\.sale_end_time/.test(projectsJs), 'clone ticket create must apply confirmed sale end');
-assert(/applyConfirmedSaleWindows/.test(projectsJs), 'existing event clones must patch confirmed sale windows');
+assert(/payload\.sale_start_time\s*=\s*window\.sale_start_time/.test(projectsJs), 'clone ticket create must apply confirmed sale start');
+assert(/payload\.sale_end_time\s*=\s*window\.sale_end_time/.test(projectsJs), 'clone ticket create must apply confirmed sale end');
+assert(
+  /Existing bind reuses live ticket types/.test(projectsJs),
+  'existing event clones must review sale windows without rewriting live tickets'
+);
+assert(
+  !/bound = await applyConfirmedSaleWindows/.test(projectsJs),
+  'clone bind path must not patch live sale windows'
+);
 assert(/skipTicketSaleSync:\s*true/.test(adminHtml), 'clone date move must skip sale end overwrite');
 assert(/skipTicketSaleSync/.test(fs.readFileSync(new URL('../functions/admin/api/events.js', import.meta.url), 'utf8')), 'date sync must honor skipTicketSaleSync');
 assert(

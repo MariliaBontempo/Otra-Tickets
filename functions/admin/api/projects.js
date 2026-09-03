@@ -126,11 +126,11 @@ export async function onRequestPost(context) {
         bound = await createDraftFromExistingEvent(context, accessToken, clone, existingEventId);
         await putProject(kv, bound);
         const existingCount = (bound.ticketTypeIds || []).length;
+        // Existing bind reuses live ticket types. Require the editor to review
+        // the windows, but never rewrite them here (Checkout is the write path).
         if (confirmedSaleWindows.length !== existingCount) {
           throw new Error(`confirm sale windows for all ${existingCount} ticket types before cloning`);
         }
-        bound = await applyConfirmedSaleWindows(context, accessToken, bound, confirmedSaleWindows);
-        await putProject(kv, bound);
       } else {
         // Drafts don't always carry dates/location; backfill from the
         // original's Otra Guide event before creating the clone's own event.
@@ -619,27 +619,6 @@ async function reconcileTickets(context, accessToken, project, confirmedSaleWind
   return project;
 }
 
-async function applyConfirmedSaleWindows(context, accessToken, project, confirmedSaleWindows) {
-  const windows = Array.isArray(confirmedSaleWindows) ? confirmedSaleWindows : [];
-  const ids = [...(project.ticketTypeIds || [])];
-  if (windows.length !== ids.length) {
-    throw new Error(`confirm sale windows for all ${ids.length} ticket types before cloning`);
-  }
-  for (let index = 0; index < windows.length; index += 1) {
-    const ticketId = ids[index];
-    const window = windows[index];
-    if (!ticketId) throw new Error(`missing ticket type id for ${window.name}`);
-    await otraFetch(context, accessToken, `/ticket/create/tickets/${project.otraGuideId}/${ticketId}/`, {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        sale_start_time: window.sale_start_time,
-        sale_end_time: window.sale_end_time,
-      }),
-    });
-  }
-  return project;
-}
 
 async function fetchEventTickets(context, accessToken, eventId) {
   try {
