@@ -114,6 +114,11 @@ assert(
   'clone sale rows must not seed from inspectedProject'
 );
 assert(/async function loadCloneSourceRates/.test(adminHtml), 'clone must load rates from the projects API');
+assert(/inventDefaults:\s*false/.test(adminHtml), 'existing mode must not invent missing live sale dates');
+assert(/cloneAlignedEventDay/.test(adminHtml), 'clone date changes must track the aligned event day');
+assert(/fetchEventTickets\(context, accessToken, existingEventIdForCount\)/.test(
+  fs.readFileSync(new URL('../functions/admin/api/projects.js', import.meta.url), 'utf8')
+), 'existing mode must count tickets before creating the clone draft');
 assert(/api\("\/admin\/api\/projects"/.test(adminHtml), 'clone rate loader must call /admin/api/projects');
 assert(
   /const rates = await loadCloneSourceRates\(\)/.test(adminHtml),

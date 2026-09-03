@@ -64,9 +64,17 @@ export async function onRequestPost(context) {
     // Ticket sale windows must be confirmed in the admin clone modal so a
     // clone never ships with closed or inactive windows unnoticed.
     const existingEventIdForCount = cleanInteger(body && body.existingEventId);
-    const expectedWindowCount = existingEventIdForCount
+    let expectedWindowCount = existingEventIdForCount
       ? null
       : ((source.claudeDesign && Array.isArray(source.claudeDesign.rates)) ? source.claudeDesign.rates.length : 0);
+    if (existingEventIdForCount) {
+      try {
+        const existingTickets = await fetchEventTickets(context, accessToken, existingEventIdForCount);
+        expectedWindowCount = existingTickets.length;
+      } catch (error) {
+        return json({ error: error.message || "could not load ticket types for confirmation" }, 400);
+      }
+    }
     let confirmedSaleWindows;
     try {
       confirmedSaleWindows = normalizeCloneSaleWindows(body && body.ticketSaleWindows, {
@@ -125,12 +133,8 @@ export async function onRequestPost(context) {
       if (existingEventId) {
         bound = await createDraftFromExistingEvent(context, accessToken, clone, existingEventId);
         await putProject(kv, bound);
-        const existingCount = (bound.ticketTypeIds || []).length;
-        // Existing bind reuses live ticket types. Require the editor to review
-        // the windows, but never rewrite them here (Checkout is the write path).
-        if (confirmedSaleWindows.length !== existingCount) {
-          throw new Error(`confirm sale windows for all ${existingCount} ticket types before cloning`);
-        }
+        // Existing bind reuses live ticket types. Windows were confirmed above
+        // before the draft was created; Checkout remains the write path.
       } else {
         // Drafts don't always carry dates/location; backfill from the
         // original's Otra Guide event before creating the clone's own event.

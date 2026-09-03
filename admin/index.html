@@ -2640,6 +2640,7 @@
   let cloneChosenEvent = null;
   let cloneSearchTimer = null;
   let cloneSourceDate = "";
+  let cloneAlignedEventDay = "";
   let cloneSaleRows = [];
 
   function cleanCloneTitle(value) {
@@ -2662,20 +2663,24 @@
     }).format(new Date());
   }
 
-  function buildCloneSaleRows(tickets, rates, eventDay) {
+  function buildCloneSaleRows(tickets, rates, eventDay, options = {}) {
     const sourceTickets = Array.isArray(tickets) ? tickets : [];
     const sourceRates = Array.isArray(rates) ? rates : [];
     const count = Math.max(sourceTickets.length, sourceRates.length);
     const today = todayCloneDay();
+    const inventDefaults = options.inventDefaults !== false;
     const rows = [];
     for (let index = 0; index < count; index += 1) {
       const ticket = sourceTickets[index] || null;
       const rate = sourceRates[index] || null;
+      const knownStart = cloneDayValue(ticket && ticket.saleStartDate);
+      const knownEnd = cloneDayValue(ticket && ticket.saleEndDate);
       rows.push({
         name: String((ticket && ticket.name) || (rate && rate.name) || ("Ticket " + (index + 1))).trim(),
-        saleStartDate: cloneDayValue(ticket && ticket.saleStartDate) || today,
-        saleEndDate: cloneDayValue(ticket && ticket.saleEndDate) || eventDay || today,
+        saleStartDate: knownStart || (inventDefaults ? today : ""),
+        saleEndDate: knownEnd || (inventDefaults ? (eventDay || today) : ""),
         isActive: ticket ? ticket.isActive !== false : true,
+        missingSaleDates: !knownStart || !knownEnd,
       });
     }
     return rows;
@@ -2800,7 +2805,7 @@
     }
     const mode = document.querySelector('input[name="cloneEventMode"]:checked').value;
     const rows = mode === "existing"
-      ? buildCloneSaleRows(tickets, [], $("cloneEventDate").value || eventDay)
+      ? buildCloneSaleRows(tickets, [], $("cloneEventDate").value || eventDay, { inventDefaults: false })
       : buildCloneSaleRows(
           rates.map((rate, index) => ({
             name: rate.name,
@@ -2809,13 +2814,17 @@
             isActive: tickets[index] ? tickets[index].isActive !== false : true,
           })),
           rates,
-          $("cloneEventDate").value || eventDay
+          $("cloneEventDate").value || eventDay,
+          { inventDefaults: true }
         );
     renderCloneSaleWindows(rows);
     if (!rows.length) {
       $("cloneSaleHint").textContent = "No ticket types found yet. Confirm below to clone without sale windows.";
     } else if (mode === "existing") {
-      $("cloneSaleHint").textContent = "Review these live ticket sale windows before binding. They are not changed by clone; edit them later in Checkout if needed.";
+      const missing = rows.some((row) => row.missingSaleDates);
+      $("cloneSaleHint").textContent = missing
+        ? "Otra Guide did not return some sale dates. Enter the real sale start and sale end before binding. Clone does not rewrite live tickets."
+        : "Review these live ticket sale windows before binding. They are not changed by clone; edit them later in Checkout if needed.";
     } else {
       $("cloneSaleHint").textContent = "Review sale start and sale end for every ticket type before cloning.";
     }
@@ -2831,6 +2840,7 @@
     $("cloneEventSelected").textContent = "";
     cloneChosenEvent = null;
     cloneSourceDate = "";
+    cloneAlignedEventDay = "";
     $("cloneEventTitle").value = cleanCloneTitle(selected.title);
     $("cloneEventDate").value = "";
     $("cloneEventDate").disabled = false;
@@ -2842,6 +2852,7 @@
         .then((info) => {
           cloneSourceDate = String(info.startDate || "").slice(0, 10);
           if (cloneSourceDate && !$("cloneEventDate").value) $("cloneEventDate").value = cloneSourceDate;
+          if (cloneSourceDate && !cloneAlignedEventDay) cloneAlignedEventDay = cloneSourceDate;
         })
         .catch(() => {});
     }
@@ -2908,14 +2919,16 @@
     const windows = readCloneSaleWindowsFromForm();
     if (!windows.length) return;
     // Keep end dates aligned with the newly chosen event day when they still
-    // match the previous default/source day.
-    const previousDefault = cloneSourceDate || todayCloneDay();
+    // match the previous aligned/source day.
+    const previousDefault = cloneAlignedEventDay || cloneSourceDate || todayCloneDay();
     const nextDay = $("cloneEventDate").value;
     windows.forEach((window, index) => {
       const endInput = document.querySelector(`[data-clone-sale-end="${index}"]`);
       if (!endInput || !nextDay) return;
       if (!endInput.value || endInput.value === previousDefault) endInput.value = nextDay;
     });
+    if (nextDay) cloneAlignedEventDay = nextDay;
+    $("cloneSaleConfirmed").checked = false;
     refreshCloneSaleWarnings();
   });
   let cloneBusy = false;

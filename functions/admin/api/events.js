@@ -194,6 +194,9 @@ async function hydrateEvent(context, accessToken, eventId) {
     quantity: Number.isSafeInteger(Number(ticket.quantity)) && Number(ticket.quantity) > 0 ? Number(ticket.quantity) : 500,
     remainingQuantity: Number.isSafeInteger(Number(ticket.remaining_quantity)) ? Number(ticket.remaining_quantity) : null,
     currency: (ticket.base_currency && ticket.base_currency.code) || ticket.base_currency || "USD",
+    isActive: ticket.is_active !== false && ticket.isActive !== false,
+    saleStartDate: ticket.sale_start_time || ticket.saleStartDate || "",
+    saleEndDate: ticket.sale_end_time || ticket.saleEndDate || "",
   }));
 
   return {
