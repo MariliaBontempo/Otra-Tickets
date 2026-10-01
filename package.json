@@ -2,6 +2,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "check:meta": "node scripts/check-meta-pixel.mjs",
     "build": "node scripts/build-pages.mjs",
     "check:headers": "node scripts/check-headers.mjs",
     "check:fonts": "node scripts/check-fonts.mjs",
