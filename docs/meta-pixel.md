@@ -117,6 +117,6 @@ Backend files: `apps/ticketing/{meta_pixel.py,views_meta.py,urls.py}`,
 `apps/ticketing/templatetags/meta_pixel.py`, `apps/ticketing/tests/test_meta_pixel.py`,
 `templates/ticketing/components/{meta_checkout.html,meta_purchase.html}`,
 `templates/ticketing/{stripe_checkout_iframe_otratickets.html,stripe_checkout_success.html,sentoo_payment_return.html}`,
-`templates/web/components/facebook_pixel.html`, `tasks/todo.md`.
+`templates/web/components/facebook_pixel.html`.
 
 Current revision verified 2026-10-01: 83 targeted Docker tests passed, plus storefront Meta/payment-boundary/slug/SEO/header checks and build. Earlier 38 Linux Node server tests passed; server code has not changed in this revision.
