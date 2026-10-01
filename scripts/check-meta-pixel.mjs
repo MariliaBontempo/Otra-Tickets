@@ -22,6 +22,7 @@ function browser({ url = "https://otratickets.com/an-event", localStorage = stor
     createElement: () => ({}),
     getElementsByTagName: () => [{ parentNode: { insertBefore: s => scripts.push(s) } }],
     querySelector: () => iframe,
+    querySelectorAll: () => [iframe],
   };
   const context = vm.createContext({ window, document, URL, URLSearchParams });
   const run = () => vm.runInContext(source, context);
@@ -99,6 +100,13 @@ assert.equal(bridge.events().length, 2);
 bridge.listeners.message(message); bridge.listeners.message(message);
 assert.equal(bridge.events().filter(e => e[1] === "InitiateCheckout").length, 1);
 assert.equal(bridge.events().at(-1)[3].eventID, "otratickets:InitiateCheckout:attempt-123");
+const guide = browser({ url: "https://otraguide.com/event/123" });
+guide.listeners.message({ ...message, source: guide.iframe.contentWindow });
+assert.equal(guide.events().at(-1)[1], "InitiateCheckout", "Guide accepts its own checkout iframe");
+guide.listeners.message({ ...message, source: {}, data: { ...message.data, data: { ...order, checkoutId: "forged" } } });
+assert.equal(guide.events().length, 3, "unknown frames remain rejected");
+assert.equal(await b.api.purchase({ ...order, orderId: "free-confirmed", value: 0,
+  contents: [{ id: "adult", quantity: 1, item_price: 0 }] }), true);
 
 for (const file of ["index.html", "event.html", "clearboat.html", "rnb.html"]) {
   const html = read(file);

@@ -9,8 +9,8 @@ Nothing has been deployed. This replaces the earlier redirect/acknowledgement im
 The following backend files match the original Git HEAD exactly:
 `views.py`, `views_stripe_checkout.py`, `purchasing.py`, `sentoo_gateway.py`.
 No payment calculation, provider request, checkout response, provisioning or redirect
-has changed. The checkout template adds only an optional helper include and three
-try/catch-wrapped notifications. Removing those additions reproduces the original
+has changed. The Otra Tickets and simple checkout templates add only optional helper includes and
+try/catch-wrapped notifications. The regular Guide form adds a guarded submit observer. Removing those additions reproduces the original
 file exactly. There is no acknowledgement, delay, fetch replacement or dependency
 on a tracking result. `scripts/check-meta-checkout.mjs` verifies this boundary.
 
@@ -26,11 +26,11 @@ on a tracking result. `scripts/check-meta-checkout.mjs` verifies this boundary.
   Stripe checkout request or Sentoo form submission. Uses current selected tickets,
   displayed quote and currency. Sentoo excludes add-ons because its original form
   only submits tickets. A one-way postMessage to the storefront carries no PII.
-  The parent checks iframe identity and origin. No reply/wait. This measures entry
+  The parent checks iframe identity and origin. Guide standalone checkout calls tracking directly; Guide-hosted iframes send the same validated notification. No reply/wait. This measures entry
   into checkout, not successful provider-session creation. Once per iframe document.
 - **Purchase:** the existing confirmation template provides a signed order reference.
   After DOMContentLoaded, a separate GET to `/ticketing/meta-purchase/` reads verified
-  payment data. Stripe must report `paid`; Sentoo's server session must be `success`.
+  payment data. Stripe must report `paid`, or `no_payment_required` with `status=complete` and an exactly zero total; Sentoo's server session must be `success`.
   Failed/pending/cancelled states and URL success flags cannot create purchases.
   Rendering the confirmation page makes no new provider call or database query.
 - **AddToCart:** omitted: no separate confirmed cart stage.
@@ -116,7 +116,16 @@ Storefront files: `meta-pixel.js`, `functions/api/meta-pageview.js`, `index.html
 Backend files: `apps/ticketing/{meta_pixel.py,views_meta.py,urls.py}`,
 `apps/ticketing/templatetags/meta_pixel.py`, `apps/ticketing/tests/test_meta_pixel.py`,
 `templates/ticketing/components/{meta_checkout.html,meta_purchase.html}`,
-`templates/ticketing/{stripe_checkout_iframe_otratickets.html,stripe_checkout_success.html,sentoo_payment_return.html}`,
+`templates/ticketing/{stripe_checkout_iframe_otratickets.html,stripe_checkout_iframe_simple.html,ticket_purchase.html,stripe_checkout_success.html,sentoo_payment_return.html}`,
 `templates/web/components/facebook_pixel.html`.
 
 Current revision verified 2026-10-01: 83 targeted Docker tests passed, plus storefront Meta/payment-boundary/slug/SEO/header checks and build. Earlier 38 Linux Node server tests passed; server code has not changed in this revision.
+
+Follow-up verification (2026-10-01): 84 targeted Docker tests passed. Tests cover
+complete zero-total no-payment-required orders, reject open/expired/nonzero cases,
+and check Guide iframe sender validation. Isolated Chrome with actual rendered
+Guide native/simple templates observed correct InitiateCheckout payloads and
+original POST/redirect behaviour; a throwing tracker did not block simple checkout.
+The existing Stripe confirmation view still rejects no_payment_required before
+rendering. This patch corrects analytics eligibility only, not that pre-existing
+checkout behaviour. FREE coupon eligibility remains unverified. Both PRs remain drafts.

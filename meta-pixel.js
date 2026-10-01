@@ -99,12 +99,15 @@
   window.addEventListener("message", function (event) {
     try {
       if (!enabled || event.data?.type !== "OTRA_CHECKOUT_STARTED") return;
-      const iframe = document.querySelector("#otra-checkout-container iframe");
+      const guide = ["otraguide.com", "www.otraguide.com"].includes(window.location.hostname);
+      const iframe = guide
+        ? Array.from(document.querySelectorAll("iframe")).find(frame => frame.contentWindow === event.source)
+        : document.querySelector("#otra-checkout-container iframe");
       if (!iframe || event.source !== iframe.contentWindow) return;
       const origin = new URL(iframe.src).origin;
       const localTest = !production && query.get("meta_debug") === "1" &&
         ["localhost", "127.0.0.1"].includes(new URL(origin).hostname);
-      if (event.origin !== origin || (origin !== "https://otraguide.com" && !localTest)) return;
+      if (event.origin !== origin || (!["https://otraguide.com", "https://www.otraguide.com"].includes(origin) && !localTest)) return;
       window.OTRAMeta.initiateCheckout(event.data.data);
     } catch { /* No acknowledgement, navigation or payment dependency. */ }
   });
