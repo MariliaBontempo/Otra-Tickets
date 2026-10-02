@@ -2,6 +2,7 @@
 <html lang="en" data-event-id="">
 <head>
 <meta charset="UTF-8" />
+<script src="/meta-pixel.js"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Otra Tickets — Event</title>
 <style>
@@ -814,6 +815,7 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
 </style>
 </head>
 <body>
+<noscript><img height="1" width="1" style="display:none" src="/api/meta-pageview" alt="" /></noscript>
   <header class="header">
     <a class="brand" href="/" style="text-decoration:none;color:inherit">
       <img src="uploads/Otra Tickets Logo.webp" alt="Otra Tickets" />
@@ -1204,6 +1206,7 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
       }
 
       removeSkeletons();
+      window.OTRAMeta?.viewContent(ev);
       const CURRENCY = { USD: "$", EUR: "€", ANG: "ƒ", AWG: "ƒ" };
       const cur = (code) => CURRENCY[code] || (code ? code + " " : "$");
       // 1,000 style grouping, no decimals when whole.

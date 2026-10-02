@@ -15,6 +15,7 @@ const copyEntries = [
   "favicon.png",
   "fonts",
   "image-slot.js",
+  "meta-pixel.js",
   "index.html",
   "photos",
   "rnb.html",
