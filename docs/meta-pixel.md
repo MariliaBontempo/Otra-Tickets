@@ -24,7 +24,10 @@ on a tracking result. `scripts/check-meta-checkout.mjs` verifies this boundary.
   because advertised starting prices/tier currencies may be ambiguous.
 - **InitiateCheckout:** after existing validation, immediately before the original
   Stripe checkout request or Sentoo form submission. Uses current selected tickets,
-  displayed quote and currency. Sentoo excludes add-ons because its original form
+  displayed quote and currency. If the displayed currency is one Stripe cannot charge
+  (e.g. XCG, which Meta also rejects), the quote is converted with the page's rate table
+  and reported as USD, matching what create-session charges and what Purchase later
+  confirms; an unknown rate skips the event. Sentoo excludes add-ons because its original form
   only submits tickets. A one-way postMessage to the storefront carries no PII.
   The parent checks iframe identity and origin. Guide standalone checkout calls tracking directly; Guide-hosted iframes send the same validated notification. No reply/wait. This measures entry
   into checkout, not successful provider-session creation. Once per iframe document.
@@ -129,3 +132,18 @@ original POST/redirect behaviour; a throwing tracker did not block simple checko
 The existing Stripe confirmation view still rejects no_payment_required before
 rendering. This patch corrects analytics eligibility only, not that pre-existing
 checkout behaviour. FREE coupon eligibility remains unverified. Both PRs remain drafts.
+
+## Live findings (2026-10-05)
+
+- Both PRs are merged and the loader is live on otratickets.com and otraguide.com.
+- Headless check on the live Kaya Kaya page: PageView, ViewContent and InitiateCheckout
+  (event ID `otratickets:InitiateCheckout:<uuid>`) all reach Meta from the storefront flow.
+- GTM container `GTM-K5VB8D42` (loaded by Guide pages, including the checkout iframe) has
+  its own Meta tag firing a parameter-less ViewContent on every page and CompleteRegistration
+  on `accounts/confirm-email`. It has no Purchase or InitiateCheckout tags.
+- The pixel's published config has "Track events automatically without code" on
+  (InferredEvents + AutomaticMatching opted in). Meta then logs its own events from button
+  clicks and page text; those cannot be deduplicated against ours and are the likely source of
+  Purchase events with identical values or missing currency. Turn it off in Events Manager
+  (pixel Settings → Event setup), or set `fbq('set','autoConfig',false,PIXEL_ID)` before init
+  in both this loader and the GTM tag, at the cost of Automatic Advanced Matching.
