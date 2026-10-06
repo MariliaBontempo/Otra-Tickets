@@ -757,7 +757,11 @@
       <div class="stack" id="draftContentItems"></div>
       <button class="btn ghost" id="draftContentAddItem" type="button">Add optional perk</button>
       <label>Acknowledgments heading<input id="draftContentSponsorTitle" maxlength="500" /></label>
-      <label>Acknowledgments<textarea id="draftContentSponsors" rows="5" maxlength="10000"></textarea></label>
+      <label>Sponsor layout<select id="draftContentSponsorLayout"><option value="plain">Simple text</option><option value="compact">Compact inline (original design)</option><option value="list">Grouped list (TJ's new ZIP)</option></select></label>
+      <p>Add one row per sponsor group to use the compact or list layouts. Group names and sponsors remain editable text.</p>
+      <div class="stack" id="draftContentSponsorGroups"></div>
+      <button class="btn ghost" id="draftContentAddSponsorGroup" type="button">Add sponsor group</button>
+      <label id="draftContentSponsorTextWrap">Ungrouped acknowledgments (shown when there are no groups)<textarea id="draftContentSponsors" rows="5" maxlength="10000"></textarea></label>
       <div class="status" id="draftContentStatus"></div>
       <div class="row"><button class="btn ghost" id="draftContentCancel" type="button">Cancel</button><button class="btn primary" id="draftContentSave" type="submit">Save draft content</button></div>
     </form>
@@ -1478,6 +1482,10 @@
       $("draftContentHeading").value = design.bandTitle || "";
       $("draftContentSponsorTitle").value = design.sponsorTitle || "With thanks to our sponsors & friends";
       $("draftContentSponsors").value = design.sponsorText || "";
+      $("draftContentSponsorLayout").value = ["plain", "compact", "list"].includes(design.sponsorLayout) ? design.sponsorLayout : "plain";
+      $("draftContentSponsorGroups").replaceChildren();
+      (Array.isArray(design.sponsorGroups) ? design.sponsorGroups : []).forEach(addDraftSponsorGroup);
+      updateSponsorTextVisibility();
       $("draftContentItems").replaceChildren();
       (design.appreciates || []).forEach(item => addDraftContentItem(typeof item === "string" ? { name: item, description: "" } : item));
       $("draftContentStatus").textContent = "";
@@ -1498,6 +1506,21 @@
     row.querySelector("[data-content-remove]").addEventListener("click", () => row.remove());
     $("draftContentItems").append(row);
   }
+  function updateSponsorTextVisibility() {
+    $("draftContentSponsorTextWrap").classList.toggle("hidden", $("draftContentSponsorGroups").children.length > 0);
+  }
+  function addDraftSponsorGroup(group = {}) {
+    if (!draftContentProject || $("draftContentSponsorGroups").children.length >= 12) return;
+    const row = document.createElement("fieldset");
+    row.className = "stack";
+    row.innerHTML = '<legend>Sponsor group</legend><label>Group name<input data-sponsor-name maxlength="100" required></label><label>Sponsors<textarea data-sponsor-names rows="3" maxlength="1200" required></textarea></label><button class="btn ghost" type="button" data-sponsor-remove>Remove group</button>';
+    row.querySelector("[data-sponsor-name]").value = group.name || "";
+    row.querySelector("[data-sponsor-names]").value = group.sponsors || "";
+    row.querySelector("[data-sponsor-remove]").addEventListener("click", () => { row.remove(); updateSponsorTextVisibility(); });
+    $("draftContentSponsorGroups").append(row);
+    updateSponsorTextVisibility();
+  }
+  $("draftContentAddSponsorGroup").addEventListener("click", () => addDraftSponsorGroup());
   $("draftContentAddItem").addEventListener("click", () => addDraftContentItem());
   $("draftContentCancel").addEventListener("click", () => $("draftContentModal").classList.add("hidden"));
   $("draftContentForm").addEventListener("submit", async event => {
@@ -1515,6 +1538,8 @@
         appreciates: [...$("draftContentItems").children].map(row => ({ name: row.querySelector("[data-content-name]").value, description: row.querySelector("[data-content-description]").value, image: row.querySelector("[data-content-image]").value })),
         sponsorTitle: $("draftContentSponsorTitle").value,
         sponsorText: $("draftContentSponsors").value,
+        sponsorLayout: $("draftContentSponsorLayout").value,
+        sponsorGroups: [...$("draftContentSponsorGroups").children].map(row => ({ name: row.querySelector("[data-sponsor-name]").value, sponsors: row.querySelector("[data-sponsor-names]").value })),
       };
       await api(`/admin/api/projects?action=update-content&id=${encodeURIComponent(project.id)}`, {
         method: "POST", headers: authHeaders({ "content-type": "application/json" }),
