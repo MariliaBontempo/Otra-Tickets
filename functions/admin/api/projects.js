@@ -572,7 +572,7 @@ async function reconcileTickets(context, accessToken, project) {
       description: rate.description || "",
       price: rate.price,
       quantity: project.ticketQuantities[index] || 500,
-      base_currency: ["USD", "EUR", "ANG"].includes(rate.currency) ? rate.currency : "USD",
+      base_currency: normalizeCurrency(rate.currency),
     };
     const existingId = ids[index];
     const path = existingId
@@ -645,7 +645,7 @@ function parseQuantities(value, count) {
 
 function normalizeCurrency(value) {
   const code = String(value || "").toUpperCase();
-  return ["USD", "EUR", "ANG"].includes(code) ? code : "USD";
+  return ["USD", "EUR", "ANG", "XCG"].includes(code) ? code : "USD";
 }
 
 async function listProjects(kv) {

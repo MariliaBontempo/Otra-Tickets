@@ -15,6 +15,7 @@
     "check:admin-checkout-date": "node scripts/check-admin-checkout-date.mjs",
     "check:admin-duplicate-dates": "node scripts/check-admin-duplicate-event-dates.mjs",
     "check:admin-past-events": "node scripts/check-admin-past-event-search.mjs",
+    "check:xcg-draft-currency": "node scripts/check-xcg-draft-currency.mjs",
     "check:admin-info-cell": "node scripts/check-admin-empty-info-cell.mjs",
     "check:admin-price-card": "node scripts/check-admin-price-card-visibility.mjs",
     "check:admin-video": "node scripts/check-admin-video-upload.mjs",
