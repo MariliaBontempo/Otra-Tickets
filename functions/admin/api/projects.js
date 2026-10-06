@@ -11,6 +11,21 @@ import { contentSnapshot, validateContentPatch } from "./_draft-content.js";
 
 const MAX_BYTES = 50 * 1024 * 1024;
 const DRAFT_PREFIX = "site-event:";
+const PRACTICAL_8088_ID = "draft-1791253678425-26c548a5";
+const PRACTICAL_8088_BEFORE = [
+  { key: "Venue", value: "BRGR HAUS – Caracasbaai" },
+  { key: "Date", value: "To confirm" },
+  { key: "Time", value: "To confirm" },
+  { key: "Admission", value: "Finish Line Ticket — welcome drink and appetizer; sale terms pending" },
+  { key: "Status", value: "Draft prototype — pending approval" },
+  { key: "Pricing", value: "Prototype values retained as reference; currency and sale terms to confirm" },
+];
+const PRACTICAL_8088_AFTER = [
+  { key: "Venue", value: "BRGR HAUS – Caracasbaai" },
+  { key: "Date", value: "Date to confirm" },
+  { key: "Time", value: "Time to confirm" },
+  { key: "Admission", value: "Finish Line Ticket — $20 · Welcome Drink by Annabay Rum · Appetizer by BRGR HAUS" },
+];
 
 export async function onRequestGet(context) {
   if (!(await requireStaff(context.request, context.env))) return json({ error: "unauthorized" }, 401);
@@ -28,6 +43,36 @@ export async function onRequestPost(context) {
   const accessToken = session.token;
 
   const url = new URL(context.request.url);
+  if (url.searchParams.get("action") === "finalize-practical-8088") {
+    const kv = context.env.OVERRIDES;
+    if (!kv) return json({ error: "overrides store not configured" }, 503);
+    const id = (url.searchParams.get("id") || "").trim();
+    if (id !== PRACTICAL_8088_ID) return json({ error: "invalid project id" }, 400);
+    let body;
+    try { body = await context.request.json(); } catch { return json({ error: "invalid body" }, 400); }
+    // The public page is already published. Guard this one-time copy correction
+    // against stale project data instead of opening the private draft editor.
+    const project = await kv.get(`${DRAFT_PREFIX}${id}`, "json");
+    if (!project) return json({ error: "project not found" }, 404);
+    if (project.status !== "published" || project.adminOnly !== false || project.archivedAt ||
+        String(project.otraGuideId) !== "8088" || project.usesExistingOtraGuideEvent !== true) {
+      return json({ error: "unexpected project state" }, 409);
+    }
+    if (!body || JSON.stringify(body.expectedProject) !== JSON.stringify(normalizeProject(project, id)) ||
+        JSON.stringify(project.claudeDesign?.practicalInfo) !== JSON.stringify(PRACTICAL_8088_BEFORE)) {
+      return json({ error: "project changed; reload before editing" }, 409);
+    }
+    const next = {
+      ...project,
+      claudeDesign: { ...project.claudeDesign, practicalInfo: PRACTICAL_8088_AFTER },
+    };
+    await putProject(kv, { ...next, id });
+    await appendAudit(kv, {
+      actor: await actorForAudit(session.token, session.role, context.env),
+      action: "save", pageId: id, changedFields: ["practicalInfo"],
+    });
+    return json({ project: normalizeProject(next, id) });
+  }
   if (url.searchParams.get("action") === "update-content") {
     const kv = context.env.OVERRIDES;
     if (!kv) return json({ error: "overrides store not configured" }, 503);
