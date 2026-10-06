@@ -9,7 +9,9 @@ export function validateContentPatch(patch, project) {
   const allowed = new Set([...Object.keys(textLimits), "appreciates"]);
   const fields = Object.keys(patch);
   if (!fields.length || fields.some(key => !allowed.has(key))) throw new Error("unsupported content field");
-  if (JSON.stringify(patch).length > 64000) throw new Error("content is too long");
+  // The per-field limits allow roughly 130k characters across 12 perks.
+  // Leave room for image URLs and JSON syntax without rejecting valid input.
+  if (JSON.stringify(patch).length > 192000) throw new Error("content is too long");
   const next = {};
   for (const [key, limit] of Object.entries(textLimits)) {
     if (!(key in patch)) continue;
