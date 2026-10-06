@@ -41,7 +41,7 @@ export async function onRequestGet(context) {
       design: project.claudeDesign || null,
     };
   }
-  payload.slug = eventSlug(payload.title);
+  payload.slug = project && project.frozenSlug ? project.frozenSlug : eventSlug(payload.title);
   return json(payload, 200, adminOnly || override ? 0 : 60);
 }
 
@@ -60,7 +60,18 @@ async function getBasePayload(context, id, url, project) {
     fetchJson(`${api}/ticket/purchase/tickets/${id}/`),
     accentOverride ? Promise.resolve(null) : fetchCalendarPrimary(id, api),
   ]);
-  if (!detail) return null;
+  if (!detail) {
+    // A staff-only Guide event has no public detail response, but a published
+    // Otra Tickets project may still sell its ticket types through the embed.
+    // Keep this fallback bound to that exact project and a live ticket feed.
+    if (
+      id === "8088" && project?.id === "draft-1791253678425-26c548a5" &&
+      project.status === "published" && project.adminOnly !== true && ticketData?.results?.length
+    ) {
+      return getDraftPayload(context.env, project.id);
+    }
+    return null;
+  }
 
   const tickets = (ticketData && ticketData.results ? ticketData.results : []).map((t) => ({
     name: t.name,

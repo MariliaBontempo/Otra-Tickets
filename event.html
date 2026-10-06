@@ -1368,8 +1368,9 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
                 ? '<img class="ev-like-image" src="' + esc(item.image) + '" alt="' + esc(item.name || "") + '" loading="lazy">' : "";
               if (cardLayout) {
                 const rawDescription = String(item.description || "");
-                const concept = ev.isDraft ? rawDescription.match(/^Optional fundraiser perk, separate from the Entrance ticket\. Source prototype reference: (\$[\d,]+(?:\.\d{2})?); currency, availability and sale terms await approval\. This is not included in Entrance [^.]+\.\s*/) : null;
-                const price = concept ? '<span class="preview-price"><small>Concept price</small>' + esc(concept[1]) + '</span>' : "";
+                const concept = rawDescription.match(/^Optional fundraiser perk, separate from the Entrance ticket\. Source prototype reference: (\$[\d,]+(?:\.\d{2})?); currency, availability and sale terms await approval\. This is not included in Entrance [^.]+\.\s*/);
+                const priceLabel = ev.isDraft ? "Concept price" : "Price";
+                const price = concept ? '<span class="preview-price"><small>' + priceLabel + '</small>' + esc(concept[1]) + '</span>' : "";
                 const body = concept ? rawDescription.slice(concept[0].length) : rawDescription;
                 return '<div class="ev-like detailed">' + (image || '<span class="ev-like-image-empty" aria-hidden="true"></span>') + '<span class="nm">' + esc(item.name || "") + '</span>' + price + '<span class="ds">' + esc(body) + "</span></div>";
               }
