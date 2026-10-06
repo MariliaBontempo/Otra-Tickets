@@ -6,7 +6,7 @@ export function contentSnapshot(project) {
 export function validateContentPatch(patch, project) {
   if (!patch || typeof patch !== "object" || Array.isArray(patch)) throw new Error("content is required");
   const textLimits = { description: 20000, bandEyebrow: 200, bandTitle: 500, sponsorTitle: 500, sponsorText: 10000 };
-  const allowed = new Set([...Object.keys(textLimits), "appreciates"]);
+  const allowed = new Set([...Object.keys(textLimits), "appreciates", "sponsorLayout", "sponsorGroups"]);
   const fields = Object.keys(patch);
   if (!fields.length || fields.some(key => !allowed.has(key))) throw new Error("unsupported content field");
   // The per-field limits allow roughly 130k characters across 12 perks.
@@ -27,6 +27,18 @@ export function validateContentPatch(patch, project) {
       const image = item.image === undefined ? "" : item.image;
       if (typeof image !== "string" || (image && (!image.startsWith(`/override-images/${project.id}/claude-design/`) || !images.has(image)))) throw new Error("image must belong to this draft");
       return { name: item.name.trim(), description: item.description.trim(), image };
+    });
+  }
+  if ("sponsorLayout" in patch) {
+    if (!["plain", "compact", "list"].includes(patch.sponsorLayout)) throw new Error("invalid sponsor layout");
+    next.sponsorLayout = patch.sponsorLayout;
+  }
+  if ("sponsorGroups" in patch) {
+    if (!Array.isArray(patch.sponsorGroups) || patch.sponsorGroups.length > 12) throw new Error("invalid sponsor groups");
+    next.sponsorGroups = patch.sponsorGroups.map(group => {
+      if (!group || typeof group !== "object" || Array.isArray(group) || Object.keys(group).some(key => !["name", "sponsors"].includes(key))) throw new Error("invalid sponsor group");
+      if (typeof group.name !== "string" || !group.name.trim() || group.name.length > 100 || typeof group.sponsors !== "string" || !group.sponsors.trim() || group.sponsors.length > 1200) throw new Error("invalid sponsor group text");
+      return { name: group.name.trim(), sponsors: group.sponsors.trim() };
     });
   }
   return next;
