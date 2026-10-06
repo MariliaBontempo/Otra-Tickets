@@ -521,6 +521,18 @@ main.detail { padding: 0; padding-top: var(--header-h); } /* hero starts below t
 .ev-band:has(.ev-like.detailed), .ev-band:has(#evSponsors:not([hidden])) { aspect-ratio: auto; min-height: 620px; padding: 80px 0; }
 .ev-like .nm { font-family: var(--font-display); font-weight: 700; font-size: 16px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--rnb-text); line-height: 1.3; text-wrap: balance; }
 .ev-like .ds { font-size: clamp(16px, 1.5vw, 21px); line-height: 1.5; color: #d6dade; text-wrap: pretty; }
+.ev-band--cards .ev-band-veil { background: rgba(7, 8, 10, 0.90); }
+.ev-band--cards .ev-likes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; max-width: none; }
+.ev-band--cards .ev-like.detailed { display: flex; gap: 0; padding: 0 0 24px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: #15191d; }
+.ev-band--cards .ev-like.detailed:last-child { border-bottom: 1px solid var(--line); }
+.ev-band--cards .ev-like-image, .ev-band--cards .ev-like-image-empty { display: block; width: 100%; height: auto; aspect-ratio: 1.65; object-fit: cover; max-height: none; border-radius: 0; background: linear-gradient(135deg, #24434a, #141a20); }
+.ev-band--cards .ev-like .nm, .ev-band--cards .ev-like .ds, .ev-band--cards .ev-like .preview-price { display: block; padding: 0 24px; }
+.ev-band--cards .ev-like .nm { margin-top: 23px; font-size: clamp(17px, 1.6vw, 22px); letter-spacing: 0.035em; text-transform: none; }
+.ev-band--cards .ev-like .preview-price { margin-top: 13px; color: var(--silver-text); font-family: var(--font-display); font-size: clamp(28px, 3vw, 38px); font-weight: 800; }
+.ev-band--cards .ev-like .preview-price small { display: block; margin-bottom: 3px; font-family: inherit; font-size: 11px; font-weight: 500; letter-spacing: 0.12em; text-transform: uppercase; color: var(--fog-2); }
+.ev-band--cards .ev-like .ds { margin-top: 12px; font-size: 15px; line-height: 1.55; }
+.ev-perk-preview-note { margin: 18px 0 0; color: var(--fog); font-size: 14px; line-height: 1.5; }
+@media (max-width: 680px) { .ev-band--cards .ev-likes { grid-template-columns: 1fr; } }
 .ev-sponsors { margin-top: 40px; border-top: 1px solid var(--line); padding-top: 24px; }
 .ev-sponsor-groups { margin: 0; padding: 0; list-style: none; }
 .ev-sponsor-groups[hidden], #evSponsorText[hidden] { display: none !important; }
@@ -1036,6 +1048,7 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
       <div class="ev-band-inner">
         <span class="ev-eyebrow" id="evBandEyebrow">What We Appreciate</span>
         <h2 id="evBandTitle" style="margin-top:20px;"></h2>
+        <p class="ev-perk-preview-note" id="evPerkPreviewNote" hidden>Concept preview. Product prices, availability and purchase terms are pending confirmation.</p>
         <div class="ev-likes" id="evLikes"></div>
         <aside id="evSponsors" class="ev-sponsors ev-sponsors--plain" hidden>
           <h3 id="evSponsorTitle"></h3>
@@ -1343,6 +1356,9 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
         if (design.bandImage) $("evBandBg").style.backgroundImage = 'url("' + cssUrl(design.bandImage) + '")';
         if (design.bandEyebrow) $("evBandEyebrow").textContent = design.bandEyebrow;
         $("evBandTitle").textContent = design.bandTitle || "";
+        const cardLayout = design.perkLayout === "cards" && Array.isArray(design.appreciates) && design.appreciates.length > 0;
+        $("evBandSection").classList.toggle("ev-band--cards", cardLayout);
+        $("evPerkPreviewNote").hidden = !cardLayout || !ev.isDraft;
         $("evLikes").innerHTML = (design.appreciates || [])
           .map((item, i) => {
             // Titled items ({ name, description }) come from the newer design
@@ -1350,6 +1366,13 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
             if (item && typeof item === "object") {
               const image = typeof item.image === "string" && item.image.startsWith("/override-images/")
                 ? '<img class="ev-like-image" src="' + esc(item.image) + '" alt="' + esc(item.name || "") + '" loading="lazy">' : "";
+              if (cardLayout) {
+                const rawDescription = String(item.description || "");
+                const concept = ev.isDraft ? rawDescription.match(/^Optional fundraiser perk, separate from the Entrance ticket\. Source prototype reference: (\$[\d,]+(?:\.\d{2})?); currency, availability and sale terms await approval\. This is not included in Entrance [^.]+\.\s*/) : null;
+                const price = concept ? '<span class="preview-price"><small>Concept price</small>' + esc(concept[1]) + '</span>' : "";
+                const body = concept ? rawDescription.slice(concept[0].length) : rawDescription;
+                return '<div class="ev-like detailed">' + (image || '<span class="ev-like-image-empty" aria-hidden="true"></span>') + '<span class="nm">' + esc(item.name || "") + '</span>' + price + '<span class="ds">' + esc(body) + "</span></div>";
+              }
               return '<div class="ev-like detailed"><span class="nm">' + esc(item.name || "") + '</span>' + image + '<span class="ds">' + esc(item.description || "") + "</span></div>";
             }
             return '<div class="ev-like"><span class="n">' + String(i + 1).padStart(2, "0") + '</span><span>' + esc(item) + "</span></div>";
