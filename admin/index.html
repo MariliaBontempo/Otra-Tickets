@@ -562,6 +562,7 @@
         <button class="btn hidden" id="editCheckoutBtn" type="button">Edit checkout</button>
         <button class="btn hidden" id="clonePageBtn" type="button">Clone</button>
         <button class="btn ghost hidden" id="renameDraftBtn" type="button">Rename</button>
+        <button class="btn hidden" id="editDraftContentBtn" type="button">Edit draft content</button>
         <button class="btn ghost hidden" id="archivePageBtn" type="button">Archive</button>
         <button class="btn primary hidden" id="publishDraftBtn" type="button">Publish</button>
         <button class="btn ghost" id="historyBtn" type="button">History</button>
@@ -743,6 +744,22 @@
         <button class="btn ghost" id="cancelBtn" type="button">Cancel</button>
         <button class="btn primary" id="saveBtn" type="submit">Save</button>
       </div>
+    </form>
+  </div>
+
+  <div class="modal-backdrop hidden" id="draftContentModal" role="dialog" aria-modal="true" aria-labelledby="draftContentTitle">
+    <form class="modal stack" id="draftContentForm">
+      <h2 id="draftContentTitle">Edit draft content</h2>
+      <p>Restore the story, optional perks and acknowledgments on this private draft. Ticket prices and availability use the existing checkout.</p>
+      <label>Story<textarea id="draftContentStory" rows="5" maxlength="20000"></textarea></label>
+      <label>Section label<input id="draftContentEyebrow" maxlength="200" /></label>
+      <label>Section heading<input id="draftContentHeading" maxlength="500" /></label>
+      <div class="stack" id="draftContentItems"></div>
+      <button class="btn ghost" id="draftContentAddItem" type="button">Add optional perk</button>
+      <label>Acknowledgments heading<input id="draftContentSponsorTitle" maxlength="500" /></label>
+      <label>Acknowledgments<textarea id="draftContentSponsors" rows="5" maxlength="10000"></textarea></label>
+      <div class="status" id="draftContentStatus"></div>
+      <div class="row"><button class="btn ghost" id="draftContentCancel" type="button">Cancel</button><button class="btn primary" id="draftContentSave" type="submit">Save draft content</button></div>
     </form>
   </div>
 
@@ -1445,6 +1462,70 @@
   $("renameDraftBtn").addEventListener("click", () => {
     if (!selected || !isDraft(selected)) return;
     openEditor("rename");
+  });
+  let draftContentProject = null;
+  $("editDraftContentBtn").addEventListener("click", async () => {
+    if (!selected) return;
+    const id = selected.id;
+    try {
+      const data = await api("/admin/api/projects", { headers: authHeaders() });
+      const project = (data.projects || []).find(item => item.id === id);
+      if (!project || project.status !== "draft" || !project.adminOnly || project.publishedAt) throw new Error("Select a private unpublished draft.");
+      draftContentProject = project;
+      const design = project.claudeDesign || {};
+      $("draftContentStory").value = project.description || "";
+      $("draftContentEyebrow").value = design.bandEyebrow || "What We Appreciate";
+      $("draftContentHeading").value = design.bandTitle || "";
+      $("draftContentSponsorTitle").value = design.sponsorTitle || "With thanks to our sponsors & friends";
+      $("draftContentSponsors").value = design.sponsorText || "";
+      $("draftContentItems").replaceChildren();
+      (design.appreciates || []).forEach(item => addDraftContentItem(typeof item === "string" ? { name: item, description: "" } : item));
+      $("draftContentStatus").textContent = "";
+      $("draftContentModal").classList.remove("hidden");
+    } catch (error) { setStatus(error.message, "error"); }
+  });
+  function addDraftContentItem(item = {}) {
+    if (!draftContentProject || $("draftContentItems").children.length >= 12) return;
+    const row = document.createElement("fieldset");
+    row.className = "stack";
+    row.innerHTML = '<legend>Optional perk</legend><label>Name<input data-content-name maxlength="200" required></label><label>Description<textarea data-content-description rows="5" maxlength="8000"></textarea></label><label>Image<select data-content-image></select></label><button class="btn ghost" type="button" data-content-remove>Remove perk</button>';
+    row.querySelector("[data-content-name]").value = item.name || "";
+    row.querySelector("[data-content-description]").value = item.description || "";
+    const images = row.querySelector("[data-content-image]");
+    images.add(new Option("No image", ""));
+    (draftContentProject.claudeDesign?.galleryImages || []).filter(src => src.startsWith(`/override-images/${draftContentProject.id}/claude-design/`)).forEach(src => images.add(new Option(src.split("/").pop(), src)));
+    images.value = item.image || "";
+    row.querySelector("[data-content-remove]").addEventListener("click", () => row.remove());
+    $("draftContentItems").append(row);
+  }
+  $("draftContentAddItem").addEventListener("click", () => addDraftContentItem());
+  $("draftContentCancel").addEventListener("click", () => $("draftContentModal").classList.add("hidden"));
+  $("draftContentForm").addEventListener("submit", async event => {
+    event.preventDefault();
+    const project = draftContentProject;
+    if (!project || selected?.id !== project.id) return;
+    $("draftContentSave").disabled = true;
+    $("draftContentCancel").disabled = true;
+    $("draftContentStatus").textContent = "Saving draft content...";
+    try {
+      const patch = {
+        description: $("draftContentStory").value,
+        bandEyebrow: $("draftContentEyebrow").value,
+        bandTitle: $("draftContentHeading").value,
+        appreciates: [...$("draftContentItems").children].map(row => ({ name: row.querySelector("[data-content-name]").value, description: row.querySelector("[data-content-description]").value, image: row.querySelector("[data-content-image]").value })),
+        sponsorTitle: $("draftContentSponsorTitle").value,
+        sponsorText: $("draftContentSponsors").value,
+      };
+      await api(`/admin/api/projects?action=update-content&id=${encodeURIComponent(project.id)}`, {
+        method: "POST", headers: authHeaders({ "content-type": "application/json" }),
+        body: JSON.stringify({ expectedProject: project, expected: { description: project.description || "", claudeDesign: project.claudeDesign || null }, patch }),
+      });
+      $("draftContentModal").classList.add("hidden");
+      await loadPages(project.id);
+      refreshPreview();
+      setStatus("Draft content saved. Review the preview and any existing text overrides.", "ok");
+    } catch (error) { $("draftContentStatus").textContent = error.message; }
+    finally { $("draftContentSave").disabled = false; $("draftContentCancel").disabled = false; }
   });
   $("publishDraftBtn").addEventListener("click", openPublishModal);
   $("previewFrame").addEventListener("load", () => {
@@ -2358,6 +2439,7 @@
     $("archivePageBtn").classList.toggle("hidden", !selected);
     $("clonePageBtn").classList.toggle("hidden", !(isDraft(selected) || /^\d+$/.test(String(selected.id))));
     $("renameDraftBtn").classList.toggle("hidden", !isDraft(selected));
+    $("editDraftContentBtn").classList.toggle("hidden", !isDraft(selected) || selected.status !== "draft" || !selected.adminOnly);
     $("editCheckoutBtn").classList.toggle("hidden", !eventIdForPage(selected));
     $("publishDraftBtn").classList.toggle("hidden", !isDraft(selected) || selected.status === "published");
     $("adminOnlyWrap").classList.toggle("hidden", !isDraft(selected));
