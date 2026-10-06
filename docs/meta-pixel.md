@@ -1,8 +1,8 @@
 # Meta Pixel: passive integration
 
-Pixel/Dataset: `9500041730032996`. Local feature branches:
-`Otra-Tickets/feat/meta-pixel` and `curacao-calendar/feat/meta-pixel-checkout`.
-Nothing has been deployed. This replaces the earlier redirect/acknowledgement implementation.
+Pixel/Dataset: `9500041730032996`. Shipped: storefront PR #76 and backend PR #1753 are merged
+and live on otratickets.com and otraguide.com since 2026-10-02 (see Live findings below).
+This replaces the earlier redirect/acknowledgement implementation.
 
 ## Payment boundary
 
@@ -84,7 +84,7 @@ No existing marketing consent gate was detected on these routes. Existing Google
 tracking is unchanged. If consent gating is introduced, apply it to this loader
 and the production-only noscript fallback as well.
 
-Deploy storefront first (shared `/meta-pixel.js`), then backend. In Meta Events
+Deploy order for future changes: storefront first (shared `/meta-pixel.js`), then backend. In Meta Events
 Manager: use the existing Dataset, configure Automatic Advanced Matching as planned,
 allow both domains if Traffic Permissions is restricted, and remove any overlapping
 manual/automatic Purchase rules. Verify actual receipt using Test Events after
@@ -131,7 +131,7 @@ Guide native/simple templates observed correct InitiateCheckout payloads and
 original POST/redirect behaviour; a throwing tracker did not block simple checkout.
 The existing Stripe confirmation view still rejects no_payment_required before
 rendering. This patch corrects analytics eligibility only, not that pre-existing
-checkout behaviour. FREE coupon eligibility remains unverified. Both PRs remain drafts.
+checkout behaviour. FREE coupon eligibility remains unverified. (Both PRs have since merged.)
 
 ## Live findings (2026-10-05)
 
@@ -145,5 +145,7 @@ checkout behaviour. FREE coupon eligibility remains unverified. Both PRs remain 
   (InferredEvents + AutomaticMatching opted in). Meta then logs its own events from button
   clicks and page text; those cannot be deduplicated against ours and are the likely source of
   Purchase events with identical values or missing currency. Turn it off in Events Manager
-  (pixel Settings → Event setup), or set `fbq('set','autoConfig',false,PIXEL_ID)` before init
-  in both this loader and the GTM tag, at the cost of Automatic Advanced Matching.
+  (pixel Settings → Event setup → "Track events automatically without code"). The code-side
+  `fbq('set','autoConfig',false,PIXEL_ID)` is not used: in fbevents it gates both the inferred
+  button-click events and Automatic Advanced Matching, and it only works if it precedes every
+  init of this pixel, including the GTM tag's, so the Events Manager setting is the reliable control.
