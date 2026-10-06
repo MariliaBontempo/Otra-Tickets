@@ -2510,7 +2510,7 @@
           <label>Ticket name<input data-checkout-name type="text" maxlength="120" required value="${esc(ticket.name)}" /></label>
           <label>Price<input data-checkout-price type="number" min="0" step="0.01" required value="${esc(ticket.price)}" /></label>
           <label>Currency<select data-checkout-currency required>
-            ${["USD", "EUR", "ANG"].map((currency) => `<option value="${currency}"${currency === ticket.currency ? " selected" : ""}>${currency}</option>`).join("")}
+            ${["USD", "EUR", "ANG", "XCG"].map((currency) => `<option value="${currency}"${currency === ticket.currency ? " selected" : ""}>${currency}</option>`).join("")}
           </select></label>
         </div>
         <label>Description<textarea data-checkout-description>${esc(ticket.description || "")}</textarea></label>
@@ -2529,7 +2529,7 @@
           <label>Ticket name<input data-checkout-name type="text" maxlength="120" required placeholder="e.g. VIP Table" /></label>
           <label>Price<input data-checkout-price type="number" min="0" step="0.01" required placeholder="0.00" /></label>
           <label>Currency<select data-checkout-currency required>
-            ${["USD", "EUR", "ANG"].map((currency) => `<option value="${currency}">${currency}</option>`).join("")}
+            ${["USD", "EUR", "ANG", "XCG"].map((currency) => `<option value="${currency}">${currency}</option>`).join("")}
           </select></label>
         </div>
         <label>Description<textarea data-checkout-description></textarea></label>
