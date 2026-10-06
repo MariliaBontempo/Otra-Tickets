@@ -24,10 +24,12 @@ on a tracking result. `scripts/check-meta-checkout.mjs` verifies this boundary.
   because advertised starting prices/tier currencies may be ambiguous.
 - **InitiateCheckout:** after existing validation, immediately before the original
   Stripe checkout request or Sentoo form submission. Uses current selected tickets,
-  displayed quote and currency. If the displayed currency is one Stripe cannot charge
-  (e.g. XCG, which Meta also rejects), the quote is converted with the page's rate table
-  and reported as USD, matching what create-session charges and what Purchase later
-  confirms; an unknown rate skips the event. Sentoo excludes add-ons because its original form
+  the Stripe charge currency (the selected currency, or USD when Stripe cannot charge it,
+  e.g. XCG, which Meta also rejects). Each unit is derived from the base-currency list price
+  with the same steps as `quote_checkout_with_fee`/create-session (fee, rate with event
+  overrides, EUR cushion, rounded to cents per unit, then times quantity), so value equals
+  the later Purchase; unknown rates or originals skip the event. Pinned by
+  `tests/test_meta_checkout.mjs` in curacao-calendar. Sentoo excludes add-ons because its original form
   only submits tickets. A one-way postMessage to the storefront carries no PII.
   The parent checks iframe identity and origin. Guide standalone checkout calls tracking directly; Guide-hosted iframes send the same validated notification. No reply/wait. This measures entry
   into checkout, not successful provider-session creation. Once per iframe document.
