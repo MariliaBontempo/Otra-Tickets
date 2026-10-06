@@ -7,6 +7,7 @@
 import { apiBase, requireStaff, staffSession, json } from "./_auth.js";
 import { actorForAudit, appendAudit } from "./_audit.js";
 import { mintFrozenSlug, liveSlugBase } from "../../_lib/event-slug.js";
+import { contentSnapshot, validateContentPatch } from "./_draft-content.js";
 
 const MAX_BYTES = 50 * 1024 * 1024;
 const DRAFT_PREFIX = "site-event:";
@@ -27,6 +28,34 @@ export async function onRequestPost(context) {
   const accessToken = session.token;
 
   const url = new URL(context.request.url);
+  if (url.searchParams.get("action") === "update-content") {
+    const kv = context.env.OVERRIDES;
+    if (!kv) return json({ error: "overrides store not configured" }, 503);
+    const id = (url.searchParams.get("id") || "").trim();
+    if (!isDraftId(id)) return json({ error: "invalid draft id" }, 400);
+    let body;
+    try { body = await context.request.json(); } catch { return json({ error: "invalid body" }, 400); }
+    // Read the raw record so unrelated and future fields survive the merge.
+    // Parse before reading: the private/status and snapshot checks then run
+    // directly before the KV put, with no network await between them.
+    const project = await kv.get(`${DRAFT_PREFIX}${id}`, "json");
+    if (!project) return json({ error: "draft not found" }, 404);
+    if (project.status !== "draft" || project.adminOnly !== true || project.archivedAt || project.publishedAt) return json({ error: "only private unpublished drafts can be edited here" }, 409);
+    // Reject changes to the linked event, tickets or any other known project
+    // setting since the editor was opened, as well as content changes.
+    if (!body || JSON.stringify(body.expectedProject) !== JSON.stringify(normalizeProject(project, id)) || JSON.stringify(body.expected) !== JSON.stringify(contentSnapshot(project))) return json({ error: "draft changed; reopen the editor" }, 409);
+    let patch;
+    try { patch = validateContentPatch(body.patch, { ...project, id }); } catch (error) { return json({ error: error.message }, 400); }
+    const next = { ...project, claudeDesign: { ...(project.claudeDesign || {}), ...patch } };
+    if ("description" in patch) next.description = patch.description;
+    await putProject(kv, { ...next, id });
+    await appendAudit(kv, {
+      actor: await actorForAudit(session.token, session.role, context.env),
+      action: "save", pageId: id,
+      changedFields: Object.keys(patch).map(key => `draft-content:${key}`),
+    });
+    return json({ project: normalizeProject(next, id) });
+  }
   if (url.searchParams.get("action") === "archive") {
     const kv = context.env.OVERRIDES;
     if (!kv) return json({ error: "overrides store not configured" }, 503);
@@ -728,6 +757,7 @@ async function parseClaudeDesignZip(bytes, draftId, options = {}) {
   const story = matchSection(html, /<section[^>]*id=["']story["'][\s\S]*?<\/section>/i);
   const video = matchSection(html, /<section[^>]*class=["'][^"']*ev-video[^"']*["'][\s\S]*?<\/section>/i);
   const band = matchSection(html, /<section[^>]*class=["'][^"']*ev-band[^"']*["'][\s\S]*?<\/section>/i);
+  const sponsors = matchSection(html, /<section[^>]*class=["'][^"']*ev-sponsors[^"']*["'][\s\S]*?<\/section>/i);
   const photoBand = matchSection(html, /<section[^>]*class=["'][^"']*ev-photoband[^"']*["'][\s\S]*?<\/section>/i);
   const info = sectionAfterEyebrow(html, "Practical Info");
   const rates = sectionAfterEyebrow(html, "Rates");
@@ -772,7 +802,9 @@ async function parseClaudeDesignZip(bytes, draftId, options = {}) {
     bandImage,
     bandEyebrow: cleanText(matchSection(band, /<span[^>]*class=["'][^"']*ev-eyebrow[^"']*["'][^>]*>([\s\S]*?)<\/span>/i)),
     bandTitle: cleanText(matchSection(band, /<h2\b[^>]*>([\s\S]*?)<\/h2>/i)),
-    appreciates: extractAppreciates(band),
+    appreciates: extractAppreciates(band, assetUrl),
+    sponsorTitle: cleanText(matchSection(sponsors, /<h[23]\b[^>]*>([\s\S]*?)<\/h[23]>/i)),
+    sponsorText: allMatches(sponsors, /<p\b[^>]*>([\s\S]*?)<\/p>/gi).map(cleanText).filter(Boolean).join("\n\n"),
     photoBandImage,
     practicalTitle: cleanText(matchSection(info, /<h2\b[^>]*>([\s\S]*?)<\/h2>/i)),
     practicalInfo: extractCells(info),
@@ -874,6 +906,7 @@ function remapProjectImages(parsed, urls) {
   parsed.videoImage = resolve(parsed.videoImage);
   parsed.bandImage = resolve(parsed.bandImage);
   parsed.photoBandImage = resolve(parsed.photoBandImage);
+  if (Array.isArray(parsed.appreciates)) parsed.appreciates = parsed.appreciates.map(item => item && typeof item === "object" && item.image ? { ...item, image: resolve(item.image) } : item);
   parsed.galleryImages = Array.isArray(parsed.galleryImages) ? parsed.galleryImages.map(resolve).filter(Boolean) : [];
   parsed.assets = Array.isArray(parsed.assets) ? parsed.assets.map(resolve).filter(Boolean) : [];
 }
@@ -1073,7 +1106,7 @@ function allMatches(value, pattern) {
 // (<span class="n">01</span><span>text</span> - stored as plain strings) and
 // the titled list (<span class="nm">name</span><span class="ds">description</span>
 // - stored as { name, description } objects). The event template renders both.
-function extractAppreciates(band) {
+function extractAppreciates(band, resolveImage = value => value) {
   const items = [...String(band || "").matchAll(/<div[^>]*class=["'][^"']*ev-like[^"']*["'][^>]*>([\s\S]*?)<\/div>/gi)]
     .map((match) => match[1]);
   const out = [];
@@ -1083,7 +1116,8 @@ function extractAppreciates(band) {
     if (nm || ds) {
       const name = cleanText(nm && nm[1]);
       const description = cleanText(ds && ds[1]);
-      if (name || description) out.push({ name, description });
+      const image = attr(matchSection(item, /<img\b[^>]*>/i), "src");
+      if (name || description) out.push(image ? { name, description, image: resolveImage(image) } : { name, description });
       continue;
     }
     const plain = item.match(/<span[^>]*class=["']n["'][^>]*>[\s\S]*?<\/span>\s*<span[^>]*>([\s\S]*?)<\/span>/i);
