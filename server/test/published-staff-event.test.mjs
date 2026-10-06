@@ -1,6 +1,23 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
+import vm from "node:vm";
 import { onRequestGet } from "../../functions/api/event.js";
+
+function viewContentIds(event) {
+  const calls = [];
+  const window = {
+    location: new URL("https://otratickets.com/event?id=8088"),
+    sessionStorage: { getItem() { return null; } },
+    fbq(...args) { calls.push(args); },
+    addEventListener() {},
+  };
+  window.top = window;
+  const source = readFileSync(new URL("../../meta-pixel.js", import.meta.url), "utf8");
+  vm.runInNewContext(source, { window, document: {}, URL, URLSearchParams });
+  window.OTRAMeta.viewContent(event);
+  return calls.find(args => args[1] === "ViewContent")?.[2].content_ids;
+}
 
 test("a published site project can render its staff-only Guide checkout without exposing other events", async () => {
   const originalFetch = globalThis.fetch;
@@ -19,12 +36,17 @@ test("a published site project can render its staff-only Guide checkout without 
     async list() { return { keys: [{ name: `site-event:${project.id}` }, { name: `site-event:${other.id}` }], list_complete: true }; },
     async get(key) { return key === `site-event:${project.id}` ? project : key === `site-event:${other.id}` ? other : null; },
   };
-  globalThis.caches = { default: { async match() { return null; } } };
+  globalThis.caches = { default: { async match() { return null; }, async put() {} } };
   globalThis.fetch = async input => {
     const path = new URL(input).pathname;
     if (/^\/api\/events\/details\/808[89]\/$/.test(path)) return new Response(null, { status: 404 });
+    if (path === "/api/events/details/8090/") return Response.json({
+      id: 8090, title: "Ordinary Event", start_date: "2026-10-20T18:00:00Z",
+      end_date: "2026-10-20T22:00:00Z", is_ticketed: true, is_perennial: false,
+    });
     if (/^\/api\/ticket\/purchase\/tickets\/808[89]\/$/.test(path)) return Response.json({ results: [{ id: 491, name: "Finish Line Ticket" }] });
-    if (/^\/ticketing\/stripe-external-iframe\/calendar\/808[89]\/$/.test(path)) return new Response("", { status: 200 });
+    if (path === "/api/ticket/purchase/tickets/8090/") return Response.json({ results: [{ id: 492, name: "Ordinary Ticket", price: "15.00", base_currency: { code: "USD" } }] });
+    if (/^\/ticketing\/stripe-external-iframe\/calendar\/80(?:8[89]|90)\/$/.test(path)) return new Response("", { status: 200 });
     throw new Error(`Unexpected request: ${path}`);
   };
   try {
@@ -32,14 +54,27 @@ test("a published site project can render its staff-only Guide checkout without 
     const response = await onRequestGet({ request: new Request("https://tickets.test/api/event?id=8088"), env });
     assert.equal(response.status, 200);
     const body = await response.json();
+    assert.equal(body.id, 8088);
     assert.equal(body.isDraft, false);
     assert.equal(body.checkoutEventId, "8088");
     assert.equal(body.checkoutBaseUrl, "https://guide.test");
     assert.equal(body.slug, "finish-line-party");
     assert.equal(body.design.perkLayout, "cards");
+    assert.deepEqual(body.tickets, project.claudeDesign.rates);
+    assert.equal(body.startDate, null);
+    assert.equal(body.endDate, null);
+    assert.equal(body.isPerennial, false);
+    assert.deepEqual(Array.from(viewContentIds(body)), ["8088"]);
 
     const unrelated = await onRequestGet({ request: new Request("https://tickets.test/api/event?id=8089"), env });
     assert.equal(unrelated.status, 404);
+
+    const ordinary = await onRequestGet({ request: new Request("https://tickets.test/api/event?id=8090"), env, waitUntil() {} });
+    assert.equal(ordinary.status, 200);
+    const ordinaryBody = await ordinary.json();
+    assert.equal(ordinaryBody.id, 8090);
+    assert.equal(ordinaryBody.startDate, "2026-10-20T18:00:00Z");
+    assert.deepEqual(Array.from(viewContentIds(ordinaryBody)), ["8090"]);
   } finally {
     globalThis.fetch = originalFetch;
     globalThis.caches = originalCaches;

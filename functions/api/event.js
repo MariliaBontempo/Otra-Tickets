@@ -68,7 +68,9 @@ async function getBasePayload(context, id, url, project) {
       id === "8088" && project?.id === "draft-1791253678425-26c548a5" &&
       project.status === "published" && project.adminOnly !== true && ticketData?.results?.length
     ) {
-      return getDraftPayload(context.env, project.id);
+      const draftPayload = await getDraftPayload(context.env, project.id);
+      // The draft key locates site content; the public event ID is the Guide ID.
+      return draftPayload ? { ...draftPayload, id: Number(id) } : null;
     }
     return null;
   }
