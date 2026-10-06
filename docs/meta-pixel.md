@@ -23,13 +23,16 @@ on a tracking result. `scripts/check-meta-checkout.mjs` verifies this boundary.
 - **ViewContent:** after event details load, once per event ID/document. Omit money
   because advertised starting prices/tier currencies may be ambiguous.
 - **InitiateCheckout:** after existing validation, immediately before the original
-  Stripe checkout request or Sentoo form submission. Uses current selected tickets,
-  the Stripe charge currency (the selected currency, or USD when Stripe cannot charge it,
-  e.g. XCG, which Meta also rejects). Each unit is derived from the base-currency list price
-  with the same steps as `quote_checkout_with_fee`/create-session (fee, rate with event
-  overrides, EUR cushion, rounded to cents per unit, then times quantity), so value equals
-  the later Purchase; unknown rates or originals skip the event. Pinned by
-  `tests/test_meta_checkout.mjs` in curacao-calendar. Sentoo excludes add-ons because its original form
+  Stripe checkout request or Sentoo form submission. Uses current selected tickets.
+  Stripe flow only (`bank=false`): reports the Stripe charge currency (the selected currency,
+  or USD when Stripe cannot charge it, e.g. XCG, which Meta also rejects), and derives each
+  unit from the base-currency list price with the same steps and Decimal rounding as
+  `quote_checkout_with_fee`/create-session (fee, rate with event overrides, EUR cushion,
+  half-even cents per unit, half-up in the EUR path, then times quantity), so value is
+  intended to equal the later Purchase once Curacao-Calendar PR #1767 is merged; unknown
+  rates or originals skip the event. Pinned by `tests/test_meta_checkout.mjs` there.
+  Sentoo flow (`bank=true`) is unchanged: it still reports the displayed XCG amounts, which
+  Meta flags as an invalid currency, and excludes add-ons because its original form
   only submits tickets. A one-way postMessage to the storefront carries no PII.
   The parent checks iframe identity and origin. Guide standalone checkout calls tracking directly; Guide-hosted iframes send the same validated notification. No reply/wait. This measures entry
   into checkout, not successful provider-session creation. Once per iframe document.
