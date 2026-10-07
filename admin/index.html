@@ -2947,14 +2947,14 @@
           $("cloneEventDate").value || eventDay,
           { inventDefaults: true }
         );
-    renderCloneSaleWindows(rows, { readonly: false, requireDates: mode === "new" });
+    renderCloneSaleWindows(rows, { readonly: mode === "existing", requireDates: mode === "new" });
     if (!rows.length) {
       $("cloneSaleHint").textContent = "No ticket types found yet. Confirm below to clone without sale windows.";
     } else if (mode === "existing") {
       const missing = rows.some((row) => row.missingSaleDates);
       $("cloneSaleHint").textContent = missing
-        ? "Otra Guide did not return some sale dates. Review what is shown, then confirm. Clone does not rewrite live tickets; fix windows later in Checkout if needed."
-        : "Review these live ticket sale windows before binding. They are not changed by clone; edit them later in Checkout if needed.";
+        ? "Otra Guide did not return some sale dates. Review what is shown, then confirm. Clone does not rewrite live tickets."
+        : "Review these live ticket sale windows before binding. They are not changed by clone.";
     } else {
       $("cloneSaleHint").textContent = "Review sale start and sale end for every ticket type before cloning.";
     }
