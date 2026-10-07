@@ -8,6 +8,7 @@ import { apiBase, requireStaff, staffSession, json } from "./_auth.js";
 import { actorForAudit, appendAudit } from "./_audit.js";
 import { mintFrozenSlug, liveSlugBase } from "../../_lib/event-slug.js";
 import { normalizeCloneSaleWindows, toDay } from "../../_lib/clone-sale-windows.js";
+import { rewriteProjectDate } from "./events.js";
 import { contentSnapshot, validateContentPatch } from "./_draft-content.js";
 
 const MAX_BYTES = 50 * 1024 * 1024;
@@ -161,14 +162,6 @@ export async function onRequestPost(context) {
     }
 
     const cloneId = `draft-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
-    const existingEventIdEarly = cleanInteger(body && body.existingEventId);
-    // Apply the editor-chosen event day before creating the Otra Guide event so
-    // clone does not need a second date-move round trip (which left the UI on
-    // "Cloning..." until the follow-up PUT finished).
-    const requestedStart = !existingEventIdEarly ? toDay(body && body.startDate) : "";
-    const requestedEnd = !existingEventIdEarly
-      ? (toDay(body && body.endDate) || requestedStart)
-      : "";
     const clone = {
       ...source,
       id: cloneId,
@@ -187,9 +180,6 @@ export async function onRequestPost(context) {
       usesExistingOtraGuideEvent: false,
       syncError: "",
       createdAt: new Date().toISOString(),
-      ...(requestedStart
-        ? { startDate: requestedStart, endDate: requestedEnd || requestedStart }
-        : {}),
     };
     await putProject(kv, clone);
 
@@ -235,6 +225,26 @@ export async function onRequestPost(context) {
             teamName: bound.teamName || (info.teamName || ""),
             regionId: bound.regionId || cleanInteger(info.regionId),
           };
+          await putProject(kv, bound);
+        }
+        // Move to the editor-chosen day while keeping source wall-clock time and
+        // duration (same swapDay rules as updateEventDate). Avoids a second
+        // date-move PUT that hung the modal on "Cloning...", and never stores a
+        // plain YYYY-MM-DD that would create a zero-length midnight event.
+        const chosenDay = toDay(body && body.startDate);
+        if (chosenDay && bound.startDate) {
+          const swapDay = (iso, day) => String(iso).replace(/^\d{4}-\d{2}-\d{2}/, day);
+          const srcStart = bound.startDate;
+          const srcEnd = bound.endDate || bound.startDate;
+          const dayMs = 86400000;
+          const dayDelta = Math.round(
+            (new Date(chosenDay + "T00:00:00Z") - new Date(String(srcStart).slice(0, 10) + "T00:00:00Z")) / dayMs
+          );
+          const oldEndDay = new Date(String(srcEnd).slice(0, 10) + "T00:00:00Z");
+          const newEndDay = new Date(oldEndDay.getTime() + dayDelta * dayMs).toISOString().slice(0, 10);
+          const newStartIso = swapDay(srcStart, chosenDay);
+          const newEndIso = swapDay(srcEnd, newEndDay);
+          bound = rewriteProjectDate(bound, newStartIso, newEndIso);
           await putProject(kv, bound);
         }
         bound = await createOtraGuideEvent(context, accessToken, bound, {});

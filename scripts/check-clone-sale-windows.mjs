@@ -138,6 +138,10 @@ assert(/America\/Curacao/.test(adminHtml), 'clone defaults must use Curacao loca
 assert(/ticketsByName/.test(adminHtml), 'new clone mode must match source tickets to rates by name');
 assert(/function setCloneSaleConfirmed/.test(adminHtml), 'clone confirm helper must keep the adjust-dates message in sync');
 
+assert(/rewriteProjectDate\(bound, newStartIso, newEndIso\)/.test(projectsJs), 'clone must rewrite project dates with ISO timestamps');
+assert(/const swapDay = \(iso, day\)/.test(projectsJs), 'clone must swap only the day while keeping wall-clock time');
+assert(!/requestedStart/.test(projectsJs), 'clone must not stash a plain YYYY-MM-DD startDate before create');
+
 if (failures.length) {
   console.error('check-clone-sale-windows FAILED:');
   failures.forEach((failure) => console.error(' - ' + failure));
