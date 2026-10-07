@@ -3010,7 +3010,7 @@
     if (eventId) {
       pipelineFetch(`/event-slug/${eventId}/`, { headers: authHeaders() })
         .then((info) => {
-          cloneSourceDate = String(info.startDate || "").slice(0, 10);
+          cloneSourceDate = cloneDayValue(info.startDate);
           if (cloneSourceDate && !$("cloneEventDate").value) $("cloneEventDate").value = cloneSourceDate;
           if (cloneSourceDate && !cloneAlignedEventDay) cloneAlignedEventDay = cloneSourceDate;
         })

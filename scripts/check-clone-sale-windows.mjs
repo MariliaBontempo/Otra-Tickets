@@ -153,6 +153,7 @@ assert(/shiftCloneEventDay\(/.test(projectsJs), 'clone API must shift chosen day
 assert(/rewriteProjectDate\(bound, shifted\.startDate, shifted\.endDate\)/.test(projectsJs), 'clone must rewrite labels with shifted ISO timestamps');
 assert(!/requestedStart/.test(projectsJs), 'clone must not stash a plain YYYY-MM-DD startDate before create');
 assert(/cloneDayValue\(data\.project && data\.project\.startDate\)/.test(adminHtml), 'client must compare bound day in Curacao time');
+assert(/cloneSourceDate = cloneDayValue\(info\.startDate\)/.test(adminHtml), 'clone modal must prefill the Curacao day, not the UTC date slice');
 
 if (failures.length) {
   console.error('check-clone-sale-windows FAILED:');
