@@ -7,7 +7,7 @@
 import { apiBase, requireStaff, staffSession, json } from "./_auth.js";
 import { actorForAudit, appendAudit } from "./_audit.js";
 import { mintFrozenSlug, liveSlugBase } from "../../_lib/event-slug.js";
-import { normalizeCloneSaleWindows } from "../../_lib/clone-sale-windows.js";
+import { normalizeCloneSaleWindows, toDay } from "../../_lib/clone-sale-windows.js";
 
 const MAX_BYTES = 50 * 1024 * 1024;
 const DRAFT_PREFIX = "site-event:";
@@ -87,6 +87,14 @@ export async function onRequestPost(context) {
     }
 
     const cloneId = `draft-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
+    const existingEventIdEarly = cleanInteger(body && body.existingEventId);
+    // Apply the editor-chosen event day before creating the Otra Guide event so
+    // clone does not need a second date-move round trip (which left the UI on
+    // "Cloning..." until the follow-up PUT finished).
+    const requestedStart = !existingEventIdEarly ? toDay(body && body.startDate) : "";
+    const requestedEnd = !existingEventIdEarly
+      ? (toDay(body && body.endDate) || requestedStart)
+      : "";
     const clone = {
       ...source,
       id: cloneId,
@@ -105,6 +113,9 @@ export async function onRequestPost(context) {
       usesExistingOtraGuideEvent: false,
       syncError: "",
       createdAt: new Date().toISOString(),
+      ...(requestedStart
+        ? { startDate: requestedStart, endDate: requestedEnd || requestedStart }
+        : {}),
     };
     await putProject(kv, clone);
 
@@ -582,7 +593,7 @@ async function createOtraGuideEvent(context, accessToken, project, eventFiles = 
       })
     );
   }
-  const event = await otraFetch(context, accessToken, "/events/create/", { method: "POST", body: form });
+  const event = await otraFetch(context, accessToken, "/events/create/", { method: "POST", body: form, timeoutMs: 90000 });
   return {
     ...project,
     otraGuideId: String(event.id),
@@ -616,6 +627,7 @@ async function reconcileTickets(context, accessToken, project, confirmedSaleWind
       method: existingId ? "PATCH" : "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(payload),
+      timeoutMs: 60000,
     });
     ids[index] = ticket.id;
     project = { ...project, ticketTypeIds: ids };
@@ -627,14 +639,25 @@ async function reconcileTickets(context, accessToken, project, confirmedSaleWind
 
 async function fetchEventTickets(context, accessToken, eventId) {
   try {
-    const adminData = await otraFetch(context, accessToken, `/events/admin-ticketed-search/?id=${eventId}`);
+    // Admin search can stall on some events; fail open quickly to the purchase list.
+    const adminData = await otraFetch(
+      context,
+      accessToken,
+      `/events/admin-ticketed-search/?id=${eventId}`,
+      { timeoutMs: 8000 }
+    );
     const event = Array.isArray(adminData && adminData.events) ? adminData.events[0] : null;
     if (event && Array.isArray(event.tickets)) return event.tickets;
   } catch {
     // Backward-compatible during a staggered deploy: use the purchase endpoint
     // until the admin search endpoint is available on Otra Guide.
   }
-  const purchaseData = await otraFetch(context, accessToken, `/ticket/purchase/tickets/${eventId}/`);
+  const purchaseData = await otraFetch(
+    context,
+    accessToken,
+    `/ticket/purchase/tickets/${eventId}/`,
+    { timeoutMs: 20000 }
+  );
   return Array.isArray(purchaseData && purchaseData.results) ? purchaseData.results : [];
 }
 
@@ -642,10 +665,16 @@ async function otraFetch(context, accessToken, path, options = {}) {
   const headers = new Headers(options.headers || {});
   headers.set("authorization", `Bearer ${accessToken}`);
   headers.set("accept", "application/json");
+  const timeoutMs = Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : 45000;
+  const { timeoutMs: _timeoutMs, signal: userSignal, ...fetchOpts } = options;
+  const signal = userSignal || AbortSignal.timeout(timeoutMs);
   let response;
   try {
-    response = await fetch(`${apiBase(context.env)}${path}`, { ...options, headers });
-  } catch {
+    response = await fetch(`${apiBase(context.env)}${path}`, { ...fetchOpts, headers, signal });
+  } catch (error) {
+    if (error && (error.name === "TimeoutError" || error.name === "AbortError")) {
+      throw new Error(`Otra Guide timed out (${path})`);
+    }
     throw new Error("could not reach Otra Guide");
   }
   const data = await response.json().catch(() => ({}));

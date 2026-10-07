@@ -2834,8 +2834,8 @@
   function cloneSelectedPage() {
     if (!selected) return;
     $("cloneMeta").textContent = selected.title + " - " + selected.type;
-    $("cloneStatus").textContent = "";
-    $("cloneStatus").className = "status";
+    $("cloneStatus").textContent = "You're trying to copy this event. Please note: to clone it, we suggest you adjust the dates.";
+    $("cloneStatus").className = "status error";
     $("cloneEventSearch").value = "";
     $("cloneEventResults").innerHTML = "";
     $("cloneEventSelected").textContent = "";
@@ -2933,6 +2933,16 @@
     refreshCloneSaleWarnings();
   });
   let cloneBusy = false;
+  $("cloneSaleConfirmed").addEventListener("change", () => {
+    const msg = "You're trying to copy this event. Please note: to clone it, we suggest you adjust the dates.";
+    if ($("cloneSaleConfirmed").checked) {
+      $("cloneStatus").textContent = "";
+      $("cloneStatus").className = "status";
+    } else {
+      $("cloneStatus").textContent = msg;
+      $("cloneStatus").className = "status error";
+    }
+  });
   $("cancelCloneBtn").addEventListener("click", () => {
     if (cloneBusy) return;
     $("cloneModal").classList.add("hidden");
@@ -2954,7 +2964,7 @@
     }
     const ticketSaleWindows = readCloneSaleWindowsFromForm();
     if (!ticketSaleWindows.length && !$("cloneSaleConfirmed").checked) {
-      $("cloneStatus").textContent = "Confirm ticket sale start and end dates before cloning.";
+      $("cloneStatus").textContent = "You're trying to copy this event. Please note: to clone it, we suggest you adjust the dates.";
       $("cloneStatus").className = "status error";
       return;
     }
@@ -2971,7 +2981,7 @@
       }
     }
     if (!$("cloneSaleConfirmed").checked) {
-      $("cloneStatus").textContent = "Check the box to confirm ticket sale start and end dates.";
+      $("cloneStatus").textContent = "You're trying to copy this event. Please note: to clone it, we suggest you adjust the dates.";
       $("cloneStatus").className = "status error";
       return;
     }
@@ -2985,16 +2995,24 @@
     $("cloneStatus").className = "status";
     try {
       const params = new URLSearchParams({ action: "clone", id: selected.id });
+      const chosenDate = $("cloneEventDate").value;
       const data = await api("/admin/api/projects?" + params.toString(), {
         method: "POST",
         headers: authHeaders({ "content-type": "application/json" }),
         body: JSON.stringify(mode === "existing"
           ? { existingEventId: Number(existingEventId), title: cloneTitle, ticketSaleWindows }
-          : { title: cloneTitle, ticketSaleWindows }),
+          : {
+              title: cloneTitle,
+              ticketSaleWindows,
+              // Server creates the hidden event on this day so we avoid a
+              // second date-move request that kept the modal on "Cloning...".
+              ...(chosenDate ? { startDate: chosenDate, endDate: chosenDate } : {}),
+            }),
       });
-      const chosenDate = $("cloneEventDate").value;
       let dateNote = "";
-      if (mode !== "existing" && data.project.otraGuideId && chosenDate && chosenDate !== cloneSourceDate) {
+      const boundStart = String((data.project && data.project.startDate) || "").slice(0, 10);
+      // Fallback only when the clone API could not apply the chosen day.
+      if (mode !== "existing" && data.project.otraGuideId && chosenDate && chosenDate !== boundStart) {
         try {
           await api("/admin/api/events", {
             method: "PUT",
@@ -3010,6 +3028,8 @@
         } catch (err) {
           dateNote = ` Date NOT changed (${err.message}) - edit it on the page.`;
         }
+      } else if (mode !== "existing" && chosenDate && chosenDate === boundStart) {
+        dateNote = ` Event date ${chosenDate}.`;
       }
       $("cloneModal").classList.add("hidden");
       setStatus(
