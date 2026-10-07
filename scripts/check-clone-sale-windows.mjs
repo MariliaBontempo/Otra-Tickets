@@ -135,6 +135,8 @@ assert(
   'new clone mode must await loaded project rates, not selected.claudeDesign'
 );
 assert(/America\/Curacao/.test(adminHtml), 'clone defaults must use Curacao local today');
+assert(/ticketsByName/.test(adminHtml), 'new clone mode must match source tickets to rates by name');
+assert(/function setCloneSaleConfirmed/.test(adminHtml), 'clone confirm helper must keep the adjust-dates message in sync');
 
 if (failures.length) {
   console.error('check-clone-sale-windows FAILED:');

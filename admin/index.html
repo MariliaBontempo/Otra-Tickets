@@ -2771,6 +2771,19 @@
   let cloneSourceDate = "";
   let cloneAlignedEventDay = "";
   let cloneSaleRows = [];
+  const CLONE_SALE_CONFIRM_MSG = "You're trying to copy this event. Please note: to clone it, we suggest you adjust the dates.";
+
+  function setCloneSaleConfirmed(checked) {
+    $("cloneSaleConfirmed").checked = !!checked;
+    if (checked) {
+      $("cloneStatus").textContent = "";
+      $("cloneStatus").className = "status";
+    } else {
+      $("cloneStatus").textContent = CLONE_SALE_CONFIRM_MSG;
+      $("cloneStatus").className = "status error";
+    }
+  }
+
 
   function cleanCloneTitle(value) {
     return String(value || "").replace(/(?:\s*\(clone\))+\s*$/i, "").trim();
@@ -2821,7 +2834,7 @@
     const requireDates = options.requireDates !== false;
     const host = $("cloneSaleWindows");
     const warn = $("cloneSaleWarnings");
-    $("cloneSaleConfirmed").checked = false;
+    setCloneSaleConfirmed(false);
     const confirmText = $("cloneSaleConfirmText");
     if (!cloneSaleRows.length) {
       host.innerHTML = "<span class=\"muted\">No ticket types found yet. You can still clone after confirming below.</span>";
@@ -2934,15 +2947,24 @@
       }
     }
     const mode = document.querySelector('input[name="cloneEventMode"]:checked').value;
+    const ticketsByName = new Map();
+    for (const ticket of tickets) {
+      const key = String((ticket && ticket.name) || "").trim().toLowerCase();
+      if (key && !ticketsByName.has(key)) ticketsByName.set(key, ticket);
+    }
     const rows = mode === "existing"
       ? buildCloneSaleRows(tickets, [], $("cloneEventDate").value || eventDay, { inventDefaults: false })
       : buildCloneSaleRows(
-          rates.map((rate, index) => ({
-            name: rate.name,
-            saleStartDate: tickets[index] && tickets[index].saleStartDate,
-            saleEndDate: tickets[index] && tickets[index].saleEndDate,
-            isActive: tickets[index] ? tickets[index].isActive !== false : true,
-          })),
+          rates.map((rate, index) => {
+            const key = String((rate && rate.name) || "").trim().toLowerCase();
+            const ticket = (key && ticketsByName.get(key)) || tickets[index] || null;
+            return {
+              name: rate.name,
+              saleStartDate: ticket && ticket.saleStartDate,
+              saleEndDate: ticket && ticket.saleEndDate,
+              isActive: ticket ? ticket.isActive !== false : true,
+            };
+          }),
           rates,
           $("cloneEventDate").value || eventDay,
           { inventDefaults: true }
@@ -2963,8 +2985,6 @@
   function cloneSelectedPage() {
     if (!selected) return;
     $("cloneMeta").textContent = selected.title + " - " + selected.type;
-    $("cloneStatus").textContent = "You're trying to copy this event. Please note: to clone it, we suggest you adjust the dates.";
-    $("cloneStatus").className = "status error";
     $("cloneEventSearch").value = "";
     $("cloneEventResults").innerHTML = "";
     $("cloneEventSelected").textContent = "";
@@ -2974,7 +2994,7 @@
     $("cloneEventTitle").value = cleanCloneTitle(selected.title);
     $("cloneEventDate").value = "";
     $("cloneEventDate").disabled = false;
-    $("cloneSaleConfirmed").checked = false;
+    setCloneSaleConfirmed(false);
     $("cloneModal").classList.remove("hidden");
     const eventId = eventIdForPage(selected) || linkedEventIdForPage();
     if (eventId) {
@@ -3058,19 +3078,12 @@
       if (!endInput.value || endInput.value === previousDefault) endInput.value = nextDay;
     });
     if (nextDay) cloneAlignedEventDay = nextDay;
-    $("cloneSaleConfirmed").checked = false;
+    setCloneSaleConfirmed(false);
     refreshCloneSaleWarnings();
   });
   let cloneBusy = false;
   $("cloneSaleConfirmed").addEventListener("change", () => {
-    const msg = "You're trying to copy this event. Please note: to clone it, we suggest you adjust the dates.";
-    if ($("cloneSaleConfirmed").checked) {
-      $("cloneStatus").textContent = "";
-      $("cloneStatus").className = "status";
-    } else {
-      $("cloneStatus").textContent = msg;
-      $("cloneStatus").className = "status error";
-    }
+    setCloneSaleConfirmed($("cloneSaleConfirmed").checked);
   });
   $("cancelCloneBtn").addEventListener("click", () => {
     if (cloneBusy) return;
@@ -3093,7 +3106,7 @@
     }
     const ticketSaleWindows = readCloneSaleWindowsFromForm();
     if (!ticketSaleWindows.length && !$("cloneSaleConfirmed").checked) {
-      $("cloneStatus").textContent = "You're trying to copy this event. Please note: to clone it, we suggest you adjust the dates.";
+      $("cloneStatus").textContent = CLONE_SALE_CONFIRM_MSG;
       $("cloneStatus").className = "status error";
       return;
     }
@@ -3110,7 +3123,7 @@
       }
     }
     if (!$("cloneSaleConfirmed").checked) {
-      $("cloneStatus").textContent = "You're trying to copy this event. Please note: to clone it, we suggest you adjust the dates.";
+      $("cloneStatus").textContent = CLONE_SALE_CONFIRM_MSG;
       $("cloneStatus").className = "status error";
       return;
     }
