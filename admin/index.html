@@ -590,6 +590,7 @@
         <button class="btn hidden" id="editCheckoutBtn" type="button">Edit checkout</button>
         <button class="btn hidden" id="clonePageBtn" type="button">Clone</button>
         <button class="btn ghost hidden" id="renameDraftBtn" type="button">Rename</button>
+        <button class="btn hidden" id="editDraftContentBtn" type="button">Edit draft content</button>
         <button class="btn ghost hidden" id="archivePageBtn" type="button">Archive</button>
         <button class="btn primary hidden" id="publishDraftBtn" type="button">Publish</button>
         <button class="btn ghost" id="historyBtn" type="button">History</button>
@@ -771,6 +772,27 @@
         <button class="btn ghost" id="cancelBtn" type="button">Cancel</button>
         <button class="btn primary" id="saveBtn" type="submit">Save</button>
       </div>
+    </form>
+  </div>
+
+  <div class="modal-backdrop hidden" id="draftContentModal" role="dialog" aria-modal="true" aria-labelledby="draftContentTitle">
+    <form class="modal stack" id="draftContentForm">
+      <h2 id="draftContentTitle">Edit draft content</h2>
+      <p>Restore the story, optional perks and acknowledgments on this private draft. Ticket prices and availability use the existing checkout.</p>
+      <label>Story<textarea id="draftContentStory" rows="5" maxlength="20000"></textarea></label>
+      <label>Section label<input id="draftContentEyebrow" maxlength="200" /></label>
+      <label>Section heading<input id="draftContentHeading" maxlength="500" /></label>
+      <label>Perk layout<select id="draftContentPerkLayout"><option value="list">Editorial list</option><option value="cards">Photo cards (TJ's design)</option></select></label>
+      <div class="stack" id="draftContentItems"></div>
+      <button class="btn ghost" id="draftContentAddItem" type="button">Add optional perk</button>
+      <label>Acknowledgments heading<input id="draftContentSponsorTitle" maxlength="500" /></label>
+      <label>Sponsor layout<select id="draftContentSponsorLayout"><option value="plain">Simple text</option><option value="compact">Compact inline (original design)</option><option value="list">Grouped list (TJ's new ZIP)</option></select></label>
+      <p>Add one row per sponsor group to use the compact or list layouts. Group names and sponsors remain editable text.</p>
+      <div class="stack" id="draftContentSponsorGroups"></div>
+      <button class="btn ghost" id="draftContentAddSponsorGroup" type="button">Add sponsor group</button>
+      <label id="draftContentSponsorTextWrap">Ungrouped acknowledgments (shown when there are no groups)<textarea id="draftContentSponsors" rows="5" maxlength="10000"></textarea></label>
+      <div class="status" id="draftContentStatus"></div>
+      <div class="row"><button class="btn ghost" id="draftContentCancel" type="button">Cancel</button><button class="btn primary" id="draftContentSave" type="submit">Save draft content</button></div>
     </form>
   </div>
 
@@ -1483,6 +1505,112 @@
   $("renameDraftBtn").addEventListener("click", () => {
     if (!selected || !isDraft(selected)) return;
     openEditor("rename");
+  });
+  let draftContentProject = null;
+  let draftPhotoUploading = false;
+  $("editDraftContentBtn").addEventListener("click", async () => {
+    if (!selected) return;
+    const id = selected.id;
+    try {
+      const data = await api("/admin/api/projects", { headers: authHeaders() });
+      const project = (data.projects || []).find(item => item.id === id);
+      if (!project || project.status !== "draft" || !project.adminOnly || project.publishedAt) throw new Error("Select a private unpublished draft.");
+      draftContentProject = project;
+      const design = project.claudeDesign || {};
+      $("draftContentStory").value = project.description || "";
+      $("draftContentEyebrow").value = design.bandEyebrow || "What We Appreciate";
+      $("draftContentHeading").value = design.bandTitle || "";
+      $("draftContentPerkLayout").value = design.perkLayout === "cards" ? "cards" : "list";
+      $("draftContentSponsorTitle").value = design.sponsorTitle || "With thanks to our sponsors & friends";
+      $("draftContentSponsors").value = design.sponsorText || "";
+      $("draftContentSponsorLayout").value = ["plain", "compact", "list"].includes(design.sponsorLayout) ? design.sponsorLayout : "plain";
+      $("draftContentSponsorGroups").replaceChildren();
+      (Array.isArray(design.sponsorGroups) ? design.sponsorGroups : []).forEach(addDraftSponsorGroup);
+      updateSponsorTextVisibility();
+      $("draftContentItems").replaceChildren();
+      (design.appreciates || []).forEach(item => addDraftContentItem(typeof item === "string" ? { name: item, description: "" } : item));
+      $("draftContentStatus").textContent = "";
+      $("draftContentModal").classList.remove("hidden");
+    } catch (error) { setStatus(error.message, "error"); }
+  });
+  function addDraftContentItem(item = {}) {
+    if (!draftContentProject || $("draftContentItems").children.length >= 12) return;
+    const row = document.createElement("fieldset");
+    row.className = "stack";
+    row.innerHTML = '<legend>Optional perk</legend><label>Name<input data-content-name maxlength="200" required></label><label>Description<textarea data-content-description rows="5" maxlength="8000"></textarea></label><label>Image<select data-content-image></select></label><label>Upload photo<input data-content-upload type="file" accept="image/jpeg,image/png,image/webp,image/avif"></label><button class="btn ghost" type="button" data-content-remove>Remove perk</button>';
+    row.querySelector("[data-content-name]").value = item.name || "";
+    row.querySelector("[data-content-description]").value = item.description || "";
+    const images = row.querySelector("[data-content-image]");
+    images.add(new Option("No image", ""));
+    (draftContentProject.claudeDesign?.galleryImages || []).filter(src => src.startsWith(`/override-images/${draftContentProject.id}/claude-design/`)).forEach(src => images.add(new Option(src.split("/").pop(), src)));
+    if (item.image && ![...images.options].some(option => option.value === item.image)) images.add(new Option("Uploaded photo", item.image));
+    images.value = item.image || "";
+    row.querySelector("[data-content-upload]").addEventListener("change", async event => {
+      const file = event.target.files?.[0];
+      if (!file || !draftContentProject || draftPhotoUploading) return;
+      draftPhotoUploading = true;
+      $("draftContentSave").disabled = true;
+      $("draftContentStatus").textContent = "Uploading perk photo...";
+      try {
+        const form = new FormData();
+        form.set("id", draftContentProject.id);
+        form.set("file", file);
+        const uploaded = await api("/admin/api/upload", { method: "POST", headers: authHeaders(), body: form });
+        images.add(new Option(file.name, uploaded.url));
+        images.value = uploaded.url;
+        $("draftContentStatus").textContent = "Photo uploaded. Save draft content to use it.";
+      } catch (error) { $("draftContentStatus").textContent = error.message; }
+      finally { draftPhotoUploading = false; $("draftContentSave").disabled = false; event.target.value = ""; }
+    });
+    row.querySelector("[data-content-remove]").addEventListener("click", () => row.remove());
+    $("draftContentItems").append(row);
+  }
+  function updateSponsorTextVisibility() {
+    $("draftContentSponsorTextWrap").classList.toggle("hidden", $("draftContentSponsorGroups").children.length > 0);
+  }
+  function addDraftSponsorGroup(group = {}) {
+    if (!draftContentProject || $("draftContentSponsorGroups").children.length >= 12) return;
+    const row = document.createElement("fieldset");
+    row.className = "stack";
+    row.innerHTML = '<legend>Sponsor group</legend><label>Group name<input data-sponsor-name maxlength="100" required></label><label>Sponsors<textarea data-sponsor-names rows="3" maxlength="1200" required></textarea></label><button class="btn ghost" type="button" data-sponsor-remove>Remove group</button>';
+    row.querySelector("[data-sponsor-name]").value = group.name || "";
+    row.querySelector("[data-sponsor-names]").value = group.sponsors || "";
+    row.querySelector("[data-sponsor-remove]").addEventListener("click", () => { row.remove(); updateSponsorTextVisibility(); });
+    $("draftContentSponsorGroups").append(row);
+    updateSponsorTextVisibility();
+  }
+  $("draftContentAddSponsorGroup").addEventListener("click", () => addDraftSponsorGroup());
+  $("draftContentAddItem").addEventListener("click", () => addDraftContentItem());
+  $("draftContentCancel").addEventListener("click", () => $("draftContentModal").classList.add("hidden"));
+  $("draftContentForm").addEventListener("submit", async event => {
+    event.preventDefault();
+    const project = draftContentProject;
+    if (!project || selected?.id !== project.id || draftPhotoUploading) return;
+    $("draftContentSave").disabled = true;
+    $("draftContentCancel").disabled = true;
+    $("draftContentStatus").textContent = "Saving draft content...";
+    try {
+      const patch = {
+        description: $("draftContentStory").value,
+        bandEyebrow: $("draftContentEyebrow").value,
+        bandTitle: $("draftContentHeading").value,
+        perkLayout: $("draftContentPerkLayout").value,
+        appreciates: [...$("draftContentItems").children].map(row => ({ name: row.querySelector("[data-content-name]").value, description: row.querySelector("[data-content-description]").value, image: row.querySelector("[data-content-image]").value })),
+        sponsorTitle: $("draftContentSponsorTitle").value,
+        sponsorText: $("draftContentSponsors").value,
+        sponsorLayout: $("draftContentSponsorLayout").value,
+        sponsorGroups: [...$("draftContentSponsorGroups").children].map(row => ({ name: row.querySelector("[data-sponsor-name]").value, sponsors: row.querySelector("[data-sponsor-names]").value })),
+      };
+      await api(`/admin/api/projects?action=update-content&id=${encodeURIComponent(project.id)}`, {
+        method: "POST", headers: authHeaders({ "content-type": "application/json" }),
+        body: JSON.stringify({ expectedProject: project, expected: { description: project.description || "", claudeDesign: project.claudeDesign || null }, patch }),
+      });
+      $("draftContentModal").classList.add("hidden");
+      await loadPages(project.id);
+      refreshPreview();
+      setStatus("Draft content saved. Review the preview and any existing text overrides.", "ok");
+    } catch (error) { $("draftContentStatus").textContent = error.message; }
+    finally { $("draftContentSave").disabled = false; $("draftContentCancel").disabled = false; }
   });
   $("publishDraftBtn").addEventListener("click", openPublishModal);
   $("previewFrame").addEventListener("load", () => {
@@ -2396,6 +2524,7 @@
     $("archivePageBtn").classList.toggle("hidden", !selected);
     $("clonePageBtn").classList.toggle("hidden", !(isDraft(selected) || /^\d+$/.test(String(selected.id))));
     $("renameDraftBtn").classList.toggle("hidden", !isDraft(selected));
+    $("editDraftContentBtn").classList.toggle("hidden", !isDraft(selected) || selected.status !== "draft" || !selected.adminOnly);
     $("editCheckoutBtn").classList.toggle("hidden", !eventIdForPage(selected));
     $("publishDraftBtn").classList.toggle("hidden", !isDraft(selected) || selected.status === "published");
     $("adminOnlyWrap").classList.toggle("hidden", !isDraft(selected));
@@ -2548,7 +2677,7 @@
           <label>Ticket name<input data-checkout-name type="text" maxlength="120" required value="${esc(ticket.name)}" /></label>
           <label>Price<input data-checkout-price type="number" min="0" step="0.01" required value="${esc(ticket.price)}" /></label>
           <label>Currency<select data-checkout-currency required>
-            ${["USD", "EUR", "ANG"].map((currency) => `<option value="${currency}"${currency === ticket.currency ? " selected" : ""}>${currency}</option>`).join("")}
+            ${["USD", "EUR", "ANG", "XCG"].map((currency) => `<option value="${currency}"${currency === ticket.currency ? " selected" : ""}>${currency}</option>`).join("")}
           </select></label>
         </div>
         <label>Description<textarea data-checkout-description>${esc(ticket.description || "")}</textarea></label>
@@ -2567,7 +2696,7 @@
           <label>Ticket name<input data-checkout-name type="text" maxlength="120" required placeholder="e.g. VIP Table" /></label>
           <label>Price<input data-checkout-price type="number" min="0" step="0.01" required placeholder="0.00" /></label>
           <label>Currency<select data-checkout-currency required>
-            ${["USD", "EUR", "ANG"].map((currency) => `<option value="${currency}">${currency}</option>`).join("")}
+            ${["USD", "EUR", "ANG", "XCG"].map((currency) => `<option value="${currency}">${currency}</option>`).join("")}
           </select></label>
         </div>
         <label>Description<textarea data-checkout-description></textarea></label>

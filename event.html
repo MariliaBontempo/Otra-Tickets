@@ -2,6 +2,7 @@
 <html lang="en" data-event-id="">
 <head>
 <meta charset="UTF-8" />
+<script src="/meta-pixel.js"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Otra Tickets — Event</title>
 <style>
@@ -515,8 +516,39 @@ main.detail { padding: 0; padding-top: var(--header-h); } /* hero starts below t
 .ev-like:last-child { border-bottom: 1px solid var(--line); }
 .ev-like .n { font-family: var(--font-display); font-size: 14px; letter-spacing: 0.1em; color: var(--steel-text, #8fbce9); flex-shrink: 0; width: 34px; }
 .ev-like.detailed { flex-direction: column; align-items: flex-start; gap: 12px; padding: 24px 0; }
+.ev-like-image { width: 100%; max-height: 360px; object-fit: contain; border-radius: 8px; }
+.ev-like .ds, #evSponsorText { white-space: pre-line; }
+.ev-band:has(.ev-like.detailed), .ev-band:has(#evSponsors:not([hidden])) { aspect-ratio: auto; min-height: 620px; padding: 80px 0; }
 .ev-like .nm { font-family: var(--font-display); font-weight: 700; font-size: 16px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--rnb-text); line-height: 1.3; text-wrap: balance; }
 .ev-like .ds { font-size: clamp(16px, 1.5vw, 21px); line-height: 1.5; color: #d6dade; text-wrap: pretty; }
+.ev-band--cards .ev-band-veil { background: rgba(7, 8, 10, 0.90); }
+.ev-band--cards .ev-likes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; max-width: none; }
+.ev-band--cards .ev-like.detailed { display: flex; gap: 0; padding: 0 0 24px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: #15191d; }
+.ev-band--cards .ev-like.detailed:last-child { border-bottom: 1px solid var(--line); }
+.ev-band--cards .ev-like-image, .ev-band--cards .ev-like-image-empty { display: block; width: 100%; height: auto; aspect-ratio: 1.65; object-fit: cover; max-height: none; border-radius: 0; background: linear-gradient(135deg, #24434a, #141a20); }
+.ev-band--cards .ev-like .nm, .ev-band--cards .ev-like .ds, .ev-band--cards .ev-like .preview-price { display: block; padding: 0 24px; }
+.ev-band--cards .ev-like .nm { margin-top: 23px; font-size: clamp(17px, 1.6vw, 22px); letter-spacing: 0.035em; text-transform: none; }
+.ev-band--cards .ev-like .preview-price { margin-top: 13px; color: var(--silver-text); font-family: var(--font-display); font-size: clamp(28px, 3vw, 38px); font-weight: 800; }
+.ev-band--cards .ev-like .preview-price small { display: block; margin-bottom: 3px; font-family: inherit; font-size: 11px; font-weight: 500; letter-spacing: 0.12em; text-transform: uppercase; color: var(--fog-2); }
+.ev-band--cards .ev-like .ds { margin-top: 12px; font-size: 15px; line-height: 1.55; }
+.ev-perk-preview-note { margin: 18px 0 0; color: var(--fog); font-size: 14px; line-height: 1.5; }
+@media (max-width: 680px) { .ev-band--cards .ev-likes { grid-template-columns: 1fr; } }
+.ev-sponsors { margin-top: 40px; border-top: 1px solid var(--line); padding-top: 24px; }
+.ev-sponsor-groups { margin: 0; padding: 0; list-style: none; }
+.ev-sponsor-groups[hidden], #evSponsorText[hidden] { display: none !important; }
+.ev-sponsor-group { overflow-wrap: anywhere; }
+.ev-sponsor-name { margin-right: 0.4em; }
+.ev-sponsors--plain .ev-sponsor-groups { color: var(--fog); line-height: 1.5; }
+.ev-sponsors--plain .ev-sponsor-group { display: inline; }
+.ev-sponsors--plain .ev-sponsor-group + .ev-sponsor-group::before { content: " / "; color: var(--steel); margin: 0 0.3em; }
+.ev-sponsors--compact #evSponsorTitle, .ev-sponsors--list #evSponsorTitle { font-size: 11px; font-weight: 500; letter-spacing: 0.16em; text-transform: uppercase; color: var(--fog-2); margin: 0 0 10px; }
+.ev-sponsors--compact .ev-sponsor-groups, .ev-sponsors--compact #evSponsorText { font-size: 12px; line-height: 1.9; color: var(--fog-2); }
+.ev-sponsors--compact .ev-sponsor-group { display: inline; }
+.ev-sponsors--compact .ev-sponsor-group + .ev-sponsor-group::before { content: " / "; color: var(--steel); margin: 0 0.4em; }
+.ev-sponsors--compact .ev-sponsor-name { color: var(--silver-text); letter-spacing: 0.14em; text-transform: uppercase; font-size: 10px; }
+.ev-sponsors--list .ev-sponsor-groups { display: grid; gap: 10px; color: var(--fog); line-height: 1.6; }
+.ev-sponsors--list .ev-sponsor-name { color: var(--silver-text); font-weight: 700; }
+.ev-sponsors--list .ev-sponsor-name::after { content: " —"; font-weight: 400; }
 
 /* ---- PRACTICAL INFO ---- */
 .ev-info-grid { margin-top: 48px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; background: var(--rnb-soft); border: 2px solid var(--rnb-soft); }
@@ -814,6 +846,7 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
 </style>
 </head>
 <body>
+<noscript><img height="1" width="1" style="display:none" src="/api/meta-pageview" alt="" /></noscript>
   <header class="header">
     <a class="brand" href="/" style="text-decoration:none;color:inherit">
       <img src="uploads/Otra Tickets Logo.webp" alt="Otra Tickets" />
@@ -1015,7 +1048,13 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
       <div class="ev-band-inner">
         <span class="ev-eyebrow" id="evBandEyebrow">What We Appreciate</span>
         <h2 id="evBandTitle" style="margin-top:20px;"></h2>
+        <p class="ev-perk-preview-note" id="evPerkPreviewNote" hidden>Concept preview. Product prices, availability and purchase terms are pending confirmation.</p>
         <div class="ev-likes" id="evLikes"></div>
+        <aside id="evSponsors" class="ev-sponsors ev-sponsors--plain" hidden>
+          <h3 id="evSponsorTitle"></h3>
+          <p id="evSponsorText"></p>
+          <ul id="evSponsorGroups" class="ev-sponsor-groups" hidden></ul>
+        </aside>
       </div>
     </section>
 
@@ -1204,6 +1243,7 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
       }
 
       removeSkeletons();
+      window.OTRAMeta?.viewContent(ev);
       const CURRENCY = { USD: "$", EUR: "€", ANG: "ƒ", AWG: "ƒ" };
       const cur = (code) => CURRENCY[code] || (code ? code + " " : "$");
       // 1,000 style grouping, no decimals when whole.
@@ -1316,16 +1356,54 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
         if (design.bandImage) $("evBandBg").style.backgroundImage = 'url("' + cssUrl(design.bandImage) + '")';
         if (design.bandEyebrow) $("evBandEyebrow").textContent = design.bandEyebrow;
         $("evBandTitle").textContent = design.bandTitle || "";
+        const cardLayout = design.perkLayout === "cards" && Array.isArray(design.appreciates) && design.appreciates.length > 0;
+        $("evBandSection").classList.toggle("ev-band--cards", cardLayout);
+        $("evPerkPreviewNote").hidden = !cardLayout || !ev.isDraft;
         $("evLikes").innerHTML = (design.appreciates || [])
           .map((item, i) => {
             // Titled items ({ name, description }) come from the newer design
             // exports; plain strings render as the classic numbered list.
             if (item && typeof item === "object") {
-              return '<div class="ev-like detailed"><span class="nm">' + esc(item.name || "") + '</span><span class="ds">' + esc(item.description || "") + "</span></div>";
+              const image = typeof item.image === "string" && item.image.startsWith("/override-images/")
+                ? '<img class="ev-like-image" src="' + esc(item.image) + '" alt="' + esc(item.name || "") + '" loading="lazy">' : "";
+              if (cardLayout) {
+                const rawDescription = String(item.description || "");
+                const concept = rawDescription.match(/^Optional fundraiser perk, separate from the Entrance ticket\. Source prototype reference: (\$[\d,]+(?:\.\d{2})?); currency, availability and sale terms await approval\. This is not included in Entrance [^.]+\.\s*/);
+                const priceLabel = ev.isDraft ? "Concept price" : "Price";
+                const price = concept ? '<span class="preview-price"><small>' + priceLabel + '</small>' + esc(concept[1]) + '</span>' : "";
+                const body = concept ? rawDescription.slice(concept[0].length) : rawDescription;
+                return '<div class="ev-like detailed">' + (image || '<span class="ev-like-image-empty" aria-hidden="true"></span>') + '<span class="nm">' + esc(item.name || "") + '</span>' + price + '<span class="ds">' + esc(body) + "</span></div>";
+              }
+              return '<div class="ev-like detailed"><span class="nm">' + esc(item.name || "") + '</span>' + image + '<span class="ds">' + esc(item.description || "") + "</span></div>";
             }
             return '<div class="ev-like"><span class="n">' + String(i + 1).padStart(2, "0") + '</span><span>' + esc(item) + "</span></div>";
           })
           .join("");
+        $("evBandSection").hidden = false;
+      }
+      const sponsorGroups = Array.isArray(design.sponsorGroups)
+        ? design.sponsorGroups.filter(group => group && typeof group.name === "string" && typeof group.sponsors === "string").slice(0, 12) : [];
+      if (design.sponsorText || sponsorGroups.length) {
+        const sponsorLayout = ["plain", "compact", "list"].includes(design.sponsorLayout) ? design.sponsorLayout : "plain";
+        $("evSponsors").className = "ev-sponsors ev-sponsors--" + sponsorLayout;
+        $("evSponsorTitle").textContent = design.sponsorTitle || "With thanks to our sponsors & friends";
+        $("evSponsorText").textContent = design.sponsorText;
+        $("evSponsorText").hidden = sponsorGroups.length > 0;
+        const groupList = $("evSponsorGroups");
+        groupList.replaceChildren();
+        sponsorGroups.forEach(group => {
+          const item = document.createElement("li");
+          item.className = "ev-sponsor-group";
+          const name = document.createElement("span");
+          name.className = "ev-sponsor-name";
+          name.textContent = group.name;
+          const sponsors = document.createElement("span");
+          sponsors.textContent = group.sponsors;
+          item.append(name, sponsors);
+          groupList.append(item);
+        });
+        groupList.hidden = sponsorGroups.length === 0;
+        $("evSponsors").hidden = false;
         $("evBandSection").hidden = false;
       }
 

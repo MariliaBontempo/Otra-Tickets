@@ -440,7 +440,7 @@ function normalizeTicketInput(ticket, existingById) {
   const quantity = cleanInteger(ticket && ticket.quantity);
   if (!quantity) throw new Error(`invalid quantity for ${name}`);
   const currency = String((ticket && ticket.currency) || "").toUpperCase();
-  if (!["USD", "EUR", "ANG"].includes(currency)) throw new Error(`invalid currency for ${name}`);
+  if (!["USD", "EUR", "ANG", "XCG"].includes(currency)) throw new Error(`invalid currency for ${name}`);
   return {
     id,
     name,
