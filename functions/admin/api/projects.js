@@ -7,6 +7,8 @@
 import { apiBase, requireStaff, staffSession, json } from "./_auth.js";
 import { actorForAudit, appendAudit } from "./_audit.js";
 import { mintFrozenSlug, liveSlugBase } from "../../_lib/event-slug.js";
+import { normalizeCloneSaleWindows, shiftCloneEventDay, toDay } from "../../_lib/clone-sale-windows.js";
+import { rewriteProjectDate } from "./events.js";
 import { contentSnapshot, validateContentPatch } from "./_draft-content.js";
 
 const MAX_BYTES = 50 * 1024 * 1024;
@@ -134,6 +136,31 @@ export async function onRequestPost(context) {
       body = await context.request.json();
     } catch {}
 
+    // Ticket sale windows must be confirmed in the admin clone modal so a
+    // clone never ships with closed or inactive windows unnoticed.
+    const existingEventIdForCount = cleanInteger(body && body.existingEventId);
+    let expectedWindowCount = existingEventIdForCount
+      ? null
+      : ((source.claudeDesign && Array.isArray(source.claudeDesign.rates)) ? source.claudeDesign.rates.length : 0);
+    if (existingEventIdForCount) {
+      try {
+        const existingTickets = await fetchEventTickets(context, accessToken, existingEventIdForCount);
+        expectedWindowCount = existingTickets.length;
+      } catch (error) {
+        return json({ error: error.message || "could not load ticket types for confirmation" }, 400);
+      }
+    }
+    let confirmedSaleWindows;
+    try {
+      confirmedSaleWindows = normalizeCloneSaleWindows(body && body.ticketSaleWindows, {
+        expectedCount: expectedWindowCount,
+        allowEmpty: expectedWindowCount === 0,
+        allowBlankDates: !!existingEventIdForCount,
+      });
+    } catch (error) {
+      return json({ error: error.message }, 400);
+    }
+
     const cloneId = `draft-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
     const clone = {
       ...source,
@@ -182,25 +209,46 @@ export async function onRequestPost(context) {
       if (existingEventId) {
         bound = await createDraftFromExistingEvent(context, accessToken, clone, existingEventId);
         await putProject(kv, bound);
+        // Existing bind reuses live ticket types. Windows were confirmed above
+        // before the draft was created; Checkout remains the write path.
       } else {
         // Drafts don't always carry dates/location; backfill from the
         // original's Otra Guide event before creating the clone's own event.
-        if ((!bound.startDate || !bound.endDate || !bound.location || !bound.teamId || !bound.regionId) && source.otraGuideId) {
-          const info = await otraFetch(context, accessToken, `/otra-tickets/media/event-slug/${source.otraGuideId}/`);
-          bound = {
-            ...bound,
-            startDate: bound.startDate || info.startDate || "",
-            endDate: bound.endDate || info.endDate || info.startDate || "",
-            location: bound.location || info.location || "",
-            teamId: bound.teamId || cleanInteger(info.teamId),
-            teamName: bound.teamName || (info.teamName || ""),
-            regionId: bound.regionId || cleanInteger(info.regionId),
-          };
-          await putProject(kv, bound);
+        if (source.otraGuideId && (!bound.startDate || !bound.endDate || !bound.location || !bound.teamId || !bound.regionId || toDay(body && body.startDate))) {
+          // Prefer Otra Guide's -04:00 wall-clock timestamps when moving the day
+          // so UTC-stored draft dates cannot shift evening events to the prior day.
+          try {
+            const info = await otraFetch(context, accessToken, `/otra-tickets/media/event-slug/${source.otraGuideId}/`);
+            bound = {
+              ...bound,
+              startDate: (info && info.startDate) || bound.startDate || "",
+              endDate: (info && (info.endDate || info.startDate)) || bound.endDate || bound.startDate || "",
+              location: bound.location || (info && info.location) || "",
+              teamId: bound.teamId || cleanInteger(info && info.teamId),
+              teamName: bound.teamName || ((info && info.teamName) || ""),
+              regionId: bound.regionId || cleanInteger(info && info.regionId),
+            };
+            await putProject(kv, bound);
+          } catch {
+            if ((!bound.startDate || !bound.endDate || !bound.location || !bound.teamId || !bound.regionId)) {
+              throw new Error("could not load source event dates for clone");
+            }
+          }
+        }
+        // Move to the editor-chosen Curacao day while keeping wall-clock time and
+        // duration. Convert UTC draft timestamps to -04:00 before swapDay so an
+        // evening event does not land on the previous calendar day.
+        const chosenDay = toDay(body && body.startDate);
+        if (chosenDay && bound.startDate) {
+          const shifted = shiftCloneEventDay(bound.startDate, bound.endDate || bound.startDate, chosenDay);
+          if (shifted) {
+            bound = rewriteProjectDate(bound, shifted.startDate, shifted.endDate);
+            await putProject(kv, bound);
+          }
         }
         bound = await createOtraGuideEvent(context, accessToken, bound, {});
         await putProject(kv, bound);
-        bound = await reconcileTickets(context, accessToken, bound);
+        bound = await reconcileTickets(context, accessToken, bound, confirmedSaleWindows);
         bound = { ...bound, syncError: "" };
         await putProject(kv, bound);
       }
@@ -584,7 +632,7 @@ async function createDraftFromExistingEvent(context, accessToken, project, event
       const quantity = Number.parseInt(ticket.quantity, 10);
       return Number.isSafeInteger(quantity) && quantity > 0 ? quantity : 500;
     }),
-    ticketTypeIds: tickets.map((ticket) => ticket.id).filter(Boolean),
+    ticketTypeIds: tickets.map((ticket) => ticket.id || null),
     otraGuideId: String(detail.id || eventId),
     otraGuideSlug: detail.slug || String(eventId),
     usesExistingOtraGuideEvent: true,
@@ -628,7 +676,7 @@ async function createOtraGuideEvent(context, accessToken, project, eventFiles = 
       })
     );
   }
-  const event = await otraFetch(context, accessToken, "/events/create/", { method: "POST", body: form });
+  const event = await otraFetch(context, accessToken, "/events/create/", { method: "POST", body: form, timeoutMs: 90000 });
   return {
     ...project,
     otraGuideId: String(event.id),
@@ -636,11 +684,13 @@ async function createOtraGuideEvent(context, accessToken, project, eventFiles = 
   };
 }
 
-async function reconcileTickets(context, accessToken, project) {
+async function reconcileTickets(context, accessToken, project, confirmedSaleWindows = null) {
   const rates = (project.claudeDesign && project.claudeDesign.rates) || [];
   const ids = [...(project.ticketTypeIds || [])];
+  const windows = Array.isArray(confirmedSaleWindows) ? confirmedSaleWindows : [];
   for (let index = 0; index < rates.length; index += 1) {
     const rate = rates[index];
+    const window = windows[index] || null;
     const payload = {
       name: rate.name,
       description: rate.description || "",
@@ -648,6 +698,10 @@ async function reconcileTickets(context, accessToken, project) {
       quantity: project.ticketQuantities[index] || 500,
       base_currency: normalizeCurrency(rate.currency),
     };
+    if (window && window.sale_start_time && window.sale_end_time) {
+      payload.sale_start_time = window.sale_start_time;
+      payload.sale_end_time = window.sale_end_time;
+    }
     const existingId = ids[index];
     const path = existingId
       ? `/ticket/create/tickets/${project.otraGuideId}/${existingId}/`
@@ -656,6 +710,7 @@ async function reconcileTickets(context, accessToken, project) {
       method: existingId ? "PATCH" : "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(payload),
+      timeoutMs: 60000,
     });
     ids[index] = ticket.id;
     project = { ...project, ticketTypeIds: ids };
@@ -664,16 +719,28 @@ async function reconcileTickets(context, accessToken, project) {
   return project;
 }
 
+
 async function fetchEventTickets(context, accessToken, eventId) {
   try {
-    const adminData = await otraFetch(context, accessToken, `/events/admin-ticketed-search/?id=${eventId}`);
+    // Admin search can stall on some events; fail open quickly to the purchase list.
+    const adminData = await otraFetch(
+      context,
+      accessToken,
+      `/events/admin-ticketed-search/?id=${eventId}`,
+      { timeoutMs: 8000 }
+    );
     const event = Array.isArray(adminData && adminData.events) ? adminData.events[0] : null;
     if (event && Array.isArray(event.tickets)) return event.tickets;
   } catch {
     // Backward-compatible during a staggered deploy: use the purchase endpoint
     // until the admin search endpoint is available on Otra Guide.
   }
-  const purchaseData = await otraFetch(context, accessToken, `/ticket/purchase/tickets/${eventId}/`);
+  const purchaseData = await otraFetch(
+    context,
+    accessToken,
+    `/ticket/purchase/tickets/${eventId}/`,
+    { timeoutMs: 20000 }
+  );
   return Array.isArray(purchaseData && purchaseData.results) ? purchaseData.results : [];
 }
 
@@ -681,10 +748,16 @@ async function otraFetch(context, accessToken, path, options = {}) {
   const headers = new Headers(options.headers || {});
   headers.set("authorization", `Bearer ${accessToken}`);
   headers.set("accept", "application/json");
+  const timeoutMs = Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : 45000;
+  const { timeoutMs: _timeoutMs, signal: userSignal, ...fetchOpts } = options;
+  const signal = userSignal || AbortSignal.timeout(timeoutMs);
   let response;
   try {
-    response = await fetch(`${apiBase(context.env)}${path}`, { ...options, headers });
-  } catch {
+    response = await fetch(`${apiBase(context.env)}${path}`, { ...fetchOpts, headers, signal });
+  } catch (error) {
+    if (error && (error.name === "TimeoutError" || error.name === "AbortError")) {
+      throw new Error(`Otra Guide timed out (${path})`);
+    }
     throw new Error("could not reach Otra Guide");
   }
   const data = await response.json().catch(() => ({}));
