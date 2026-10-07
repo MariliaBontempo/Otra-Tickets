@@ -6,10 +6,13 @@ import { URL } from 'node:url';
 import {
   buildCloneSaleWindowsFromSource,
   cloneSaleWindowWarnings,
+  curacaoDayFromValue,
   dayToSaleEndIso,
   dayToSaleStartIso,
   normalizeCloneSaleWindow,
   normalizeCloneSaleWindows,
+  shiftCloneEventDay,
+  toCuracaoOffsetIso,
   toDay,
 } from '../functions/_lib/clone-sale-windows.js';
 
@@ -138,9 +141,18 @@ assert(/America\/Curacao/.test(adminHtml), 'clone defaults must use Curacao loca
 assert(/ticketsByName/.test(adminHtml), 'new clone mode must match source tickets to rates by name');
 assert(/function setCloneSaleConfirmed/.test(adminHtml), 'clone confirm helper must keep the adjust-dates message in sync');
 
-assert(/rewriteProjectDate\(bound, newStartIso, newEndIso\)/.test(projectsJs), 'clone must rewrite project dates with ISO timestamps');
-assert(/const swapDay = \(iso, day\)/.test(projectsJs), 'clone must swap only the day while keeping wall-clock time');
+
+assert(toCuracaoOffsetIso('2026-09-21T01:00:00.000Z') === '2026-09-20T21:00:00-04:00', 'UTC evening must become Curacao wall clock');
+assert(curacaoDayFromValue('2026-09-21T01:00:00.000Z') === '2026-09-20', 'Curacao day must not use UTC date slice');
+const shifted = shiftCloneEventDay('2026-09-21T01:00:00.000Z', '2026-09-21T04:00:00.000Z', '2026-09-20');
+assert(shifted.startDate === '2026-09-20T21:00:00-04:00', 'same-day shift must keep 9pm Curacao');
+assert(shifted.endDate === '2026-09-21T00:00:00-04:00', 'same-day shift must keep midnight Curacao end');
+const moved = shiftCloneEventDay('2026-09-21T01:00:00.000Z', '2026-09-21T04:00:00.000Z', '2026-11-06');
+assert(moved.startDate === '2026-11-06T21:00:00-04:00', 'moved day must keep 9pm Curacao');
+assert(/shiftCloneEventDay\(/.test(projectsJs), 'clone API must shift chosen day via shared helper');
+assert(/rewriteProjectDate\(bound, shifted\.startDate, shifted\.endDate\)/.test(projectsJs), 'clone must rewrite labels with shifted ISO timestamps');
 assert(!/requestedStart/.test(projectsJs), 'clone must not stash a plain YYYY-MM-DD startDate before create');
+assert(/cloneDayValue\(data\.project && data\.project\.startDate\)/.test(adminHtml), 'client must compare bound day in Curacao time');
 
 if (failures.length) {
   console.error('check-clone-sale-windows FAILED:');

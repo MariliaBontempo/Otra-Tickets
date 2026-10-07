@@ -7,7 +7,7 @@
 import { apiBase, requireStaff, staffSession, json } from "./_auth.js";
 import { actorForAudit, appendAudit } from "./_audit.js";
 import { mintFrozenSlug, liveSlugBase } from "../../_lib/event-slug.js";
-import { normalizeCloneSaleWindows, toDay } from "../../_lib/clone-sale-windows.js";
+import { normalizeCloneSaleWindows, shiftCloneEventDay, toDay } from "../../_lib/clone-sale-windows.js";
 import { rewriteProjectDate } from "./events.js";
 import { contentSnapshot, validateContentPatch } from "./_draft-content.js";
 
@@ -214,38 +214,37 @@ export async function onRequestPost(context) {
       } else {
         // Drafts don't always carry dates/location; backfill from the
         // original's Otra Guide event before creating the clone's own event.
-        if ((!bound.startDate || !bound.endDate || !bound.location || !bound.teamId || !bound.regionId) && source.otraGuideId) {
-          const info = await otraFetch(context, accessToken, `/otra-tickets/media/event-slug/${source.otraGuideId}/`);
-          bound = {
-            ...bound,
-            startDate: bound.startDate || info.startDate || "",
-            endDate: bound.endDate || info.endDate || info.startDate || "",
-            location: bound.location || info.location || "",
-            teamId: bound.teamId || cleanInteger(info.teamId),
-            teamName: bound.teamName || (info.teamName || ""),
-            regionId: bound.regionId || cleanInteger(info.regionId),
-          };
-          await putProject(kv, bound);
+        if (source.otraGuideId && (!bound.startDate || !bound.endDate || !bound.location || !bound.teamId || !bound.regionId || toDay(body && body.startDate))) {
+          // Prefer Otra Guide's -04:00 wall-clock timestamps when moving the day
+          // so UTC-stored draft dates cannot shift evening events to the prior day.
+          try {
+            const info = await otraFetch(context, accessToken, `/otra-tickets/media/event-slug/${source.otraGuideId}/`);
+            bound = {
+              ...bound,
+              startDate: (info && info.startDate) || bound.startDate || "",
+              endDate: (info && (info.endDate || info.startDate)) || bound.endDate || bound.startDate || "",
+              location: bound.location || (info && info.location) || "",
+              teamId: bound.teamId || cleanInteger(info && info.teamId),
+              teamName: bound.teamName || ((info && info.teamName) || ""),
+              regionId: bound.regionId || cleanInteger(info && info.regionId),
+            };
+            await putProject(kv, bound);
+          } catch {
+            if ((!bound.startDate || !bound.endDate || !bound.location || !bound.teamId || !bound.regionId)) {
+              throw new Error("could not load source event dates for clone");
+            }
+          }
         }
-        // Move to the editor-chosen day while keeping source wall-clock time and
-        // duration (same swapDay rules as updateEventDate). Avoids a second
-        // date-move PUT that hung the modal on "Cloning...", and never stores a
-        // plain YYYY-MM-DD that would create a zero-length midnight event.
+        // Move to the editor-chosen Curacao day while keeping wall-clock time and
+        // duration. Convert UTC draft timestamps to -04:00 before swapDay so an
+        // evening event does not land on the previous calendar day.
         const chosenDay = toDay(body && body.startDate);
         if (chosenDay && bound.startDate) {
-          const swapDay = (iso, day) => String(iso).replace(/^\d{4}-\d{2}-\d{2}/, day);
-          const srcStart = bound.startDate;
-          const srcEnd = bound.endDate || bound.startDate;
-          const dayMs = 86400000;
-          const dayDelta = Math.round(
-            (new Date(chosenDay + "T00:00:00Z") - new Date(String(srcStart).slice(0, 10) + "T00:00:00Z")) / dayMs
-          );
-          const oldEndDay = new Date(String(srcEnd).slice(0, 10) + "T00:00:00Z");
-          const newEndDay = new Date(oldEndDay.getTime() + dayDelta * dayMs).toISOString().slice(0, 10);
-          const newStartIso = swapDay(srcStart, chosenDay);
-          const newEndIso = swapDay(srcEnd, newEndDay);
-          bound = rewriteProjectDate(bound, newStartIso, newEndIso);
-          await putProject(kv, bound);
+          const shifted = shiftCloneEventDay(bound.startDate, bound.endDate || bound.startDate, chosenDay);
+          if (shifted) {
+            bound = rewriteProjectDate(bound, shifted.startDate, shifted.endDate);
+            await putProject(kv, bound);
+          }
         }
         bound = await createOtraGuideEvent(context, accessToken, bound, {});
         await putProject(kv, bound);

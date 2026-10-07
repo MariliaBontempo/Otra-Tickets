@@ -23,6 +23,59 @@ export function dayToSaleEndIso(day) {
   return `${normalized}T23:59:59${CURACAO_OFFSET}`;
 }
 
+
+export function toCuracaoOffsetIso(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  // Already a Curacao-offset wall clock — keep as-is for swapDay.
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}-04:00$/.test(raw)) return raw;
+  if (DAY_RE.test(raw)) return `${raw}T00:00:00${CURACAO_OFFSET}`;
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return "";
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Curacao",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+  const get = (type) => {
+    const part = parts.find((entry) => entry.type === type);
+    return part ? part.value : "";
+  };
+  return `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}:${get("second")}${CURACAO_OFFSET}`;
+}
+
+export function curacaoDayFromValue(value) {
+  const raw = String(value || "").trim();
+  if (DAY_RE.test(raw)) return raw;
+  const curacao = toCuracaoOffsetIso(raw);
+  return toDay(curacao);
+}
+
+export function shiftCloneEventDay(startIso, endIso, chosenDay) {
+  const day = toDay(chosenDay);
+  if (!day) return null;
+  const srcStart = toCuracaoOffsetIso(startIso);
+  const srcEnd = toCuracaoOffsetIso(endIso || startIso) || srcStart;
+  if (!srcStart) return null;
+  const swapDay = (iso, nextDay) => String(iso).replace(/^\d{4}-\d{2}-\d{2}/, nextDay);
+  const dayMs = 86400000;
+  const dayDelta = Math.round(
+    (new Date(day + "T00:00:00Z") - new Date(String(srcStart).slice(0, 10) + "T00:00:00Z")) / dayMs
+  );
+  const oldEndDay = new Date(String(srcEnd).slice(0, 10) + "T00:00:00Z");
+  const newEndDay = new Date(oldEndDay.getTime() + dayDelta * dayMs).toISOString().slice(0, 10);
+  return {
+    startDate: swapDay(srcStart, day),
+    endDate: swapDay(srcEnd, newEndDay),
+  };
+}
+
+
 export function buildCloneSaleWindowsFromSource(tickets, rates, options = {}) {
   const today = toDay(options.today) || toDay(new Date().toISOString());
   const eventDay = toDay(options.eventDate) || "";
