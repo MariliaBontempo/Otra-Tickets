@@ -6,7 +6,7 @@ This replaces the earlier redirect/acknowledgement implementation.
 
 ## Payment boundary
 
-The following backend files match the original Git HEAD exactly:
+This feature does not modify these backend files (checked against the branch's merge base with main):
 `views.py`, `views_stripe_checkout.py`, `purchasing.py`, `sentoo_gateway.py`.
 No payment calculation, provider request, checkout response, provisioning or redirect
 has changed. The Otra Tickets and simple checkout templates add only optional helper includes and
@@ -29,7 +29,8 @@ on a tracking result. `scripts/check-meta-checkout.mjs` verifies this boundary.
   unit from the base-currency list price with the same steps and Decimal rounding as
   `quote_checkout_with_fee`/create-session (fee, rate with event overrides, EUR cushion,
   half-even cents per unit, half-up in the EUR path, then times quantity), so value is
-  intended to equal the later Purchase once Curacao-Calendar PR #1767 is merged; unknown
+  intended to equal the later Purchase once Curacao-Calendar PR #1767 is merged, except
+  when a coupon applies, because Purchase reports Stripe's discounted totals; unknown
   rates or originals skip the event. Pinned by `tests/test_meta_checkout.mjs` there.
   Sentoo flow (`bank=true`) is unchanged: it still reports the displayed XCG amounts, which
   Meta flags as an invalid currency, and excludes add-ons because its original form
@@ -108,6 +109,7 @@ npm run build
 ```
 Run in curacao-calendar:
 ```
+node tests/test_meta_checkout.mjs
 docker compose exec -T web python manage.py test apps.ticketing.tests.test_meta_pixel apps.ticketing.tests.test_stripe_checkout_iframe apps.ticketing.tests.test_sentoo_event_gating apps.ticketing.tests.test_sentoo_embed_gating apps.ticketing.tests.test_sentoo_persist_sessions --keepdb --noinput
 ```
 
