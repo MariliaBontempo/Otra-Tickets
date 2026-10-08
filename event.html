@@ -843,6 +843,35 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
   .dd-panel::before { display: none; }
 }
 
+/* Approved Presidente treatment for event 8088 only. Checkout keeps its own theme. */
+html[data-presidente-event="8088"] {
+  --accent: #3AA945 !important;
+  --steel: #3AA945;
+  --steel-text: #85cc8c;
+  --steel-soft: #3aa945b8;
+  --steel-glow: #3aa9454d;
+}
+.presidente-story-media { display: grid; gap: 22px; min-width: 0; }
+.presidente-story-media .ev-story-img { width: 100%; }
+.presidente-logo-panel {
+  display: grid;
+  place-items: center;
+  padding: clamp(32px, 4vw, 64px) clamp(28px, 3.5vw, 56px);
+  background: transparent;
+  border: none;
+}
+.presidente-logo-panel img { display: block; width: 100%; height: auto; }
+.presidente-lettering {
+  display: block;
+  width: 100%;
+  background-color: #3AA945;
+  -webkit-mask: url('/assets/8088/Presidente_lettering_white_RGB.png') center / contain no-repeat;
+  mask: url('/assets/8088/Presidente_lettering_white_RGB.png') center / contain no-repeat;
+}
+.presidente-lettering img { opacity: 0; }
+html[data-presidente-event="8088"] .btn-metal { background: #3AA945; color: #07100a; }
+html[data-presidente-event="8088"] .btn-metal:hover { background: #4cba57; box-shadow: 0 8px 28px #3aa94538; }
+@media(max-width: 620px) { .presidente-story-media { gap: 16px; } }
 </style>
 </head>
 <body>
@@ -1277,6 +1306,8 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
         document.documentElement.style.setProperty("--accent", ev.accent);
       }
       const design = ev.design || {};
+      const hasPresidenteSponsor = String(ev.id) === "8088";
+      if (hasPresidenteSponsor) document.documentElement.dataset.presidenteEvent = "8088";
 
       // ----- HERO -----
       if (ev.image) {
@@ -1338,6 +1369,24 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
           img.src = design.storyImage || ev.image;
           img.alt = ev.title;
           img.hidden = false;
+          if (hasPresidenteSponsor) {
+            const stack = document.createElement("div");
+            stack.className = "presidente-story-media";
+            img.before(stack);
+            stack.append(img);
+            const panel = document.createElement("figure");
+            panel.className = "presidente-logo-panel";
+            const lettering = document.createElement("span");
+            lettering.className = "presidente-lettering";
+            const logo = document.createElement("img");
+            logo.src = "/assets/8088/Presidente_lettering_white_RGB.png";
+            logo.alt = "Presidente Beer";
+            logo.width = 2400;
+            logo.height = 482;
+            lettering.append(logo);
+            panel.append(lettering);
+            stack.append(panel);
+          }
         } else {
           // No image: let the text span the full width.
           document.getElementById("story").style.gridTemplateColumns = "1fr";
