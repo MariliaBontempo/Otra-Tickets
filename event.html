@@ -851,6 +851,8 @@ html[data-presidente-event="8088"] {
   --steel-soft: #3aa945b8;
   --steel-glow: #3aa9454d;
 }
+html[data-presidente-event="8088"] #story { align-items: start; }
+.presidente-photo { display: block; width: 100%; aspect-ratio: 16 / 9; height: auto; object-fit: contain; background: transparent; border: 0; }
 .presidente-story-media { display: grid; gap: 22px; min-width: 0; }
 .presidente-story-media .ev-story-img { width: 100%; }
 .presidente-logo-panel {
@@ -1373,7 +1375,14 @@ html[data-presidente-event="8088"] .btn-metal:hover { background: #4cba57; box-s
             const stack = document.createElement("div");
             stack.className = "presidente-story-media";
             img.before(stack);
-            stack.append(img);
+            const sponsorPhoto = document.createElement("img");
+            sponsorPhoto.id = "presidentePhoto";
+            sponsorPhoto.className = "presidente-photo";
+            sponsorPhoto.src = "/assets/8088/presidente-photo.png";
+            sponsorPhoto.alt = "Presidente Beer — Taste the True Caribbean Flavor";
+            sponsorPhoto.width = 1672;
+            sponsorPhoto.height = 940;
+            stack.append(sponsorPhoto, img);
             const panel = document.createElement("figure");
             panel.className = "presidente-logo-panel";
             const lettering = document.createElement("span");
