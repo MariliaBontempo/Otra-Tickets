@@ -207,6 +207,7 @@ async function runUploadScenario({ file, activeField, optimizedFile, holdPipelin
     closeModalBtn: { disabled: false },
     cancelBtn: { disabled: false },
     clearImageBtn: { disabled: false },
+    removeVideoBtn: { disabled: false },
     imageUrl: { value: '' },
   };
   const fields = {};
