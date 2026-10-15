@@ -758,6 +758,7 @@
         <div class="row">
           <button class="btn" id="uploadBtn" type="button">Upload image</button>
           <button class="btn ghost" id="clearImageBtn" type="button">Clear image</button>
+          <button class="btn ghost hidden" id="removeVideoBtn" type="button">Remove video</button>
         </div>
       </div>
 
@@ -1776,7 +1777,7 @@
 
   function setMediaUploadBusy(busy) {
     mediaUploadBusy = !!busy;
-    ["uploadBtn", "saveBtn", "closeModalBtn", "cancelBtn", "clearImageBtn", "imageInput"].forEach((id) => {
+    ["uploadBtn", "saveBtn", "closeModalBtn", "cancelBtn", "clearImageBtn", "removeVideoBtn", "imageInput"].forEach((id) => {
       $(id).disabled = mediaUploadBusy;
     });
   }
@@ -2032,6 +2033,35 @@
 
   $("imageUrl").addEventListener("input", () => showImage($("imageUrl").value));
 
+  // Remove only the video from the video section, keeping its poster image.
+  // Saved immediately on this page's own override; re-uploading a video
+  // restores it.
+  $("removeVideoBtn").addEventListener("click", async () => {
+    if (mediaUploadBusy) {
+      setStatus("Upload in progress. Please wait for it to finish.", "error");
+      return;
+    }
+    if (!selected || !activeField) return;
+    const fields = currentOverride && currentOverride.fields ? currentOverride.fields : {};
+    if (!videoKeysToRemove(fields, activeField.key).length) {
+      setStatus("This section has no video to remove.");
+      return;
+    }
+    if (!confirm("Remove the video from this section? The image stays.")) return;
+    $("removeVideoBtn").disabled = true;
+    try {
+      const activeKey = activeField.key;
+      await persistOverrideFields((next) => removeVideoFields(next, activeKey));
+      closeModal(true);
+      refreshPreview();
+      setStatus("Video removed and saved. The image is shown instead.", "ok");
+    } catch (err) {
+      setStatus(err.message, "error");
+    } finally {
+      $("removeVideoBtn").disabled = false;
+    }
+  });
+
   function applyAccentToPreview(color) {
     const frame = $("previewFrame");
     try {
@@ -2129,6 +2159,33 @@
   function isVideoFile(file) {
     if (!file) return false;
     return /^video\//i.test(file.type || "") || /\.(mp4|mov|m4v|webm|mkv|avi)$/i.test(file.name || "");
+  }
+
+  function isVideoSectionField(field) {
+    if (!field || !/^image:/.test(field.key || "")) return false;
+    if (/#evVideoImg\b/.test(field.key)) return true;
+    const el = field.element;
+    return !!(el && el.closest && el.closest(".ev-video"));
+  }
+
+  // Keys holding the video section's video: the dedicated video: field(s) and
+  // legacy data where the video URL sat in the image: field itself.
+  function videoKeysToRemove(fields, activeKey) {
+    const keys = [];
+    for (const [key, field] of Object.entries(fields || {})) {
+      if (!field || field.type !== "image") continue;
+      const activeSelector = String(activeKey || "").replace(/^image:/, "");
+      if (/^video:/.test(key)) {
+        const selector = key.slice("video:".length);
+        if (selector === activeSelector || /#evVideoImg\b/.test(selector)) keys.push(key);
+      } else if (/^image:/.test(key) && (key === activeKey || /#evVideoImg\b/.test(key)) && isVideoValue(field.value)) keys.push(key);
+    }
+    return keys;
+  }
+
+  function removeVideoFields(fields, activeKey) {
+    for (const key of videoKeysToRemove(fields, activeKey)) delete fields[key];
+    return fields;
   }
 
   function updateVideoSlotFields(fields, imageKey, videoKey, value, isVideo) {
@@ -3366,6 +3423,9 @@
       $("imageUrl").value = saved && saved.value ? saved.value : activeField && activeField.element ? readImageValue(activeField.element) : getPreviewImage();
       showImage($("imageUrl").value);
     }
+    const canRemoveVideo = isImage && isVideoSectionField(activeField) &&
+      videoKeysToRemove(currentOverride && currentOverride.fields, activeField.key).length > 0;
+    $("removeVideoBtn").classList.toggle("hidden", !canRemoveVideo);
     if (isCheckout) {
       $("checkoutEventId").value = currentOverride && currentOverride.checkoutEventId ? currentOverride.checkoutEventId : overrideIdForPage(selected);
     }

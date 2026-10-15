@@ -207,6 +207,7 @@ async function runUploadScenario({ file, activeField, optimizedFile, holdPipelin
     closeModalBtn: { disabled: false },
     cancelBtn: { disabled: false },
     clearImageBtn: { disabled: false },
+    removeVideoBtn: { disabled: false },
     imageUrl: { value: '' },
   };
   const fields = {};
@@ -254,7 +255,7 @@ async function runUploadScenario({ file, activeField, optimizedFile, holdPipelin
   sandbox.setMediaUploadBusy = (busy) => {
     sandbox.mediaUploadBusy = !!busy;
     calls.busy.push(!!busy);
-    for (const id of ['uploadBtn', 'saveBtn', 'closeModalBtn', 'cancelBtn', 'clearImageBtn', 'imageInput']) {
+    for (const id of ['uploadBtn', 'saveBtn', 'closeModalBtn', 'cancelBtn', 'clearImageBtn', 'removeVideoBtn', 'imageInput']) {
       elements[id].disabled = !!busy;
     }
   };
@@ -323,7 +324,7 @@ if (uploadCurrentImageSource && videoValueSource && videoFileSource && updateFie
   await new Promise((resolve) => setImmediate(resolve));
   assert(lockedUpload.sandbox.mediaUploadBusy === true, 'large video must lock immediately before network completion');
   assert(lockedUpload.calls.progress[0]?.text.includes('Preparing 3 MB video upload'), 'video must show preparing progress immediately');
-  for (const id of ['uploadBtn', 'saveBtn', 'closeModalBtn', 'cancelBtn', 'clearImageBtn', 'imageInput']) {
+  for (const id of ['uploadBtn', 'saveBtn', 'closeModalBtn', 'cancelBtn', 'clearImageBtn', 'removeVideoBtn', 'imageInput']) {
     assert(lockedUpload.elements[id].disabled === true, `${id} must be disabled during a video upload`);
   }
   await lockedUpload.sandbox.upload();
@@ -343,7 +344,7 @@ assert(setMediaUploadBusySource, 'setMediaUploadBusy must exist in admin/index.h
 assert(closeModalSource, 'closeModal must exist in admin/index.html');
 
 if (setMediaUploadBusySource) {
-  const ids = ['uploadBtn', 'saveBtn', 'closeModalBtn', 'cancelBtn', 'clearImageBtn', 'imageInput'];
+  const ids = ['uploadBtn', 'saveBtn', 'closeModalBtn', 'cancelBtn', 'clearImageBtn', 'removeVideoBtn', 'imageInput'];
   const elements = Object.fromEntries(ids.map((id) => [id, { disabled: false }]));
   const sandbox = { mediaUploadBusy: false, $: (id) => elements[id] };
   vm.runInNewContext(`${setMediaUploadBusySource}; this.setBusy = setMediaUploadBusy;`, sandbox);
