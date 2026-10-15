@@ -33,6 +33,7 @@
     "check:slug-aliases": "node scripts/check-slug-aliases.mjs",
     "check:admin-rename-slug": "node scripts/check-admin-rename-slug.mjs",
     "check:admin-audit-log": "node scripts/check-admin-audit-log.mjs",
-    "check:feed-fast-path": "node scripts/check-feed-fast-path.mjs"
+    "check:feed-fast-path": "node scripts/check-feed-fast-path.mjs",
+    "check:admin-remove-video": "node scripts/check-admin-remove-video.mjs"
   }
 }
