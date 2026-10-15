@@ -44,12 +44,14 @@ if (src.every(Boolean)) {
     [V]: { type: 'image', value: '/override-images/clearboat-30s.mp4' },
     'text:#evTitle': { type: 'text', value: 'Water Bikes' },
     'image:#evHeroImg': { type: 'image', value: '/override-images/hero.mp4' },
+    'video:#otherSlot': { type: 'image', value: '/override-images/other.mp4' },
   };
   f.removeVideoFields(fields, K);
   assert(!fields[V], 'video field removed');
   assert(fields[K] && fields[K].value === '/override-images/poster.jpg', 'poster kept');
   assert(fields['text:#evTitle'], 'unrelated text kept');
   assert(fields['image:#evHeroImg'], 'video elsewhere on page (not the video section) kept');
+  assert(fields['video:#otherSlot'], 'video field of another slot kept');
 
   // Legacy: video stored in the image field itself.
   fields = { [K]: { type: 'image', value: '/override-images/old.mp4' } };

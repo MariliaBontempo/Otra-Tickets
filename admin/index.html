@@ -2170,8 +2170,11 @@
     const keys = [];
     for (const [key, field] of Object.entries(fields || {})) {
       if (!field || field.type !== "image") continue;
-      if (/^video:/.test(key)) keys.push(key);
-      else if (/^image:/.test(key) && (key === activeKey || /#evVideoImg\b/.test(key)) && isVideoValue(field.value)) keys.push(key);
+      const activeSelector = String(activeKey || "").replace(/^image:/, "");
+      if (/^video:/.test(key)) {
+        const selector = key.slice("video:".length);
+        if (selector === activeSelector || /#evVideoImg\b/.test(selector)) keys.push(key);
+      } else if (/^image:/.test(key) && (key === activeKey || /#evVideoImg\b/.test(key)) && isVideoValue(field.value)) keys.push(key);
     }
     return keys;
   }
