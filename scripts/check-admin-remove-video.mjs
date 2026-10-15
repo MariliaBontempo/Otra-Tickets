@@ -41,6 +41,8 @@ assert(/confirm\(/.test(handler), 'Remove video asks for confirmation');
 assert(/if \(!videoKeysToRemove\(fields, activeField\.key\)\.length\)/.test(handler), 'handler re-checks there is a video before saving');
 assert(/refreshPreview\(\)/.test(handler), 'preview reloads after removal');
 assert(!/publish/i.test(handler), 'Remove video never publishes');
+assert(/if \(mediaUploadBusy\)/.test(handler), 'Remove video refuses while an upload is running');
+assert(/"removeVideoBtn"/.test(extractFunction('setMediaUploadBusy')), 'Remove video is disabled while an upload is running');
 
 if (src.every(Boolean)) {
   const sb = {};
