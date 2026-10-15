@@ -32,6 +32,16 @@ assert(/\$\("removeVideoBtn"\)\.classList\.toggle\("hidden"/.test(html), 'openEd
 assert(/persistOverrideFields\(\(next\) => removeVideoFields\(next, activeKey\)\)/.test(html),
   'Remove video must persist through persistOverrideFields (own page override only)');
 
+const openEditorSrc = extractFunction('openEditor');
+assert(/canRemoveVideo = isImage && isVideoSectionField\(activeField\)/.test(openEditorSrc) &&
+  /\$\("removeVideoBtn"\)\.classList\.toggle\("hidden", !canRemoveVideo\)/.test(openEditorSrc),
+  'openEditor shows Remove video only for an image edit of the video section that has a video');
+const handler = html.slice(html.indexOf('$("removeVideoBtn").addEventListener'), html.indexOf('function applyAccentToPreview'));
+assert(/confirm\(/.test(handler), 'Remove video asks for confirmation');
+assert(/if \(!videoKeysToRemove\(fields, activeField\.key\)\.length\)/.test(handler), 'handler re-checks there is a video before saving');
+assert(/refreshPreview\(\)/.test(handler), 'preview reloads after removal');
+assert(!/publish/i.test(handler), 'Remove video never publishes');
+
 if (src.every(Boolean)) {
   const sb = {};
   vm.runInNewContext(`${src.join('\n')}; this.f = { ${names.join(',')} };`, sb);
