@@ -1,12 +1,12 @@
 # Meta Pixel: passive integration
 
-Pixel/Dataset: `9500041730032996`. Local feature branches:
-`Otra-Tickets/feat/meta-pixel` and `curacao-calendar/feat/meta-pixel-checkout`.
-Nothing has been deployed. This replaces the earlier redirect/acknowledgement implementation.
+Pixel/Dataset: `9500041730032996`. Shipped: storefront PR #76 and backend PR #1753 are merged
+and live on otratickets.com and otraguide.com since 2026-10-02 (see Live findings below).
+This replaces the earlier redirect/acknowledgement implementation.
 
 ## Payment boundary
 
-The following backend files match the original Git HEAD exactly:
+This feature does not modify these backend files (checked against the branch's merge base with main):
 `views.py`, `views_stripe_checkout.py`, `purchasing.py`, `sentoo_gateway.py`.
 No payment calculation, provider request, checkout response, provisioning or redirect
 has changed. The Otra Tickets and simple checkout templates add only optional helper includes and
@@ -23,8 +23,17 @@ on a tracking result. `scripts/check-meta-checkout.mjs` verifies this boundary.
 - **ViewContent:** after event details load, once per event ID/document. Omit money
   because advertised starting prices/tier currencies may be ambiguous.
 - **InitiateCheckout:** after existing validation, immediately before the original
-  Stripe checkout request or Sentoo form submission. Uses current selected tickets,
-  displayed quote and currency. Sentoo excludes add-ons because its original form
+  Stripe checkout request or Sentoo form submission. Uses current selected tickets.
+  Stripe flow only (`bank=false`): reports the Stripe charge currency (the selected currency,
+  or USD when Stripe cannot charge it, e.g. XCG, which Meta also rejects), and derives each
+  unit from the base-currency list price with the same steps and Decimal rounding as
+  `quote_checkout_with_fee`/create-session (fee, rate with event overrides, EUR cushion,
+  half-even cents per unit, half-up in the EUR path, then times quantity), so value is
+  intended to equal the later Purchase once Curacao-Calendar PR #1767 is merged, except
+  when a coupon applies, because Purchase reports Stripe's discounted totals; unknown
+  rates or originals skip the event. Pinned by `tests/test_meta_checkout.mjs` there.
+  Sentoo flow (`bank=true`) is unchanged: it still reports the displayed XCG amounts, which
+  Meta flags as an invalid currency, and excludes add-ons because its original form
   only submits tickets. A one-way postMessage to the storefront carries no PII.
   The parent checks iframe identity and origin. Guide standalone checkout calls tracking directly; Guide-hosted iframes send the same validated notification. No reply/wait. This measures entry
   into checkout, not successful provider-session creation. Once per iframe document.
@@ -81,7 +90,7 @@ No existing marketing consent gate was detected on these routes. Existing Google
 tracking is unchanged. If consent gating is introduced, apply it to this loader
 and the production-only noscript fallback as well.
 
-Deploy storefront first (shared `/meta-pixel.js`), then backend. In Meta Events
+Deploy order for future changes: storefront first (shared `/meta-pixel.js`), then backend. In Meta Events
 Manager: use the existing Dataset, configure Automatic Advanced Matching as planned,
 allow both domains if Traffic Permissions is restricted, and remove any overlapping
 manual/automatic Purchase rules. Verify actual receipt using Test Events after
@@ -100,6 +109,7 @@ npm run build
 ```
 Run in curacao-calendar:
 ```
+node tests/test_meta_checkout.mjs
 docker compose exec -T web python manage.py test apps.ticketing.tests.test_meta_pixel apps.ticketing.tests.test_stripe_checkout_iframe apps.ticketing.tests.test_sentoo_event_gating apps.ticketing.tests.test_sentoo_embed_gating apps.ticketing.tests.test_sentoo_persist_sessions --keepdb --noinput
 ```
 
@@ -128,4 +138,21 @@ Guide native/simple templates observed correct InitiateCheckout payloads and
 original POST/redirect behaviour; a throwing tracker did not block simple checkout.
 The existing Stripe confirmation view still rejects no_payment_required before
 rendering. This patch corrects analytics eligibility only, not that pre-existing
-checkout behaviour. FREE coupon eligibility remains unverified. Both PRs remain drafts.
+checkout behaviour. FREE coupon eligibility remains unverified. (Both PRs have since merged.)
+
+## Live findings (2026-10-05)
+
+- Both PRs are merged and the loader is live on otratickets.com and otraguide.com.
+- Headless check on the live Kaya Kaya page: PageView, ViewContent and InitiateCheckout
+  (event ID `otratickets:InitiateCheckout:<uuid>`) all reach Meta from the storefront flow.
+- GTM container `GTM-K5VB8D42` (loaded by Guide pages, including the checkout iframe) has
+  its own Meta tag firing a parameter-less ViewContent on every page and CompleteRegistration
+  on `accounts/confirm-email`. It has no Purchase or InitiateCheckout tags.
+- The pixel's published config has "Track events automatically without code" on
+  (InferredEvents + AutomaticMatching opted in). Meta then logs its own events from button
+  clicks and page text; those cannot be deduplicated against ours and are the likely source of
+  Purchase events with identical values or missing currency. Turn it off in Events Manager
+  (pixel Settings → Event setup → "Track events automatically without code"). The code-side
+  `fbq('set','autoConfig',false,PIXEL_ID)` is not used: in fbevents it gates both the inferred
+  button-click events and Automatic Advanced Matching, and it only works if it precedes every
+  init of this pixel, including the GTM tag's, so the Events Manager setting is the reliable control.
