@@ -1224,7 +1224,7 @@ html[data-presidente-event="8088"] .btn-metal:hover { background: #4cba57; box-s
         if (!resp.ok) throw new Error("HTTP " + resp.status);
         ev = await resp.json();
         if (!ev || ev.error) throw new Error(ev && ev.error ? ev.error : "no data");
-        if (/^\d+$/.test(String(id)) && ev.slug) {
+        if (/^\d+$/.test(String(id)) && ev.slug && !ev.staffPreview) {
           const canonicalPath = "/" + ev.slug;
           let canonical = document.querySelector('link[rel="canonical"]');
           if (!canonical) {
@@ -1491,16 +1491,17 @@ html[data-presidente-event="8088"] .btn-metal:hover { background: #4cba57; box-s
               .map((a) => {
                 const sym = cur(a.currency);
                 return (
-                  '<div class="ev-rate ev-addon" data-otra-addon-name="' + esc(a.name) + '"><div class="rk">Add-on</div>' +
+                  '<div class="ev-rate ev-addon" data-otra-rate-name="addon:' + esc(a.name) + '"><div class="rk">Add-on</div>' +
                   '<div class="rk" style="margin-top:10px;color:var(--silver-text);">' + esc(a.name) + "</div>" +
                   '<div class="rp"><span class="rcur">' + esc(sym) + "</span>" + esc(money(a.price)) + "</div>" +
                   (a.description ? '<div class="rn">' + esc(a.description) + "</div>" : "") +
-                  '<div class="rn">Add-ons are booked with a ticket at checkout.</div>' +
                   "</div>"
                 );
               })
               .join("")
           );
+          const foot = $("evRatesSection").querySelector(".ev-rates-foot");
+          foot.insertAdjacentHTML("afterend", '<p class="ev-rates-foot ev-addons-foot">Add-ons are booked with a ticket at checkout.</p>');
         }
       } else {
         $("evRatesSection").querySelector(".ev-h2").textContent = "Tickets aren't on sale yet.";

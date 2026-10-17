@@ -31,7 +31,9 @@ export async function onRequestGet(context) {
   const adminOnly = (project && project.adminOnly === true) || base.adminOnly === true;
   if (adminOnly && !(await isStaffRequest(context))) return json({ error: "not found" }, 404);
   delete base.adminOnly;
-  const staffView = base.staffView === true;
+  // Non-sensitive marker so the page keeps its /event?id= URL (the public slug
+  // route cannot resolve staff-only events). Only ever set on no-store responses.
+  const staffPreview = adminOnly || base.staffView === true;
   delete base.staffView;
 
   const override = await readOverride(context.env, id, project && project.id);
@@ -45,7 +47,8 @@ export async function onRequestGet(context) {
     };
   }
   payload.slug = project && project.frozenSlug ? project.frozenSlug : eventSlug(payload.title);
-  return json(payload, 200, adminOnly || staffView || override ? 0 : 60);
+  if (staffPreview) payload.staffPreview = true;
+  return json(payload, 200, staffPreview || override ? 0 : 60);
 }
 
 async function getBasePayload(context, id, url, project) {

@@ -35,4 +35,12 @@ assert.ok(event.includes("Array.isArray(ev.addons)"), "event.html guards ev.addo
 assert.ok(event.includes("Add-ons are booked with a ticket at checkout."), "event.html add-on foot line");
 assert.ok(event.includes(">Add-on<") || event.includes("Add-on</div>"), "event.html add-on kicker");
 
+assert.ok(event.includes('data-otra-rate-name="addon:'), "add-on cards use a stable addon: rate name for the editor");
+assert.equal(event.split("Add-ons are booked with a ticket at checkout.").length - 1, 1, "foot line appears once");
+const mapStart = event.indexOf("addons\n              .map");
+const mapEnd = event.indexOf(".join", mapStart);
+assert.ok(!event.slice(mapStart, mapEnd).includes("booked with a ticket"), "foot line is not inside each card");
+assert.ok(event.includes("!ev.staffPreview"), "event.html skips the canonical URL swap for staff previews");
+assert.ok(/location\.reload/.test(js) && js.includes("staffNow"), "account menu reloads only on staff changes");
+
 console.log("account menu checks passed");

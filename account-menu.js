@@ -22,8 +22,12 @@
   }
 
   // Event pages show staff-only content, so they reload after the state changes.
-  function changed() {
-    if (document.getElementById("evRates")) location.reload();
+  // Only a staff change alters the page, so a buyer keeps their checkout picks.
+  var staffNow = false;
+  function changed(staffAfter) {
+    var before = staffNow;
+    staffNow = !!staffAfter;
+    if ((before || staffNow) && document.getElementById("evRates")) location.reload();
   }
 
   function renderSignedOut() {
@@ -54,7 +58,7 @@
       call("/api/login", "POST", { email: email, password: password })
         .then(function (res) {
           return res.json().catch(function () { return {}; }).then(function (data) {
-            if (res.ok && data.user) { renderSignedIn(data.user); changed(); return; }
+            if (res.ok && data.user) { renderSignedIn(data.user); changed(data.user.isStaff); return; }
             if (res.status === 401) return fail(data.error || "Wrong email or password.");
             fail("Sign in is unavailable right now. Please try again.");
           });
@@ -78,7 +82,7 @@
     panel.querySelector("[data-account-signout]").addEventListener("click", function () {
       call("/api/logout", "POST").catch(function () {}).then(function () {
         renderSignedOut();
-        changed();
+        changed(false);
       });
     });
   }
@@ -86,6 +90,6 @@
   renderSignedOut();
   call("/api/me", "GET")
     .then(function (res) { return res.json(); })
-    .then(function (data) { if (data && data.signedIn && data.user) renderSignedIn(data.user); })
+    .then(function (data) { if (data && data.signedIn && data.user) { staffNow = !!data.user.isStaff; renderSignedIn(data.user); } })
     .catch(function () {});
 })();

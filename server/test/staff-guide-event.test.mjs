@@ -57,6 +57,7 @@ test("staff cookie opens a staff-only Guide event, uncached, with add-ons", asyn
     const body = await res.json();
     assert.equal(body.id, 8257);
     assert.equal(body.staffView, undefined);
+    assert.equal(body.staffPreview, true);
     assert.deepEqual(body.addons, [{ name: "Lounge Package", description: "Table for six", price: 25, currency: "USD" }]);
     assert.equal(puts.length, 0);
     const authed = calls.filter(c => c.auth === "Bearer staff-jwt" && c.path !== "/api/users/user-role/");
@@ -84,6 +85,7 @@ test("public events include mapped add-ons, request choice add-ons, and are stil
     const body = await res.json();
     assert.deepEqual(body.addons, [{ name: "Lounge Package", description: "Table for six", price: 25, currency: "USD" }]);
     assert.equal(puts.length, 1);
+    assert.equal(body.staffPreview, undefined);
     assert.ok(calls.some(c => c.path === "/api/ticket/purchase/tickets/9000/" && c.search === "?include_choice_addons=1"));
   } finally { restore(); }
 });

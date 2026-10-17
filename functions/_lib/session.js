@@ -36,18 +36,21 @@ export function requestToken(request) {
 // Returns { user } on success, { rejected: true } when Guide says 401,
 // or { error: true } when Guide is unreachable or misbehaves.
 export async function resolveUser(token, env) {
-  let resp;
+  let resp, profileData;
   try {
-    resp = await fetch(`${apiBase(env)}/users/user-role/`, {
-      headers: { authorization: `Bearer ${token}`, accept: "application/json" },
-    });
+    [resp, profileData] = await Promise.all([
+      fetch(`${apiBase(env)}/users/user-role/`, {
+        headers: { authorization: `Bearer ${token}`, accept: "application/json" },
+      }),
+      fetchUserProfile(token, env),
+    ]);
   } catch {
     return { error: true };
   }
   if (resp.status === 401) return { rejected: true };
   if (!resp.ok) return { error: true };
   const role = await resp.json().catch(() => ({}));
-  const profile = (await fetchUserProfile(token, env)) || {};
+  const profile = profileData || {};
   const email = String(profile.email || "").trim();
   const full = [profile.first_name, profile.last_name].filter(Boolean).join(" ").trim();
   return { user: { name: full || email, email, isStaff: !!(role && role.is_staff_or_admin) } };
