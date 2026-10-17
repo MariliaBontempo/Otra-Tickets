@@ -240,6 +240,25 @@ body {
 .profile-id .who { display: flex; flex-direction: column; gap: 3px; }
 .profile-id .who b { color: var(--silver-text); font-size: 15.5px; font-weight: 600; }
 .profile-id .who span { color: var(--fog-2); font-size: 13px; }
+.acct-form { display: flex; flex-direction: column; gap: 10px; padding: 6px 8px 8px; }
+.acct-form h3 { margin: 0; color: var(--silver-text); font-size: 17px; font-weight: 600; }
+.acct-form .acct-sub { margin: 0 0 4px; color: var(--fog-2); font-size: 13px; }
+.acct-form input {
+  width: 100%; padding: 12px 14px; border-radius: 9px;
+  background: var(--ink-2); border: 1px solid var(--line); color: var(--silver-text);
+  font-family: var(--font-body); font-size: 16px;
+}
+.acct-form input:focus { outline: none; border-color: var(--steel-soft); }
+.acct-form .acct-btn, .dd-link.signout.acct-btn {
+  width: 100%; padding: 12px 14px; border-radius: 9px; cursor: pointer;
+  background: transparent; border: 1px solid var(--steel-soft); color: var(--silver-text);
+  font-family: var(--font-body); font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase;
+}
+.acct-form .acct-btn:disabled { opacity: 0.6; cursor: default; }
+.acct-error { margin: 0; color: #e8847c; font-size: 13.5px; }
+.acct-links { display: flex; justify-content: space-between; gap: 12px; padding-top: 4px; font-size: 13px; }
+.acct-links a { color: var(--fog); text-decoration: none; }
+.acct-links a:hover { color: var(--silver-text); }
 
 .acc-group { border-radius: 9px; }
 .acc-trigger {
@@ -967,56 +986,7 @@ html[data-presidente-event="8088"] .btn-metal:hover { background: #4cba57; box-s
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
         </button>
         <div class="dd-panel dd-profile">
-          <div class="profile-id">
-            <div class="avatar">A</div>
-            <div class="who"><b>Your Account</b><span>Sign in to manage tickets</span></div>
-          </div>
-
-          <div class="acc-group">
-            <button class="acc-trigger" data-acc>My Tickets
-              <svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="6 9 12 15 18 9"/></svg>
-            </button>
-            <div class="acc-body">
-              <a class="dd-link" href="#">Upcoming Tickets</a>
-              <a class="dd-link" href="#">Past Tickets</a>
-            </div>
-          </div>
-
-          <div class="acc-group">
-            <button class="acc-trigger" data-acc>My Favorites
-              <svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="6 9 12 15 18 9"/></svg>
-            </button>
-            <div class="acc-body">
-              <a class="dd-link" href="#">Saved Events</a>
-              <a class="dd-link" href="#">Saved Venues</a>
-              <a class="dd-link" href="#">Saved Tours</a>
-            </div>
-          </div>
-
-          <div class="acc-group">
-            <button class="acc-trigger" data-acc>My Account
-              <svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="6 9 12 15 18 9"/></svg>
-            </button>
-            <div class="acc-body">
-              <a class="dd-link" href="#">Name</a>
-              <a class="dd-link" href="#">Email</a>
-              <a class="dd-link" href="#">Password</a>
-            </div>
-          </div>
-
-          <div class="acc-group">
-            <button class="acc-trigger" data-acc>Notifications
-              <svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="6 9 12 15 18 9"/></svg>
-            </button>
-            <div class="acc-body">
-              <a class="dd-link" href="#">Ticket Alerts</a>
-              <a class="dd-link" href="#">Favorite Venue Alerts</a>
-            </div>
-          </div>
-
-          <a class="dd-link" href="#">Payment Methods</a>
-          <div class="dd-sep"></div>
-          <a class="dd-link signout" href="#">Sign Out</a>
+          <div data-account-panel></div>
         </div>
       </div>
 
@@ -1254,7 +1224,7 @@ html[data-presidente-event="8088"] .btn-metal:hover { background: #4cba57; box-s
         if (!resp.ok) throw new Error("HTTP " + resp.status);
         ev = await resp.json();
         if (!ev || ev.error) throw new Error(ev && ev.error ? ev.error : "no data");
-        if (/^\d+$/.test(String(id)) && ev.slug) {
+        if (/^\d+$/.test(String(id)) && ev.slug && !ev.staffPreview) {
           const canonicalPath = "/" + ev.slug;
           let canonical = document.querySelector('link[rel="canonical"]');
           if (!canonical) {
@@ -1510,6 +1480,29 @@ html[data-presidente-event="8088"] .btn-metal:hover { background: #4cba57; box-s
           })
           .join("");
         $("evRatesSection").hidden = false;
+        // Add-ons (rentals, bottle packages) sit after the ticket rates. Skip them when the
+        // page already lists perks as cards (event 8088). Cached payloads may lack the field.
+        const addons = Array.isArray(ev.addons) ? ev.addons : [];
+        const perkCards = design.perkLayout === "cards" && Array.isArray(design.appreciates) && design.appreciates.length > 0;
+        if (addons.length > 0 && !perkCards) {
+          $("evRates").insertAdjacentHTML(
+            "beforeend",
+            addons
+              .map((a) => {
+                const sym = cur(a.currency);
+                return (
+                  '<div class="ev-rate ev-addon" data-otra-rate-name="addon:' + esc(a.name) + '"><div class="rk">Add-on</div>' +
+                  '<div class="rk" style="margin-top:10px;color:var(--silver-text);">' + esc(a.name) + "</div>" +
+                  '<div class="rp"><span class="rcur">' + esc(sym) + "</span>" + esc(money(a.price)) + "</div>" +
+                  (a.description ? '<div class="rn">' + esc(a.description) + "</div>" : "") +
+                  "</div>"
+                );
+              })
+              .join("")
+          );
+          const foot = $("evRatesSection").querySelector(".ev-rates-foot");
+          foot.insertAdjacentHTML("afterend", '<p class="ev-rates-foot ev-addons-foot">Add-ons are booked with a ticket at checkout.</p>');
+        }
       } else {
         $("evRatesSection").querySelector(".ev-h2").textContent = "Tickets aren't on sale yet.";
         $("evRates").innerHTML = '<p class="ev-rates-empty">Check back soon, or <a href="/">explore other events</a>.</p>';
@@ -1655,5 +1648,6 @@ html[data-presidente-event="8088"] .btn-metal:hover { background: #4cba57; box-s
     })();
   </script>
   <script src="/site-overrides.js?v=8"></script>
+<script src="/account-menu.js" defer></script>
 </body>
 </html>
