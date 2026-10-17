@@ -6,6 +6,7 @@
 
 import { eventSlug } from "../_lib/event-slug.js";
 import { checkStaff } from "../admin/api/_auth.js";
+import { requestToken } from "../_lib/session.js";
 
 const API = "https://otraguide.com/api";
 const UPSTREAM_TTL = 300;
@@ -30,6 +31,8 @@ export async function onRequestGet(context) {
   const adminOnly = (project && project.adminOnly === true) || base.adminOnly === true;
   if (adminOnly && !(await isStaffRequest(context))) return json({ error: "not found" }, 404);
   delete base.adminOnly;
+  const staffView = base.staffView === true;
+  delete base.staffView;
 
   const override = await readOverride(context.env, id, project && project.id);
   let payload = override ? { ...base, ...pickOverride(override) } : base;
@@ -42,7 +45,7 @@ export async function onRequestGet(context) {
     };
   }
   payload.slug = project && project.frozenSlug ? project.frozenSlug : eventSlug(payload.title);
-  return json(payload, 200, adminOnly || override ? 0 : 60);
+  return json(payload, 200, adminOnly || staffView || override ? 0 : 60);
 }
 
 async function getBasePayload(context, id, url, project) {
@@ -55,11 +58,23 @@ async function getBasePayload(context, id, url, project) {
   if (cached) return cached.json();
 
   const accentOverride = ACCENT_OVERRIDES[id] || null;
-  const [detail, ticketData, calendarAccent] = await Promise.all([
+  const ticketsUrl = `${api}/ticket/purchase/tickets/${id}/?include_choice_addons=1`;
+  let [detail, ticketData, calendarAccent] = await Promise.all([
     fetchJson(`${api}/events/details/${id}/`),
-    fetchJson(`${api}/ticket/purchase/tickets/${id}/`),
+    fetchJson(ticketsUrl),
     accentOverride ? Promise.resolve(null) : fetchCalendarPrimary(id, api),
   ]);
+  // A staff-only Guide event is hidden from anonymous callers but served to a
+  // staff JWT. That response is per-user: never cached, never shared.
+  let staffView = false;
+  if (!detail && (await isStaffRequest(context))) {
+    const token = requestToken(context.request);
+    [detail, ticketData] = await Promise.all([
+      fetchJson(`${api}/events/details/${id}/`, token),
+      fetchJson(ticketsUrl, token),
+    ]);
+    staffView = !!detail;
+  }
   if (!detail) {
     // A staff-only Guide event has no public detail response, but a published
     // Otra Tickets project may still sell its ticket types through the embed.
@@ -82,6 +97,13 @@ async function getBasePayload(context, id, url, project) {
     currency: (t.base_currency && t.base_currency.code) || "USD",
   }));
 
+  const addons = (ticketData && Array.isArray(ticketData.addons) ? ticketData.addons : []).map((a) => ({
+    name: a.title,
+    description: a.description || "",
+    price: a.price,
+    currency: a.base_currency || "USD",
+  }));
+
   const base = {
     id: detail.id,
     checkoutEventId: detail.id,
@@ -96,8 +118,10 @@ async function getBasePayload(context, id, url, project) {
     accent: accentOverride || calendarAccent,
     checkoutBaseUrl: api.replace(/\/api$/, ""),
     tickets,
+    addons,
   };
 
+  if (staffView) return { ...base, staffView: true };
   if (!project) context.waitUntil(cache.put(cacheKey, json(base, 200, EDGE_TTL).clone()));
   return base;
 }
@@ -155,11 +179,16 @@ async function getDraftPayload(env, id) {
   };
 }
 
-async function isStaffRequest(context) {
-  const auth = context.request.headers.get("authorization") || "";
-  const match = auth.match(/^Bearer (.+)$/);
-  if (!match) return false;
-  return checkStaff(match[1], context.env);
+// At most one staff check per request, however many gates ask.
+const staffChecks = new WeakMap();
+
+function isStaffRequest(context) {
+  const request = context.request;
+  if (!staffChecks.has(request)) {
+    const token = requestToken(request);
+    staffChecks.set(request, token ? checkStaff(token, context.env) : Promise.resolve(false));
+  }
+  return staffChecks.get(request);
 }
 
 async function readOverride(env, id, fallbackId = "") {
@@ -209,12 +238,15 @@ function json(obj, status = 200, maxAge = 0) {
   });
 }
 
-async function fetchJson(url) {
+// With a token the call is per-user: authorised and never edge-cached.
+async function fetchJson(url, token = null) {
   try {
-    const resp = await fetch(url, {
-      headers: { Accept: "application/json" },
-      cf: { cacheTtl: UPSTREAM_TTL, cacheEverything: true },
-    });
+    const resp = await fetch(
+      url,
+      token
+        ? { headers: { Accept: "application/json", authorization: `Bearer ${token}` } }
+        : { headers: { Accept: "application/json" }, cf: { cacheTtl: UPSTREAM_TTL, cacheEverything: true } },
+    );
     if (!resp.ok) return null;
     return await resp.json();
   } catch {
