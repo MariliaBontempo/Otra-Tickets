@@ -64,6 +64,22 @@ async function getBasePayload(context, id, url, project) {
     fetchJson(ticketsUrl),
     accentOverride ? Promise.resolve(null) : fetchCalendarPrimary(id, api),
   ]);
+  if (!detail) {
+    // A staff-only Guide event has no public detail response, but a published
+    // Otra Tickets project may still sell its ticket types through the embed.
+    // Keep this fallback bound to that exact project and a live ticket feed.
+    // It applies to every caller, staff included, so staff preview what the
+    // public sees.
+    if (
+      id === "8088" && project?.id === "draft-1791253678425-26c548a5" &&
+      project.status === "published" && project.adminOnly !== true && ticketData?.results?.length
+    ) {
+      const draftPayload = await getDraftPayload(context.env, project.id);
+      // The draft key locates site content; the public event ID is the Guide ID.
+      return draftPayload ? { ...draftPayload, id: Number(id) } : null;
+    }
+  }
+
   // A staff-only Guide event is hidden from anonymous callers but served to a
   // staff JWT. That response is per-user: never cached, never shared.
   let staffView = false;
@@ -75,20 +91,7 @@ async function getBasePayload(context, id, url, project) {
     ]);
     staffView = !!detail;
   }
-  if (!detail) {
-    // A staff-only Guide event has no public detail response, but a published
-    // Otra Tickets project may still sell its ticket types through the embed.
-    // Keep this fallback bound to that exact project and a live ticket feed.
-    if (
-      id === "8088" && project?.id === "draft-1791253678425-26c548a5" &&
-      project.status === "published" && project.adminOnly !== true && ticketData?.results?.length
-    ) {
-      const draftPayload = await getDraftPayload(context.env, project.id);
-      // The draft key locates site content; the public event ID is the Guide ID.
-      return draftPayload ? { ...draftPayload, id: Number(id) } : null;
-    }
-    return null;
-  }
+  if (!detail) return null;
 
   const tickets = (ticketData && ticketData.results ? ticketData.results : []).map((t) => ({
     name: t.name,

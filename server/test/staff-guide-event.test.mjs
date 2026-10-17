@@ -92,3 +92,45 @@ test("addons is an empty list when the feed has none", async () => {
   const { restore } = setup({ withAddons: false });
   try { assert.deepEqual((await (await get(9000)).json()).addons, []); } finally { restore(); }
 });
+
+test("staff get the same 8088 published-design fallback as the public, and Bearer header works for staff-only events", async () => {
+  const { restore } = setup();
+  const project = {
+    id: "draft-1791253678425-26c548a5", otraGuideId: "8088", status: "published", adminOnly: false,
+    title: "Finish Line Party", frozenSlug: "finish-line-party",
+    claudeDesign: { rates: [{ name: "Finish Line Ticket", price: "20.00", currency: "USD" }] },
+  };
+  const kv = {
+    async list() { return { keys: [{ name: `site-event:${project.id}` }], list_complete: true }; },
+    async get(key) { return key === `site-event:${project.id}` ? project : null; },
+  };
+  const inner = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (input, init = {}) => {
+    const u = new URL(input);
+    calls.push(u.pathname);
+    if (u.pathname === "/api/events/details/8088/") {
+      const auth = init.headers && init.headers.authorization;
+      return auth ? Response.json({ id: 8088, title: "Guide 8088" }) : new Response(null, { status: 404 });
+    }
+    if (u.pathname === "/api/ticket/purchase/tickets/8088/") return Response.json({ results: [{ id: 491 }] });
+    return inner(input, init);
+  };
+  const env = { ...ENV, OVERRIDES: kv };
+  const req = headers => new Request("https://tickets.test/api/event?id=8088", { headers });
+  try {
+    const anon = await (await onRequestGet({ request: req({}), env, waitUntil() {} })).json();
+    const staffRes = await onRequestGet({ request: req({ cookie: "otra_session=staff-jwt" }), env, waitUntil() {} });
+    const staff = await staffRes.json();
+    assert.deepEqual(staff, anon);
+    assert.equal(anon.title, "Finish Line Party");
+    assert.equal(staffRes.headers.get("cache-control"), "public, max-age=60");
+
+    const bearer = await onRequestGet({
+      request: new Request("https://tickets.test/api/event?id=8257", { headers: { authorization: "Bearer staff-jwt" } }),
+      env: ENV, waitUntil() {},
+    });
+    assert.equal(bearer.status, 200);
+    assert.equal((await bearer.json()).id, 8257);
+  } finally { restore(); }
+});
