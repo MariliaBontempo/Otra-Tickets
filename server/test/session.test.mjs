@@ -1,31 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { TOKEN, mockGuide } from "./helpers/mock-guide.mjs";
 import { onRequestPost as login } from "../../functions/api/login.js";
 import { onRequestGet as me } from "../../functions/api/me.js";
 import { onRequestPost as logout } from "../../functions/api/logout.js";
 import { clearSessionCookie, readSessionToken, requestToken, sessionCookie } from "../../functions/_lib/session.js";
 
 const env = { OTRA_API_URL: "https://guide.test/api" };
-const TOKEN = "jwt.access.token";
 
-function mockGuide({ tokenOk = true, roleStatus = 200, isStaff = false, down = false } = {}) {
-  const original = globalThis.fetch;
-  globalThis.fetch = async (input) => {
-    if (down) throw new Error("network");
-    const path = new URL(input).pathname;
-    if (path === "/api/auth/token/") {
-      return tokenOk ? Response.json({ access: TOKEN, refresh: "r" }) : new Response("{}", { status: 401 });
-    }
-    if (path === "/api/users/user-role/") {
-      return roleStatus === 200 ? Response.json({ is_staff_or_admin: isStaff }) : new Response("{}", { status: roleStatus });
-    }
-    if (path === "/api/users/profile/") return Response.json({ first_name: "Ana", last_name: "Silva", email: "ana@x.com" });
-    throw new Error(`Unexpected request: ${path}`);
-  };
-  return () => { globalThis.fetch = original; };
-}
-
-const post = (body) => new Request("https://t.test/api/login", { method: "POST", body: JSON.stringify(body) });
+const post = (body) => new Request("https://t.test/api/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 
 test("cookie helpers", () => {
   assert.equal(sessionCookie("abc"), "otra_session=abc; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=5184000");

@@ -4,9 +4,12 @@
 // cookie and is never returned in the body.
 
 import { apiBase, json } from "../admin/api/_auth.js";
+import { rejectCrossSite } from "../_lib/csrf.js";
 import { resolveUser, sessionCookie } from "../_lib/session.js";
 
 export async function onRequestPost(context) {
+  const refused = rejectCrossSite(context.request, { requireJson: true });
+  if (refused) return refused;
   let body;
   try {
     body = await context.request.json();
@@ -28,6 +31,7 @@ export async function onRequestPost(context) {
     return json({ error: "Could not reach the sign-in service." }, 502);
   }
   if (tokenResp.status >= 500) return json({ error: "Could not reach the sign-in service." }, 502);
+  if (tokenResp.status === 429) return json({ error: "Too many attempts. Try again in a few minutes." }, 429);
   if (!tokenResp.ok) return json({ error: "Wrong email or password." }, 401);
 
   const tokens = await tokenResp.json().catch(() => ({}));
