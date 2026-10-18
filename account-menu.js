@@ -59,7 +59,7 @@
         .then(function (res) {
           return res.json().catch(function () { return {}; }).then(function (data) {
             if (res.ok && data.user) { renderSignedIn(data.user); changed(data.user.isStaff); return; }
-            if (res.status === 401) return fail(data.error || "Wrong email or password.");
+            if (res.status === 401 || res.status === 429) return fail(data.error || "Wrong email or password.");
             fail("Sign in is unavailable right now. Please try again.");
           });
         })
@@ -80,10 +80,25 @@
       '<div class="dd-sep"></div>' +
       '<button class="dd-link signout acct-btn" type="button" data-account-signout>Sign out</button>';
     panel.querySelector("[data-account-signout]").addEventListener("click", function () {
-      call("/api/logout", "POST").catch(function () {}).then(function () {
-        renderSignedOut();
-        changed(false);
-      });
+      var signout = panel.querySelector("[data-account-signout]");
+      var note = panel.querySelector(".acct-signout-error");
+      if (note) note.remove();
+      function failSignOut() {
+        var p = document.createElement("p");
+        p.className = "acct-error acct-signout-error";
+        p.setAttribute("role", "alert");
+        p.textContent = "Could not sign out. Please try again.";
+        panel.appendChild(p);
+        signout.disabled = false;
+      }
+      signout.disabled = true;
+      call("/api/logout", "POST")
+        .then(function (res) {
+          if (!res.ok) return failSignOut();
+          renderSignedOut();
+          changed(false);
+        })
+        .catch(failSignOut);
     });
   }
 
