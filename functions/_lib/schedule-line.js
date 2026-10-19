@@ -19,13 +19,18 @@ export function metaItemSelector(index) {
 }
 
 const META_SPAN_RE = /^#evMeta\s*>\s*span(?::nth-of-type\((\d+)\))?$/;
+// Editors before 2026-06-28 saved "main > #evMeta ..."; site-overrides.js
+// still applies those by retrying without the exact "main > " prefix.
+const LEGACY_MAIN_PREFIX = "main > ";
 
 // Which hero line node a field key targets, or null when it is not a hero
 // line text edit. { host: true } for the whole line, { span: n } (1 based)
 // for one rendered span.
 function metaTarget(key) {
   if (typeof key !== "string" || !key.startsWith("text:")) return null;
-  const selector = key.slice(5).trim();
+  let selector = key.slice(5);
+  if (selector.startsWith(LEGACY_MAIN_PREFIX + "#")) selector = selector.slice(LEGACY_MAIN_PREFIX.length);
+  selector = selector.trim();
   if (selector === META_HOST_SELECTOR) return { host: true };
   const match = selector.match(META_SPAN_RE);
   if (!match) return null;
@@ -40,6 +45,14 @@ function textValue(field) {
   return typeof field.value === "string" ? field.value : "";
 }
 
+// Text of an authored item. Anything that is not a string or number (bad KV
+// data) is treated as blank instead of risking a throwing toString.
+function itemText(item) {
+  if (typeof item === "string") return item;
+  if (typeof item === "number" && Number.isFinite(item)) return String(item);
+  return "";
+}
+
 function overrideFields(override) {
   const fields = override && typeof override === "object" ? override.fields : null;
   return fields && typeof fields === "object" && !Array.isArray(fields) ? fields : null;
@@ -49,7 +62,7 @@ function overrideFields(override) {
 // items: the rendered hero line items before edits. override: the page
 // override object ({ fields }) or null. Items are trimmed; blanks dropped.
 export function editedScheduleParts(items, override) {
-  const base = (Array.isArray(items) ? items : []).map((item) => String(item == null ? "" : item));
+  const base = (Array.isArray(items) ? items : []).map(itemText);
   const fields = overrideFields(override);
   let parts = base;
   if (fields) {
@@ -114,12 +127,10 @@ function sourceOf(project) {
   return project && typeof project === "object" ? project : {};
 }
 
-// True when the page override changes what the page hero line shows.
-export function scheduleEdited(project, override, { timeZone = "America/Curacao" } = {}) {
-  const items = renderedItems(sourceOf(project), timeZone);
-  const before = editedScheduleParts(items, null);
-  const after = editedScheduleParts(items, override);
-  return before.length !== after.length || before.some((part, i) => part !== after[i]);
+// True when the page override changes the schedule line the card shows
+// (a price only edit, a dot edit or an edit of a missing span does not).
+export function scheduleEdited(project, override, options = {}) {
+  return cardScheduleLabel(project, override, options) !== cardScheduleLabel(project, null, options);
 }
 
 // Card schedule line for a site event project.
@@ -132,7 +143,7 @@ export function cardScheduleLabel(project, override = null, { timeZone = "Americ
   const source = sourceOf(project);
   const design = source.claudeDesign && typeof source.claudeDesign === "object" ? source.claudeDesign : {};
   const rateNames = Array.isArray(design.rates)
-    ? design.rates.map((rate) => String((rate && rate.name) || "").trim().toLowerCase()).filter(Boolean)
+    ? design.rates.map((rate) => itemText(rate && typeof rate === "object" ? rate.name : "").trim().toLowerCase()).filter(Boolean)
     : [];
   const schedule = editedScheduleParts(renderedItems(source, timeZone), override)
     .filter((item) => !isTicketMetadata(item, rateNames));

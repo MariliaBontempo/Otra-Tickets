@@ -799,8 +799,10 @@ function dateKeyInTimeZone(value, timeZone) {
 }
 
 // Apply the same KV field overrides the detail page uses so homepage cards
-// stay in sync: hero image (image:#evHeroImg / legacy image) and display
-// title (text:#evTitle). Exported for oracle scripts.
+// stay in sync: hero image (image:#evHeroImg / legacy image), display title
+// (text:#evTitle) and, for site event cards, the schedule line (#evMeta hero
+// line edits, from the same event:<id> / override:<id> document the page
+// reads first). Exported for oracle scripts.
 export async function applyOverrides(events, env) {
   if (!env || !env.OVERRIDES || !events.length) return events;
   const overrides = await Promise.all(

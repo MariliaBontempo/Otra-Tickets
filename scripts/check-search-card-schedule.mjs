@@ -200,6 +200,39 @@ eq(
   "a meta array of blanks still renders spans on the page, so their edits apply"
 );
 
+// Legacy editor keys ("main > #evMeta ...") still apply on the page.
+eq(
+  projectDateLabel(waterBikes, { fields: { "text:main > #evMeta > span:nth-of-type(3)": text("2h") } }),
+  "Tue-Sun · 2h",
+  "legacy main > span key reaches the card, like site-overrides.js"
+);
+eq(projectDateLabel(waterBikes, { fields: { "text:main > #evMeta": text("Daily") } }), "Daily", "legacy main > host key reaches the card");
+eq(
+  projectDateLabel(waterBikes, { fields: { "text:main>#evMeta > span:nth-of-type(1)": text("Nope") } }),
+  "Tue-Sun · 90 min",
+  "a main prefix the page cannot resolve is ignored on the card too"
+);
+
+// Price only edits do not count as schedule edits.
+assert(
+  !scheduleEdited(waterBikes, { fields: { "text:#evMeta > span:nth-of-type(5)": text("From $60") } }),
+  "a price only edit does not change the card schedule line"
+);
+
+// Malformed KV data never throws.
+const hostile = { toString: 1 };
+let malformed = "threw";
+try {
+  malformed = projectDateLabel(
+    { isPerennial: true, claudeDesign: { meta: [hostile, null, 7, "Daily"], rates: [{ name: hostile }, null, "x"] } },
+    { fields: { "text:#evMeta > span:nth-of-type(1)": { type: "text", value: hostile } } }
+  );
+} catch {
+  malformed = "threw";
+}
+eq(malformed, "7 · Daily", "non string meta items and values are blank, numbers kept, nothing throws");
+eq(projectDateLabel({ isPerennial: true, claudeDesign: { meta: "Daily" } }), "Flexible dates", "a non array meta is ignored");
+
 // 5. Feed integration: draft override, event:<id> precedence, LOCAL_CARD_INFO.
 const projects = {
   "site-event:draft-water-bikes": waterBikes,
@@ -218,7 +251,7 @@ const projects = {
     title: "Barber",
     status: "published",
     isPerennial: true,
-    claudeDesign: { meta: ["Tue-Sun"] },
+    claudeDesign: { meta: ["Tue-Sun", "From $50"] },
   },
 };
 const overrides = {
@@ -226,7 +259,12 @@ const overrides = {
     fields: { "text:#evMeta > span:nth-of-type(1)": text(TJ_LINE), "text:#evMeta > span:nth-of-type(3)": text("") },
   },
   "event:draft-clearboat": { fields: { "text:#evMeta > span:nth-of-type(1)": text("Mon to Sat: 9:00 AM") } },
-  "event:draft-local-plain": { fields: { "text:#evMeta > span:nth-of-type(7)": text("No such span") } },
+  "event:draft-local-plain": {
+    fields: {
+      "text:#evMeta > span:nth-of-type(7)": text("No such span"),
+      "text:#evMeta > span": text("Tue-Sun"),
+    },
+  },
 };
 const makeKv = (extra = {}) => ({
   async list({ prefix }) {
@@ -267,6 +305,26 @@ try {
   eq(titleOnly?.dateLabel, "Tue-Sun · 90 min", "a bound override without hero edits shows the authored line, like the page");
   eq(titleOnly?.title, "Renamed", "title override still applies");
 
+  // Legacy override:<id> key is read the same way as event:<id>.
+  const legacyEnv = {
+    OVERRIDES: makeKv({ "override:7175": { fields: { "text:#evMeta > span:nth-of-type(3)": text("2 hours") } } }),
+  };
+  eq(
+    (await applyOverrides(merged, legacyEnv)).find((ev) => String(ev.id) === "7175")?.dateLabel,
+    "Tue-Sun · 2 hours",
+    "override:<id> hero edit reaches the card"
+  );
+
+  // A visible edit on the bound id beats LOCAL_CARD_INFO in applyOverrides; a price only edit does not.
+  const clearboatVisible = await applyOverrides(merged, {
+    OVERRIDES: makeKv({ "event:6113": { fields: { "text:#evMeta > span:nth-of-type(3)": text("2.5 hours") } } }),
+  });
+  eq(clearboatVisible.find((ev) => String(ev.id) === "6113")?.dateLabel, "Daily · 2.5 hours", "event:6113 visible edit beats the local card label");
+  const localPriceOnly = await applyOverrides(merged, {
+    OVERRIDES: makeKv({ "event:7176": { fields: { "text:#evMeta > span:nth-of-type(3)": text("From $40") } } }),
+  });
+  eq(localPriceOnly.find((ev) => String(ev.id) === "7176")?.dateLabel, "Daily", "a price only edit keeps the local card label");
+
   // Upstream only events (no site project) are untouched by schedule logic.
   const upstreamOnly = await applyOverrides(
     [{ id: "999", title: "Upstream", dateLabel: "Flexible dates" }],
@@ -277,6 +335,12 @@ try {
   // Internal project reference never reaches the JSON payload.
   const json = JSON.stringify(boundApplied);
   assert(!json.includes("claudeDesign") && !json.includes("scheduleSource"), "schedule source must not leak into the feed JSON");
+  const parsed = JSON.parse(json);
+  const allowedKeys = new Set(["id", "title", "date", "endDate", "isPerennial", "hasTicketTypes", "venue", "location", "dateLabel", "img", "slug"]);
+  assert(
+    parsed.every((ev) => Object.keys(ev).every((key) => allowedKeys.has(key))),
+    "feed JSON events carry only the public card fields: " + JSON.stringify(parsed.map((ev) => Object.keys(ev)))
+  );
 } finally {
   globalThis.fetch = origFetch;
 }
@@ -294,6 +358,19 @@ if (renderMeta) {
 assert(
   /if \(Array\.isArray\(design\.meta\) && design\.meta\.length\) meta\.push\(\.\.\.design\.meta\);/.test(eventHtml),
   "event page hero line must render design.meta as the card does"
+);
+assert(
+  /else if \(start && !ev\.isPerennial\) meta\.push\(start\.long\);/.test(eventHtml),
+  "event page fallback for a dated event without meta must stay the start date (the card replays edits over it)"
+);
+assert(
+  /if \(!meta\.length && ev\.isPerennial\) meta\.push\("Flexible dates"\);/.test(eventHtml),
+  "event page fallback for a recurring tour without meta must stay Flexible dates"
+);
+const siteOverrides = readFileSync(new URL("../site-overrides.js", import.meta.url), "utf8");
+assert(
+  /if \(!el && selector\.startsWith\("main > #"\)\) \{\s*el = document\.querySelector\(selector\.slice\("main > "\.length\)\);/.test(siteOverrides),
+  "site-overrides.js must keep the legacy main > retry the card mirrors"
 );
 
 if (failures.length) {
