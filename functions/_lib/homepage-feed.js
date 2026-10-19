@@ -615,7 +615,7 @@ export async function buildPublishedSiteEvents(env, { includeAdminOnly = false }
         [HAS_TITLE_OVERRIDE]: Boolean(pageTitle),
         ...(slugSource ? { [SLUG_SOURCE]: slugSource } : {}),
         ...(frozen ? { [FROZEN_SLUG]: frozen } : {}),
-        [SCHEDULE_SOURCE]: { project, localCard: localCard || null },
+        [SCHEDULE_SOURCE]: { project: scheduleProject(project), localCard: localCard || null },
       });
     }
     cursor = page.list_complete ? undefined : page.cursor;
@@ -949,6 +949,20 @@ export function projectCardTitle(project) {
 // through ./schedule-line.js.
 export function projectDateLabel(project, override = null) {
   return cardScheduleLabel(project, override, { timeZone: HOMEPAGE_TIME_ZONE });
+}
+
+// Only the fields the schedule line reads, so a feed event never holds the
+// whole project document.
+function scheduleProject(project) {
+  const design = project && project.claudeDesign && typeof project.claudeDesign === "object" ? project.claudeDesign : {};
+  return {
+    isPerennial: project.isPerennial === true,
+    startDate: project.startDate,
+    claudeDesign: {
+      meta: Array.isArray(design.meta) ? design.meta.slice() : [],
+      rates: Array.isArray(design.rates) ? design.rates.map((rate) => ({ name: rate && rate.name })) : [],
+    },
+  };
 }
 
 // An edit made in the page editor beats the hard coded LOCAL_CARD_INFO label.
