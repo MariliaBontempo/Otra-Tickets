@@ -9,7 +9,7 @@
 
 import { eventSlug, legacyCuratedTitle, persistedFrozenSlug } from "./event-slug.js";
 import { readHiddenPageIds } from "./hidden-pages.js";
-import { cardScheduleLabel, hasEditedSchedule } from "./schedule-line.js";
+import { cardScheduleLabel, scheduleEdited, validDateValue } from "./schedule-line.js";
 
 const API = "https://otraguide.com/api";
 
@@ -787,11 +787,6 @@ export function dedupeEvents(events) {
   return [...byId.values()];
 }
 
-function validDateValue(value) {
-  if (typeof value !== "string" || !value.trim()) return null;
-  return Number.isFinite(new Date(value).getTime()) ? value : null;
-}
-
 function dateKeyInTimeZone(value, timeZone) {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone,
@@ -943,10 +938,9 @@ export function projectCardTitle(project) {
   return title || "Claude Design Event";
 }
 
-// Card schedule line. The authored hero line (design.meta) with the page
-// editor's edits applied wins; a recurring tour never shows a single date; a
-// dated event keeps its real start date. Shared with the event page hero line
-// through ./schedule-line.js.
+// Card schedule line: the event page hero line with the page editor's edits
+// applied (see ./schedule-line.js); a recurring tour never shows a single
+// date; a dated event keeps its real start date.
 export function projectDateLabel(project, override = null) {
   return cardScheduleLabel(project, override, { timeZone: HOMEPAGE_TIME_ZONE });
 }
@@ -965,9 +959,12 @@ function scheduleProject(project) {
   };
 }
 
-// An edit made in the page editor beats the hard coded LOCAL_CARD_INFO label.
+// An edit that changes the page hero line beats the hard coded
+// LOCAL_CARD_INFO label.
 function siteEventDateLabel(project, override, localCard) {
-  if (localCard && localCard.dateLabel && !hasEditedSchedule(override)) return localCard.dateLabel;
+  if (localCard && localCard.dateLabel && !scheduleEdited(project, override, { timeZone: HOMEPAGE_TIME_ZONE })) {
+    return localCard.dateLabel;
+  }
   return projectDateLabel(project, override);
 }
 

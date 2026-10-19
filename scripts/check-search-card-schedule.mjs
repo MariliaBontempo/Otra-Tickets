@@ -15,7 +15,7 @@ import {
 import {
   cardScheduleLabel,
   editedScheduleParts,
-  hasEditedSchedule,
+  scheduleEdited,
   metaItemSelector,
 } from "../functions/_lib/schedule-line.js";
 
@@ -141,7 +141,6 @@ for (const [label, override] of [
   ["unrelated fields", { fields: { "text:#evTitle": text("Renamed") } }],
   ["image field on a hero item", { fields: { "image:#evMeta > span:nth-of-type(1)": { type: "image", value: "/x.jpg" } } }],
   ["non text field type", { fields: { "text:#evMeta > span:nth-of-type(1)": { type: "image", value: "x" } } }],
-  ["non string value", { fields: { "text:#evMeta > span:nth-of-type(1)": { type: "text", value: 42 } } }],
   ["null field", { fields: { "text:#evMeta > span:nth-of-type(1)": null } }],
 ]) {
   eq(projectDateLabel(waterBikes, override), "Tue-Sun · 90 min", `${label} falls back to the authored line`);
@@ -158,9 +157,48 @@ eq(
 );
 eq(cardScheduleLabel(null), "", "missing project yields an empty line");
 eq(editedScheduleParts(undefined, null).length, 0, "no meta and no edits yields no parts");
-assert(!hasEditedSchedule({ fields: { "text:#evTitle": text("x") } }), "a title edit is not a schedule edit");
-assert(hasEditedSchedule({ fields: { "text:#evMeta > span:nth-of-type(3)": text("") } }), "a blanked item is a schedule edit");
-assert(hasEditedSchedule({ fields: { "text:#evMeta": text("x") } }), "a host edit is a schedule edit");
+eq(
+  projectDateLabel(waterBikes, { fields: { "text:#evMeta > span:nth-of-type(1)": { type: "text", value: 42 } } }),
+  "90 min",
+  "a non string value is blank on the page (/api/override turns it into \"\"), so the card drops that item too"
+);
+assert(!scheduleEdited(waterBikes, { fields: { "text:#evTitle": text("x") } }), "a title edit is not a schedule edit");
+assert(scheduleEdited(waterBikes, { fields: { "text:#evMeta > span:nth-of-type(3)": text("") } }), "a blanked item is a schedule edit");
+assert(scheduleEdited(waterBikes, { fields: { "text:#evMeta": text("x") } }), "a host edit is a schedule edit");
+assert(!scheduleEdited(waterBikes, { fields: { "text:#evMeta > span:nth-of-type(2)": text("|") } }), "a dot edit changes nothing on the page");
+assert(!scheduleEdited(waterBikes, { fields: { "text:#evMeta > span:nth-of-type(9)": text("x") } }), "an edit of a missing span changes nothing on the page");
+assert(!scheduleEdited(waterBikes, { fields: { "text:#evMeta > span:nth-of-type(1)": text("Tue-Sun") } }), "saving the same text is not a change");
+
+// One item hero line: the editor saves the bare "#evMeta > span" selector.
+const oneItem = { ...waterBikes, claudeDesign: { meta: ["Daily"] } };
+eq(projectDateLabel(oneItem, { fields: { "text:#evMeta > span": text("Mon-Sat 9AM") } }), "Mon-Sat 9AM", "bare span selector edits a one item line");
+eq(
+  projectDateLabel(waterBikes, { fields: { "text:#evMeta > span": text("First") } }),
+  "First · 90 min",
+  "bare span selector targets the first span, like querySelector"
+);
+
+// No design.meta: the page renders a fallback span the editor can edit.
+const noMetaTour = { ...waterBikes, claudeDesign: {} };
+eq(projectDateLabel(noMetaTour), "Flexible dates", "recurring tour without meta shows the page fallback");
+eq(projectDateLabel(noMetaTour, { fields: { "text:#evMeta > span": text("Daily 9AM") } }), "Daily 9AM", "edit of the recurring fallback span reaches the card");
+const noMetaDated = { isPerennial: false, startDate: "2026-11-07T20:00:00-04:00", claudeDesign: { meta: [] } };
+eq(projectDateLabel(noMetaDated), "Sat, November 7", "dated event without meta shows its real date");
+eq(
+  projectDateLabel(noMetaDated, { fields: { "text:#evMeta > span": text("Doors 7PM") } }),
+  "Sat, November 7 · Doors 7PM",
+  "edit of the dated fallback span reaches the card and the real date stays"
+);
+eq(
+  projectDateLabel({ isPerennial: false, claudeDesign: {} }, { fields: { "text:#evMeta > span": text("Nope") } }),
+  "",
+  "no meta, no date: the page renders no span, so the edit does nothing"
+);
+eq(
+  projectDateLabel({ ...waterBikes, claudeDesign: { meta: ["", " "] } }, { fields: { "text:#evMeta > span:nth-of-type(3)": text("Weekends") } }),
+  "Weekends",
+  "a meta array of blanks still renders spans on the page, so their edits apply"
+);
 
 // 5. Feed integration: draft override, event:<id> precedence, LOCAL_CARD_INFO.
 const projects = {
@@ -188,6 +226,7 @@ const overrides = {
     fields: { "text:#evMeta > span:nth-of-type(1)": text(TJ_LINE), "text:#evMeta > span:nth-of-type(3)": text("") },
   },
   "event:draft-clearboat": { fields: { "text:#evMeta > span:nth-of-type(1)": text("Mon to Sat: 9:00 AM") } },
+  "event:draft-local-plain": { fields: { "text:#evMeta > span:nth-of-type(7)": text("No such span") } },
 };
 const makeKv = (extra = {}) => ({
   async list({ prefix }) {
@@ -203,7 +242,7 @@ try {
   const byId = new Map(site.map((ev) => [String(ev.id), ev]));
   eq(byId.get("7175")?.dateLabel, TJ_LINE, "feed card for Water Bikes follows the draft page edit");
   eq(byId.get("6113")?.dateLabel, "Mon to Sat: 9:00 AM · 3 hours", "a page edit beats the hard coded local card label");
-  eq(byId.get("7176")?.dateLabel, "Daily", "without an edit the hard coded local card label stays");
+  eq(byId.get("7176")?.dateLabel, "Daily", "without a visible hero line edit the hard coded local card label stays");
 
   // Upstream copy must not replace the site card line during dedupe.
   const merged = dedupeEvents([...site, { id: "7175", title: "Water Bikes", dateLabel: "Flexible dates", isPerennial: true }]);
