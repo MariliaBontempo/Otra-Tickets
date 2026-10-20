@@ -66,6 +66,16 @@ const kv = {
   },
 };
 
+// Published fixtures are dated relative to now: the pages API drops events
+// that already ended, so fixed dates would age the check out.
+const at = (days) => {
+  const d = new Date(Date.now() + days * 86400000);
+  d.setUTCHours(22, 0, 0, 0);
+  return d.toISOString();
+};
+const firstStart = at(12);
+const secondStart = at(19);
+
 const originalFetch = globalThis.fetch;
 globalThis.fetch = async (input) => {
   const url = String(input);
@@ -75,19 +85,20 @@ globalThis.fetch = async (input) => {
       id: 9001,
       title: 'Published Same Name',
       slug: 'published-same-name',
-      start_date: '2026-11-01T18:00:00-04:00',
+      start_date: firstStart,
       is_ticketed: true,
       is_perennial: false,
     }, {
       id: 9002,
       title: 'Published Same Name',
       slug: 'published-same-name-2',
-      start_date: '2026-11-08T18:00:00-04:00',
+      start_date: secondStart,
       is_ticketed: true,
       is_perennial: false,
     }]);
   }
-  if (url.includes('/ticket/purchase/tickets/')) return Response.json({ count: 1 });
+  const lookup = url.match(/\/events\/admin-ticketed-search\/\?id=(\d+)$/);
+  if (lookup) return Response.json({ events: [{ id: Number(lookup[1]), title: 'Published Same Name', isPast: false, tickets: [{ id: 1 }] }] });
   return new Response('{}', { status: 404 });
 };
 
@@ -102,8 +113,8 @@ try {
   assert(response.status === 200, 'pages API must succeed');
   assert(payload.pages.find((page) => page.id === 'draft-sep-6')?.startDate === '2026-09-06T17:00:00-04:00', 'draft startDate must reach the dropdown');
   assert(payload.pages.find((page) => page.id === 'draft-dec-13')?.startDate === '2026-12-13T17:00:00-04:00', 'second draft startDate must reach the dropdown');
-  assert(payload.pages.find((page) => page.id === '9001')?.startDate === '2026-11-01T18:00:00-04:00', 'published event startDate must reach the dropdown');
-  assert(payload.pages.find((page) => page.id === '9002')?.startDate === '2026-11-08T18:00:00-04:00', 'second published event startDate must reach the dropdown');
+  assert(payload.pages.find((page) => page.id === '9001')?.startDate === firstStart, 'published event startDate must reach the dropdown');
+  assert(payload.pages.find((page) => page.id === '9002')?.startDate === secondStart, 'second published event startDate must reach the dropdown');
 } finally {
   globalThis.fetch = originalFetch;
 }

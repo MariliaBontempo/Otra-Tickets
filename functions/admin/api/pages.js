@@ -6,12 +6,13 @@
 // Ticketed events come from one staff call to the Otra Guide calendar feed
 // (category 339, about a month back to a year ahead) plus the same first 4
 // pages of the category feed the list used before, which carry promoted,
-// pinned, perennial and still running events the calendar window can miss. So
-// the list is always a superset of the old one. The staff Bearer token is forwarded so staff-only
-// events such as Cascada NYE appear, and happy hours and other unticketed rows
-// are dropped before any ticket check. Events known only from KV drafts or
-// overrides (for example unpublished ones) are looked up one by one through
-// the staff ticketed search.
+// pinned, perennial and still running events the calendar window can miss, so
+// the list is always a superset of the old one. The staff Bearer token is
+// forwarded so staff-only events such as Cascada NYE appear. Happy hours and
+// other unticketed rows are dropped before any lookup. Every remaining event
+// is checked through the staff ticketed search, which counts ticket types even
+// before their sale opens or after they sell out, and the same search finds
+// events known only from KV drafts or overrides (for example unpublished ones).
 
 import { json, otraGet, requireStaff } from "./_auth.js";
 import { HIDDEN_PAGES_KEY, readHiddenPageIds } from "../../_lib/hidden-pages.js";
@@ -191,7 +192,7 @@ async function getTemplatePages(context, token, knownIds) {
       const hit = await cache.match(cacheKey);
       if (hit) {
         const payload = await hit.json();
-        if (payload && Array.isArray(payload.pages)) return { status: 200, pages: payload.pages };
+        if (payload && Array.isArray(payload.pages)) return { status: 200, pages: payload.pages, note: payload.note || "" };
       }
     } catch {
       // Treat an unreadable cache entry as a miss.
@@ -200,7 +201,7 @@ async function getTemplatePages(context, token, knownIds) {
 
   const built = await buildTemplatePages(context.env, token, knownIds);
   if (cacheKey && !built.error && built.status === 200) {
-    const response = new Response(JSON.stringify({ pages: built.pages }), {
+    const response = new Response(JSON.stringify({ pages: built.pages, note: built.note || "" }), {
       headers: {
         "content-type": "application/json; charset=utf-8",
         "cache-control": `max-age=${CACHE_TTL_SECONDS}`,
@@ -235,7 +236,8 @@ async function buildTemplatePages(env, token, knownIds = []) {
     else if (page.status !== 404 && !error) error = `category feed unavailable (${page.status || "network"})`;
   }
 
-  const resolved = await resolveGroups(env, token, groupBySlug(rows || [], Date.now()));
+  const lookup = ticketedLookup(env, token);
+  const resolved = await resolveGroups(env, token, lookup, groupBySlug(rows || [], Date.now()));
   if (resolved.failed && !error) error = "some recurring events could not be resolved";
   const groups = mergeFeedHead(resolved.groups, headRows);
   const eligible = groups.filter((ev) => !FEATURED_IDS.has(ev.id) && !EXCLUDED_IDS.has(ev.id)).sort(byStart);
@@ -244,20 +246,27 @@ async function buildTemplatePages(env, token, knownIds = []) {
   // reported but does not block caching.
   const note = eligible.length > candidates.length ? `list truncated to ${MAX_TICKET_CHECKS} events` : "";
 
-  let ticketCheckFailed = false;
-  const ticketCounts = await mapLimited(candidates, LOOKUP_CONCURRENCY, async (ev) => {
-    const tickets = await otraGet(env, token, `/ticket/purchase/tickets/${ev.id}/`, { timeoutMs: LOOKUP_TIMEOUT_MS });
-    if (!tickets.data && tickets.status !== 404) ticketCheckFailed = true;
-    return tickets.data ? Number(tickets.data.count) || 0 : 0;
-  });
-  if (ticketCheckFailed && !error) error = "some ticket checks failed";
-  const listed = candidates.filter((_, i) => ticketCounts[i] > 0);
+  const checks = await mapLimited(candidates, LOOKUP_CONCURRENCY, (ev) => lookup.byId(ev.id));
+  if (checks.some((check) => check.failed) && !error) error = "some ticket checks failed";
+  const listed = candidates.filter((_, i) => isEditable(checks[i].event));
 
   const seen = new Set(groups.map((ev) => ev.id));
-  const fallback = await lookupKnownEvents(env, token, knownIds.filter((id) => !seen.has(id)));
-  if (fallback.failed && !error) error = "some saved events could not be checked";
+  const fallbackIds = knownIds
+    .filter((id) => !seen.has(id) && !FEATURED_IDS.has(id) && !EXCLUDED_IDS.has(id))
+    .slice(0, MAX_FALLBACK_LOOKUPS);
+  const fallbackChecks = await mapLimited(fallbackIds, LOOKUP_CONCURRENCY, (id) => lookup.byId(id));
+  if (fallbackChecks.some((check) => check.failed) && !error) error = "some saved events could not be checked";
+  const fallback = fallbackChecks
+    .map((check) => check.event)
+    .filter(isEditable)
+    .map((ev) => ({
+      id: Number(ev.id),
+      title: ev.title || `Event ${ev.id}`,
+      isPerennial: !!ev.isPerennial,
+      startDate: typeof ev.startDate === "string" ? ev.startDate : "",
+    }));
 
-  const pages = [...listed, ...fallback.events]
+  const pages = [...listed, ...fallback]
     .sort((a, b) => {
       if (a.isPerennial !== b.isPerennial) return a.isPerennial ? 1 : -1;
       return byStart(a, b);
@@ -272,6 +281,45 @@ async function buildTemplatePages(env, token, knownIds = []) {
   return { status: 200, pages, error, note };
 }
 
+// An event belongs in the editor when it has ticket types (on sale, not yet
+// on sale or sold out) and has not ended.
+function isEditable(ev) {
+  return !!ev && !ev.isPast && Array.isArray(ev.tickets) && ev.tickets.length > 0;
+}
+
+// Staff ticketed search, memoized per build. It reads the event records rather
+// than the purchase window and records no page views. byId resolves to
+// { event } (event null when the id has no ticket types) or { failed: true }.
+function ticketedLookup(env, token) {
+  const memo = new Map();
+  const remember = (ev) => {
+    if (ev && ev.id && !memo.has(Number(ev.id))) memo.set(Number(ev.id), Promise.resolve({ event: ev }));
+  };
+  return {
+    remember,
+    byId(id) {
+      if (!memo.has(id)) {
+        memo.set(
+          id,
+          otraGet(env, token, `/events/admin-ticketed-search/?id=${id}`, { timeoutMs: LOOKUP_TIMEOUT_MS }).then((result) => {
+            if (!result.data || !Array.isArray(result.data.events)) return { failed: true };
+            return { event: result.data.events.find((ev) => Number(ev && ev.id) === id) || null };
+          })
+        );
+      }
+      return memo.get(id);
+    },
+    async byTitle(title) {
+      const result = await otraGet(env, token, `/events/admin-ticketed-search/?q=${encodeURIComponent(title)}`, {
+        timeoutMs: LOOKUP_TIMEOUT_MS,
+      });
+      if (!result.data || !Array.isArray(result.data.events)) return { failed: true, events: [] };
+      result.data.events.forEach(remember);
+      return { events: result.data.events };
+    },
+  };
+}
+
 function calendarWindow(now) {
   const start = new Date(now.getTime() - LOOKBACK_DAYS * 86400000);
   const end = new Date(now.getTime());
@@ -282,8 +330,7 @@ function calendarWindow(now) {
 // Keep only ticketed or perennial rows, then fold the per occurrence rows of a
 // recurring event into one entry (earliest start wins). Event.slug is unique
 // in Otra Guide; rows without one are keyed by id. Groups whose last row ended
-// before now are dropped (the window looks back a month), matching the past
-// rule of the ticketed search fallback.
+// before now are dropped (the window looks back a month).
 function groupBySlug(rows, nowMs) {
   const groups = new Map();
   for (const row of rows) {
@@ -292,50 +339,55 @@ function groupBySlug(rows, nowMs) {
     const startDate = typeof row.start_date === "string" ? row.start_date : "";
     const endMs = Date.parse(row.end_date || row.start_date || "");
     const occurrence = OCCURRENCE_TITLE.test(String(row.title || ""));
-    const group = groups.get(key);
+    let group = groups.get(key);
     if (!group) {
-      groups.set(key, {
+      group = {
         id: Number(row.id),
+        slug: row.slug || "",
         title: String(row.title || "").replace(OCCURRENCE_TITLE, ""),
-        isPerennial: !!row.is_perennial,
+        isPerennial: false,
         startDate,
-        needsResolve: occurrence,
-        lastEndMs: Number.isFinite(endMs) ? endMs : Infinity,
-        rows: 1,
-      });
-      continue;
+        occurrence: false,
+        plainId: 0,
+        lastEndMs: -Infinity,
+      };
+      groups.set(key, group);
     }
-    group.rows += 1;
-    group.lastEndMs = Math.max(group.lastEndMs, Number.isFinite(endMs) ? endMs : Infinity);
-    group.needsResolve = group.needsResolve || occurrence;
+    group.occurrence = group.occurrence || occurrence;
     group.isPerennial = group.isPerennial || !!row.is_perennial;
     if (!occurrence && !group.plainId) group.plainId = Number(row.id);
+    group.lastEndMs = Math.max(group.lastEndMs, Number.isFinite(endMs) ? endMs : Infinity);
     if (startDate && (!group.startDate || new Date(startDate) < new Date(group.startDate))) group.startDate = startDate;
   }
-  return [...groups.values()].filter((group) => group.lastEndMs >= nowMs);
+  return [...groups.values()]
+    .filter((group) => group.lastEndMs >= nowMs)
+    .map((group) => (group.plainId ? { ...group, id: group.plainId, occurrence: false } : group));
 }
 
-// Occurrence rows carry combined ids (event id + occurrence id). The detail
-// endpoint decodes them back to the event, so ask it for the base id, title
-// and perennial flag. A group that cannot be resolved is left out rather than
-// listed under an id the editor cannot open.
-async function resolveGroups(env, token, groups) {
+// Occurrence rows carry combined ids (event id + occurrence id). Find the base
+// event through the staff ticketed search by title, matched on the unique slug
+// (no page view is recorded). Only when the title search cannot find it, fall
+// back to the detail endpoint, which decodes combined ids. A group that cannot
+// be resolved is left out rather than listed under an id the editor cannot
+// open; a lookup outage marks the build failed so it is not cached.
+async function resolveGroups(env, token, lookup, groups) {
   let failed = false;
   const resolved = await mapLimited(groups, LOOKUP_CONCURRENCY, async (group) => {
-    if (!group.needsResolve) return group;
-    const probeId = group.plainId || group.id;
-    const detail = await otraGet(env, token, `/events/details/${probeId}/`, { timeoutMs: LOOKUP_TIMEOUT_MS });
-    const data = detail.data;
-    if (!data || !data.id) {
-      // 404 means the event is gone or hidden; anything else is an outage.
-      if (detail.status !== 404) failed = true;
-      return null;
+    if (!group.occurrence) return group;
+    const search = await lookup.byTitle(group.title);
+    if (search.failed) failed = true;
+    let match = group.slug ? search.events.find((ev) => ev && ev.slug === group.slug) : null;
+    if (!match) {
+      const detail = await otraGet(env, token, `/events/details/${group.id}/`, { timeoutMs: LOOKUP_TIMEOUT_MS });
+      if (detail.data && detail.data.id) match = { id: detail.data.id, title: detail.data.title, isPerennial: detail.data.is_perennial };
+      else if (detail.status !== 404) failed = true;
     }
+    if (!match) return null;
     return {
       ...group,
-      id: Number(data.id),
-      title: typeof data.title === "string" && data.title.trim() ? data.title.trim() : group.title,
-      isPerennial: !!data.is_perennial,
+      id: Number(match.id),
+      title: typeof match.title === "string" && match.title.trim() ? match.title.trim() : group.title,
+      isPerennial: !!match.isPerennial,
     };
   });
   const byId = new Map();
@@ -375,29 +427,6 @@ async function mapLimited(items, limit, fn) {
   });
   await Promise.all(workers);
   return results;
-}
-
-// Staff ticketed search by id: finds unpublished events and keeps the same
-// rules as the calendar path (has tickets, not past).
-async function lookupKnownEvents(env, token, ids) {
-  let failed = false;
-  const found = await mapLimited(ids.slice(0, MAX_FALLBACK_LOOKUPS), LOOKUP_CONCURRENCY, async (id) => {
-    const result = await otraGet(env, token, `/events/admin-ticketed-search/?id=${id}`, { timeoutMs: LOOKUP_TIMEOUT_MS });
-    if (!result.data) {
-      failed = true;
-      return null;
-    }
-    const ev = Array.isArray(result.data.events) ? result.data.events.find((item) => Number(item && item.id) === id) : null;
-    if (!ev || ev.isPast || !Array.isArray(ev.tickets) || !ev.tickets.length) return null;
-    if (FEATURED_IDS.has(id) || EXCLUDED_IDS.has(id)) return null;
-    return {
-      id,
-      title: ev.title || `Event ${id}`,
-      isPerennial: !!ev.isPerennial,
-      startDate: typeof ev.startDate === "string" ? ev.startDate : "",
-    };
-  });
-  return { events: found.filter(Boolean), failed };
 }
 
 function byStart(a, b) {
