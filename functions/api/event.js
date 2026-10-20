@@ -9,7 +9,7 @@ import { checkStaff } from "../admin/api/_auth.js";
 import { requestToken } from "../_lib/session.js";
 import { findBoundProjects, resolvePageOverride } from "../_lib/page-override.js";
 import { hasEnded } from "../_lib/event-ended.js";
-import { HIDDEN_DETAIL_EXCEPTIONS, guideDetailMissing, keepsSellingWhileHidden } from "../_lib/guide-event-hidden.js";
+import { HIDDEN_DETAIL_EXCEPTIONS, guideApiBase, guideDetailMissing, keepsSellingWhileHidden } from "../_lib/guide-event-hidden.js";
 
 const API = "https://otraguide.com/api";
 const UPSTREAM_TTL = 300;
@@ -19,6 +19,9 @@ const EDGE_TTL = 600;
 // serialized) so draft pages render exactly as before while isPast still
 // knows when the project's event is over.
 const PROJECT_DATES = Symbol("projectDates");
+// Otra Guide failed (5xx, 429, timeout) rather than answering 404: the page
+// shows its error state, never "not found", and nothing is cached.
+const UPSTREAM_FAILED = Symbol("upstreamFailed");
 
 const ACCENT_OVERRIDES = {
   "6113": "#1fa9a0", // Clearboat — turquoise from the original handoff design
@@ -34,6 +37,7 @@ export async function onRequestGet(context) {
   const bound = /^\d+$/.test(id) ? await findBoundProjects(context.env && context.env.OVERRIDES, id) : null;
   const project = bound ? bound.latest : null;
   const base = await getBasePayload(context, id, url, project);
+  if (base === UPSTREAM_FAILED) return json({ error: "upstream unavailable" }, 502);
   if (!base) return json({ error: "not found" }, 404);
 
   // Admin-only events are hidden from the public; a valid staff Bearer token
@@ -78,8 +82,8 @@ async function getBasePayload(context, id, url, project) {
 
   const accentOverride = ACCENT_OVERRIDES[id] || null;
   const ticketsUrl = `${api}/ticket/purchase/tickets/${id}/?include_choice_addons=1`;
-  let [detail, ticketData, calendarAccent] = await Promise.all([
-    fetchJson(`${api}/events/details/${id}/`),
+  let [{ data: detail, status: detailStatus }, ticketData, calendarAccent] = await Promise.all([
+    fetchJsonWithStatus(`${api}/events/details/${id}/`),
     fetchJson(ticketsUrl),
     accentOverride ? Promise.resolve(null) : fetchCalendarPrimary(id, api),
   ]);
@@ -115,8 +119,9 @@ async function getBasePayload(context, id, url, project) {
     ]);
     staffView = !!detail;
   }
-  // Otherwise a missing Guide detail means the storefront shows nothing.
-  if (!detail) return null;
+  // Otherwise a Guide 404 means the storefront shows nothing; any other
+  // failure is an outage, not a missing event.
+  if (!detail) return detailStatus === 404 ? null : UPSTREAM_FAILED;
 
   const { tickets, addons } = ticketLists(ticketData);
 
@@ -172,7 +177,7 @@ function ticketLists(ticketData) {
 }
 
 function apiBase(env) {
-  return String((env && env.OTRA_API_URL) || API).replace(/\/$/, "");
+  return guideApiBase(env);
 }
 
 // A draft bound to a Guide event follows that event: when the Guide detail is
@@ -281,6 +286,18 @@ function json(obj, status = 200, maxAge = 0) {
       "cache-control": maxAge ? `public, max-age=${maxAge}` : "no-store",
     },
   });
+}
+
+// The detail fetch also reports the status, so a 404 is told apart from an
+// outage (status 0 when the request itself failed).
+async function fetchJsonWithStatus(url) {
+  try {
+    const resp = await fetch(url, { headers: { Accept: "application/json" }, cf: { cacheTtl: UPSTREAM_TTL, cacheEverything: true } });
+    if (!resp.ok) return { data: null, status: resp.status };
+    return { data: await resp.json(), status: resp.status };
+  } catch {
+    return { data: null, status: 0 };
+  }
 }
 
 // With a token the call is per-user: authorised and never edge-cached.

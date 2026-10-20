@@ -3,6 +3,8 @@
 // draft page, no page edits and no homepage or search card. Only an explicit
 // 404 counts; an outage or any other error never hides a page.
 
+import { isOtraGuideId } from "./page-override.js";
+
 const API = "https://otraguide.com/api";
 const UPSTREAM_TTL = 300;
 
@@ -16,10 +18,6 @@ export function guideApiBase(env) {
   return String((env && env.OTRA_API_URL) || API).replace(/\/$/, "");
 }
 
-export function isGuideId(value) {
-  return /^\d+$/.test(String(value || ""));
-}
-
 // Every page load asks (the event and its page edits), so a definite answer
 // (found or 404) is remembered briefly per process. Errors are never kept.
 const STATUS_TTL_MS = 60 * 1000;
@@ -30,7 +28,7 @@ export function forgetGuideStatuses() {
 }
 
 export async function guideDetailMissing(api, guideId) {
-  if (!isGuideId(guideId)) return false;
+  if (!isOtraGuideId(guideId)) return false;
   const key = `${api}|${guideId}`;
   const memo = statusMemo.get(key);
   if (memo && memo.expires > Date.now()) return memo.missing;
@@ -40,7 +38,8 @@ export async function guideDetailMissing(api, guideId) {
       cf: { cacheTtl: UPSTREAM_TTL, cacheEverything: true },
     });
     if (resp.status === 404 || resp.ok) {
-      if (statusMemo.size > 500) statusMemo.clear();
+      // Bounded: the oldest answer goes first.
+      if (statusMemo.size >= 500) statusMemo.delete(statusMemo.keys().next().value);
       statusMemo.set(key, { missing: resp.status === 404, expires: Date.now() + STATUS_TTL_MS });
     }
     return resp.status === 404;

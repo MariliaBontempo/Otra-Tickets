@@ -75,7 +75,7 @@ async function withUpstream(fn, { guideDown = false, staffToken = "" } = {}) {
     }
     let m;
     if ((m = path.match(/^\/api\/events\/details\/(\d+)\/$/))) {
-      if (guideDown) return new Response("upstream error", { status: 502 });
+      if (guideDown) return new Response("upstream error", { status: guideDown === true ? 502 : guideDown });
       if (auth && staffToken && auth === `Bearer ${staffToken}` && m[1] === "7567") return Response.json({ id: 7567, title: "Kaya Kaya Festival 2026", start_date: kaya.startDate, end_date: kaya.endDate, is_ticketed: true });
       return details[m[1]] ? Response.json(details[m[1]]) : Response.json({ detail: "No Event matches the given query." }, { status: 404 });
     }
@@ -144,6 +144,19 @@ test("an outage is not a 404: bound draft pages and page edits stay up while Gui
     assert.equal((await event("draft-live", all)).status, 200);
     assert.ok(await override("7479", all), "edits stay");
   }, { guideDown: true });
+});
+
+test("a Guide outage or rate limit on a bound event page is an error, never not found", async () => {
+  for (const guideDown of [502, 429]) {
+    await withUpstream(async () => {
+      const { status, body, cacheControl } = await event("7479", all);
+      assert.equal(status, 502, `Guide ${guideDown}`);
+      assert.deepEqual(body, { error: "upstream unavailable" });
+      assert.equal(cacheControl, "no-store");
+      const unbound = await event("7522", []);
+      assert.equal(unbound.status, 502, `unbound event under Guide ${guideDown}`);
+    }, { guideDown });
+  }
 });
 
 test("unbound drafts and live events are unaffected", async () => {
@@ -228,6 +241,9 @@ test("event.html renders an empty not found state on a 404, with no event conten
   assert.match(body, /<h1>Event not found<\/h1>/);
   assert.equal(/id="ev/.test(body), false, "no element the page edits can target");
   assert.match(body, /robots\.content = "noindex"/);
+  // Any other failure (a 502 from an outage) keeps the error state.
+  const fetchAt = html.indexOf("if (resp.status === 404)");
+  assert.ok(html.indexOf('if (!resp.ok) throw new Error("HTTP " + resp.status);', fetchAt) > fetchAt);
 });
 
 test("a found or 404 answer is remembered briefly; an error is asked again", async () => {
