@@ -4,7 +4,7 @@
 // Otra Guide event and hydrate its ticket types before creating an Otra Tickets
 // draft that points at that event.
 
-import { apiBase, requireStaff, json } from "./_auth.js";
+import { apiBase, otraGet, requireStaff, json } from "./_auth.js";
 
 const CATEGORY_ID = 339;
 const PAGE_SIZE = 12;
@@ -394,18 +394,7 @@ export async function syncSiteEventDates(kv, { draftId, eventId, newStartIso, ne
 }
 
 async function otraJson(context, accessToken, path) {
-  try {
-    const response = await fetch(`${apiBase(context.env)}${path}`, {
-      headers: {
-        accept: "application/json",
-        authorization: `Bearer ${accessToken}`,
-      },
-    });
-    if (!response.ok) return null;
-    return response.json().catch(() => null);
-  } catch {
-    return null;
-  }
+  return (await otraGet(context.env, accessToken, path)).data;
 }
 
 async function otraWrite(context, accessToken, path, options) {

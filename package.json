@@ -36,6 +36,7 @@
     "check:feed-fast-path": "node scripts/check-feed-fast-path.mjs",
     "check:admin-remove-video": "node scripts/check-admin-remove-video.mjs",
     "check:search-card-schedule": "node scripts/check-search-card-schedule.mjs",
-    "check:publish-draft-edits": "node scripts/check-publish-keeps-draft-edits.mjs"
+    "check:publish-draft-edits": "node scripts/check-publish-keeps-draft-edits.mjs",
+    "check:admin-editor-list": "node scripts/check-admin-editor-list.mjs"
   }
 }
