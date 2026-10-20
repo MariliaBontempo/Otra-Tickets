@@ -127,7 +127,9 @@ try {
       const copyResponse = await onRequestPost({ env, request: new Request(
         `https://tickets.test/admin/api/projects?action=clone&id=${project.id}`, {
           method: 'POST', headers: { authorization: 'Bearer local-fixture', 'content-type': 'application/json' },
-          body: JSON.stringify({ title: 'Local contract copy' }),
+          // Clones must confirm each ticket sale window (clone sale windows flow).
+          body: JSON.stringify({ title: 'Local contract copy',
+            ticketSaleWindows: [{ name: 'Entrance', saleStartDate: '2026-10-01', saleEndDate: '2026-10-12' }] }),
         }) });
       assert.equal(copyResponse.status, 201, 'copying the draft must succeed with mocked Guide writes');
       const copyTicket = calls.find(c => c.path === '/api/ticket/create/tickets/9090/');

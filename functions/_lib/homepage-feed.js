@@ -9,6 +9,7 @@
 
 import { eventSlug, legacyCuratedTitle, persistedFrozenSlug } from "./event-slug.js";
 import { readHiddenPageIds } from "./hidden-pages.js";
+import { cardScheduleLabel, scheduleEdited, validDateValue } from "./schedule-line.js";
 
 const API = "https://otraguide.com/api";
 
@@ -82,6 +83,9 @@ const SLUG_SOURCE = Symbol("slugSource");
 // Exact persisted frozenSlug. assignUniqueSlugs must not recompute or
 // suffix this value (a stored date suffix stays as stored).
 const FROZEN_SLUG = Symbol("frozenSlug");
+// Site event project behind a card, kept so applyOverrides can rebuild the
+// schedule line from the same page override the event page applies.
+const SCHEDULE_SOURCE = Symbol("scheduleSource");
 
 // Build the full { events, rows } homepage payload.
 //   includeAdminOnly — include KV site events flagged adminOnly (staff preview)
@@ -544,13 +548,15 @@ export async function buildPublishedSiteEvents(env, { includeAdminOnly = false }
       // time — so prefer the override hero, exactly like the detail page does.
       let overrideImg = "";
       let overrideTitle = "";
+      let draftOverride = null;
       try {
-        const draftOverride =
+        draftOverride =
           (await kv.get(`event:${draftId}`, "json")) ||
           (await kv.get(`override:${draftId}`, "json"));
         overrideImg = homepageOverrideImage(draftOverride);
         overrideTitle = homepageOverrideTitle(draftOverride);
       } catch {
+        draftOverride = null;
         overrideImg = "";
         overrideTitle = "";
       }
@@ -598,7 +604,7 @@ export async function buildPublishedSiteEvents(env, { includeAdminOnly = false }
         // KV drafts carry no Otra Guide location; dedupe backfills it from the
         // matching upstream event so the card location still comes from there.
         location: "",
-        dateLabel: (localCard && localCard.dateLabel) || projectDateLabel(project),
+        dateLabel: siteEventDateLabel(project, draftOverride, localCard),
         img:
           overrideImg ||
           currentDetailImg ||
@@ -609,6 +615,7 @@ export async function buildPublishedSiteEvents(env, { includeAdminOnly = false }
         [HAS_TITLE_OVERRIDE]: Boolean(pageTitle),
         ...(slugSource ? { [SLUG_SOURCE]: slugSource } : {}),
         ...(frozen ? { [FROZEN_SLUG]: frozen } : {}),
+        [SCHEDULE_SOURCE]: { project: scheduleProject(project), localCard: localCard || null },
       });
     }
     cursor = page.list_complete ? undefined : page.cursor;
@@ -780,11 +787,6 @@ export function dedupeEvents(events) {
   return [...byId.values()];
 }
 
-function validDateValue(value) {
-  if (typeof value !== "string" || !value.trim()) return null;
-  return Number.isFinite(new Date(value).getTime()) ? value : null;
-}
-
 function dateKeyInTimeZone(value, timeZone) {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone,
@@ -797,8 +799,10 @@ function dateKeyInTimeZone(value, timeZone) {
 }
 
 // Apply the same KV field overrides the detail page uses so homepage cards
-// stay in sync: hero image (image:#evHeroImg / legacy image) and display
-// title (text:#evTitle). Exported for oracle scripts.
+// stay in sync: hero image (image:#evHeroImg / legacy image), display title
+// (text:#evTitle) and, for site event cards, the schedule line (#evMeta hero
+// line edits, from the same event:<id> / override:<id> document the page
+// reads first). Exported for oracle scripts.
 export async function applyOverrides(events, env) {
   if (!env || !env.OVERRIDES || !events.length) return events;
   const overrides = await Promise.all(
@@ -817,8 +821,17 @@ export async function applyOverrides(events, env) {
     const override = overrides[i];
     const image = homepageOverrideImage(override);
     const title = homepageOverrideTitle(override);
-    if (!image && !title) return ev;
+    // The event page reads event:<id> before the draft override, so when a
+    // bound card has its own override the schedule line follows that one.
+    const scheduleSource = ev[SCHEDULE_SOURCE];
+    const dateLabel =
+      override && scheduleSource
+        ? siteEventDateLabel(scheduleSource.project, override, scheduleSource.localCard)
+        : null;
+    const dateLabelChanged = dateLabel !== null && dateLabel !== ev.dateLabel;
+    if (!image && !title && !dateLabelChanged) return ev;
     const next = { ...ev };
+    if (dateLabelChanged) next.dateLabel = dateLabel;
     if (ev[SLUG_SOURCE]) next[SLUG_SOURCE] = ev[SLUG_SOURCE];
     if (ev[FROZEN_SLUG]) next[FROZEN_SLUG] = ev[FROZEN_SLUG];
     if (image) next.img = image;
@@ -927,46 +940,34 @@ export function projectCardTitle(project) {
   return title || "Claude Design Event";
 }
 
-const CARD_DATE_RE = /(?:(?:Sun|Mon|Tue|Wed|Thu|Fri|Sat)[a-z]*,?\s+)?(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s+\d{4})?/gi;
-
-export function projectDateLabel(project) {
-  const design = project.claudeDesign && typeof project.claudeDesign === "object" ? project.claudeDesign : {};
-  const meta = Array.isArray(design.meta) ? design.meta : [];
-  const rateNames = Array.isArray(design.rates)
-    ? design.rates.map((rate) => String(rate && rate.name || "").trim().toLowerCase()).filter(Boolean)
-    : [];
-  const schedule = meta
-    .map((item) => String(item || "").trim())
-    .filter(Boolean)
-    .filter((item) => !isTicketMetadata(item, rateNames));
-
-  const actualDate = validDateValue(project.startDate);
-  if (actualDate) {
-    const label = new Date(actualDate).toLocaleDateString("en-US", {
-      weekday: "short", month: "long", day: "numeric",
-      timeZone: HOMEPAGE_TIME_ZONE,
-    });
-    let replaced = false;
-    const synchronized = schedule.map((item) => {
-      CARD_DATE_RE.lastIndex = 0;
-      if (!CARD_DATE_RE.test(item)) return item;
-      replaced = true;
-      CARD_DATE_RE.lastIndex = 0;
-      return item.replace(CARD_DATE_RE, label);
-    });
-    if (!replaced) synchronized.unshift(label);
-    return synchronized.join(" · ");
-  }
-  // "Flexible dates" is only accurate for perennial events. A dated event
-  // with no start date retains its authored schedule as a last-resort label.
-  return schedule.length ? schedule.join(" · ") : (project.isPerennial ? "Flexible dates" : "");
+// Card schedule line: the event page hero line with the page editor's edits
+// applied (see ./schedule-line.js); a recurring tour never shows a single
+// date; a dated event keeps its real start date.
+export function projectDateLabel(project, override = null) {
+  return cardScheduleLabel(project, override, { timeZone: HOMEPAGE_TIME_ZONE });
 }
 
-function isTicketMetadata(value, rateNames) {
-  const text = value.toLowerCase().replace(/\s+/g, " ").trim();
-  if (rateNames.some((name) => text === name || text.startsWith(`${name} `))) return true;
-  if (/(?:[$€£ƒ]|\b(?:usd|ang|xcg|awg|eur|naf|fl\.?)\b)\s*\d/i.test(value)) return true;
-  return /\b(?:early bird|general admission|ticket(?:s| type)?|presale|door price)\b/i.test(value);
+// Only the fields the schedule line reads, so a feed event never holds the
+// whole project document.
+function scheduleProject(project) {
+  const design = project && project.claudeDesign && typeof project.claudeDesign === "object" ? project.claudeDesign : {};
+  return {
+    isPerennial: project.isPerennial === true,
+    startDate: project.startDate,
+    claudeDesign: {
+      meta: Array.isArray(design.meta) ? design.meta.slice() : [],
+      rates: Array.isArray(design.rates) ? design.rates.map((rate) => ({ name: rate && rate.name })) : [],
+    },
+  };
+}
+
+// An edit that changes the page hero line beats the hard coded
+// LOCAL_CARD_INFO label.
+function siteEventDateLabel(project, override, localCard) {
+  if (localCard && localCard.dateLabel && !scheduleEdited(project, override, { timeZone: HOMEPAGE_TIME_ZONE })) {
+    return localCard.dateLabel;
+  }
+  return projectDateLabel(project, override);
 }
 
 function venueFromText(value) {

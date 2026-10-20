@@ -34,6 +34,7 @@
     "check:admin-rename-slug": "node scripts/check-admin-rename-slug.mjs",
     "check:admin-audit-log": "node scripts/check-admin-audit-log.mjs",
     "check:feed-fast-path": "node scripts/check-feed-fast-path.mjs",
-    "check:admin-remove-video": "node scripts/check-admin-remove-video.mjs"
+    "check:admin-remove-video": "node scripts/check-admin-remove-video.mjs",
+    "check:search-card-schedule": "node scripts/check-search-card-schedule.mjs"
   }
 }
