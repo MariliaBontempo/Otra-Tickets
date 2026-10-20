@@ -4,6 +4,8 @@
 // through /api/event. Admin writes stay behind /admin/api/overrides.
 
 import { resolvePageOverride } from "../_lib/page-override.js";
+import { isHeroMetaTextKey } from "../_lib/schedule-line.js";
+import { heroMetaItemText } from "../_lib/hero-meta-text.js";
 import { checkStaff } from "../admin/api/_auth.js";
 import { requestToken } from "../_lib/session.js";
 import { guideApiBase, guideDetailMissing, isHiddenGuideEvent, keepsSellingWhileHidden } from "../_lib/guide-event-hidden.js";
@@ -68,9 +70,11 @@ function normalizeFields(raw) {
   for (const [key, field] of Object.entries(raw)) {
     if (typeof key !== "string" || !field || typeof field !== "object") continue;
     if (field.type !== "text" && field.type !== "image" && field.type !== "remove") continue;
+    const value = typeof field.value === "string" ? field.value : "";
     fields[key] = {
       type: field.type,
-      value: typeof field.value === "string" ? field.value : "",
+      // A hero line edit reads like the card: "Days · times".
+      value: field.type === "text" && isHeroMetaTextKey(key) ? heroMetaItemText(value) : value,
     };
   }
   return fields;

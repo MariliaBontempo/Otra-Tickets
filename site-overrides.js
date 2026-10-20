@@ -1,5 +1,14 @@
 (function () {
   const INFO_CELL_VALUE_PREFIX = "otra-info-cell:";
+  // Same separator as functions/_lib/hero-meta-text.js META_SEPARATOR.
+  const INLINE_DOT = " · ";
+  // event.html renderMeta() calls this after it builds the hero line, and
+  // this script runs it again after every pass of page edits.
+  if (typeof window !== "undefined") window.otraTidyMetaLine = tidyMetaLine;
+  tidyMetaLine();
+  if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
+    document.addEventListener("otra:event-rendered", () => tidyMetaLine());
+  }
   const id = inferOverrideId();
   if (!id) return;
 
@@ -143,9 +152,97 @@
       }
     }
 
+    tidyMetaLine();
     const remaining = Object.keys(fields).filter((k) => !applied.has(k));
     if (remaining.length > 0 && attempt < 30) {
       setTimeout(() => applyFieldOverrides(fields, attempt + 1, applied), 250);
+    }
+  }
+
+  // Hero line (#evMeta): item spans with a <span class="dot"> between them.
+  // An item edited (or authored) blank is hidden together with its
+  // separator, so "A · · B" reads "A · B"; a line with no visible item is
+  // hidden whole. Items stay in the DOM (only hidden) so the nth-of-type
+  // selectors saved page edits use keep pointing at the same items. The
+  // homepage card applies the same rule in functions/_lib/schedule-line.js
+  // (editedScheduleParts trims and drops blank items).
+  function tidyMetaLine(host) {
+    if (!host) {
+      if (typeof document === "undefined" || typeof document.getElementById !== "function") return;
+      host = document.getElementById("evMeta");
+    }
+    if (!host || !host.children || typeof host.setAttribute !== "function") return;
+    const children = Array.from(host.children);
+    let visibleItems = 0;
+    let pendingDot = null;
+    for (const child of children) {
+      if (isAdminControl(child)) continue;
+      const isDot = !!(child.classList && child.classList.contains("dot"));
+      if (isDot) {
+        // A separator shows only between two visible items, once.
+        setMetaHidden(child, true);
+        if (visibleItems && !pendingDot) pendingDot = child;
+        continue;
+      }
+      const blank = !metaText(child).trim();
+      setMetaHidden(child, blank);
+      if (blank) continue;
+      markInlineDots(child);
+      if (pendingDot) setMetaHidden(pendingDot, false);
+      pendingDot = null;
+      visibleItems += 1;
+    }
+    const items = children.filter((child) => !isAdminControl(child));
+    const blankLine = items.length ? !visibleItems : !metaText(host).trim();
+    setMetaHidden(host, blankLine);
+  }
+
+  // An item can hold its own " · " (days · times, from hero-meta-text.js on
+  // the server). Wrap each one in a <span class="dot dot-inline"> so it gets
+  // the separator's colour and spacing (event.html CSS). The text stays the
+  // same, so saved edits still compare equal and the admin editor still
+  // reads the item as before. Only plain text items are touched.
+  function markInlineDots(item) {
+    if (!item || (item.children && item.children.length)) return;
+    if (typeof document === "undefined" || typeof document.createElement !== "function" || typeof document.createTextNode !== "function") return;
+    const text = item.textContent || "";
+    if (!text.includes(INLINE_DOT)) return;
+    const parts = text.split(INLINE_DOT);
+    item.textContent = "";
+    parts.forEach((part, i) => {
+      if (i) {
+        const dot = document.createElement("span");
+        dot.className = "dot dot-inline";
+        dot.textContent = INLINE_DOT;
+        item.appendChild(dot);
+      }
+      if (part) item.appendChild(document.createTextNode(part));
+    });
+  }
+
+  // Text of a hero line node without the admin editor's own buttons.
+  function metaText(el) {
+    if (!el) return "";
+    if (!el.children || !el.children.length) return el.textContent || "";
+    let text = "";
+    (el.childNodes ? Array.from(el.childNodes) : []).forEach((node) => {
+      if (node.nodeType === 1 && isAdminControl(node)) return;
+      text += node.textContent || "";
+    });
+    return text;
+  }
+
+  function isAdminControl(el) {
+    return !!(el && el.classList && (el.classList.contains("otra-admin-edit-btn") || el.classList.contains("otra-admin-remove-btn")));
+  }
+
+  function setMetaHidden(el, hidden) {
+    if (hidden) {
+      el.setAttribute("data-otra-meta-empty", "");
+      el.hidden = true;
+    } else if (el.hasAttribute && el.hasAttribute("data-otra-meta-empty")) {
+      el.removeAttribute("data-otra-meta-empty");
+      el.hidden = false;
     }
   }
 

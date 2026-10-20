@@ -37,6 +37,9 @@ const waterBikes = {
   claudeDesign: { meta: ["Tue-Sun", "90 min", "From $50"], rates: [{ name: "Adults", price: 85 }] },
 };
 const TJ_LINE = "Wednesday to Sunday: 1:00 PM & 3:00 PM";
+// The page and the card separate the days from the times with the line's
+// middle dot (functions/_lib/hero-meta-text.js); the stored edit keeps its colon.
+const TJ_SHOWN = "Wednesday to Sunday · 1:00 PM & 3:00 PM";
 
 // Selector convention matches the rendered spans (item, dot, item, dot, item).
 eq(metaItemSelector(0), "#evMeta > span:nth-of-type(1)", "first hero item selector");
@@ -52,7 +55,7 @@ eq(
       ["text:" + metaItemSelector(2)]: text("From $60"),
     },
   }),
-  TJ_LINE,
+  TJ_SHOWN,
   "Water Bikes card must read exactly the edited hero line"
 );
 eq(
@@ -68,12 +71,12 @@ eq(
 );
 eq(
   projectDateLabel(waterBikes, { fields: { "text:#evMeta > span:nth-of-type(1)": text(TJ_LINE) } }),
-  `${TJ_LINE} · 90 min`,
+  `${TJ_SHOWN} · 90 min`,
   "an edit to one item keeps the untouched authored items"
 );
 eq(
   projectDateLabel(waterBikes, { fields: { "text:#evMeta": text(TJ_LINE) } }),
-  TJ_LINE,
+  TJ_SHOWN,
   "replacing the whole hero line replaces every item"
 );
 eq(
@@ -278,17 +281,17 @@ try {
   const env = { OVERRIDES: makeKv(), OTRA_API_URL: "https://mock.invalid/api" };
   const site = await buildPublishedSiteEvents(env);
   const byId = new Map(site.map((ev) => [String(ev.id), ev]));
-  eq(byId.get("7175")?.dateLabel, TJ_LINE, "feed card for Water Bikes follows the draft page edit");
-  eq(byId.get("6113")?.dateLabel, "Mon to Sat: 9:00 AM · 3 hours", "a page edit beats the hard coded local card label");
+  eq(byId.get("7175")?.dateLabel, TJ_SHOWN, "feed card for Water Bikes follows the draft page edit");
+  eq(byId.get("6113")?.dateLabel, "Mon to Sat · 9:00 AM · 3 hours", "a page edit beats the hard coded local card label");
   eq(byId.get("7176")?.dateLabel, "Daily", "without a visible hero line edit the hard coded local card label stays");
 
   // Upstream copy must not replace the site card line during dedupe.
   const merged = dedupeEvents([...site, { id: "7175", title: "Water Bikes", dateLabel: "Flexible dates", isPerennial: true }]);
-  eq(merged.find((ev) => String(ev.id) === "7175")?.dateLabel, TJ_LINE, "dedupe keeps the site card line");
+  eq(merged.find((ev) => String(ev.id) === "7175")?.dateLabel, TJ_SHOWN, "dedupe keeps the site card line");
 
   // No override for the bound id: line unchanged.
   const applied = await applyOverrides(merged, env);
-  eq(applied.find((ev) => String(ev.id) === "7175")?.dateLabel, TJ_LINE, "applyOverrides without event:<id> keeps the line");
+  eq(applied.find((ev) => String(ev.id) === "7175")?.dateLabel, TJ_SHOWN, "applyOverrides without event:<id> keeps the line");
 
   // The page reads event:<id> first, so the card follows it too.
   const boundEnv = {
@@ -372,6 +375,147 @@ assert(
   /if \(!el && selector\.startsWith\("main > #"\)\) \{\s*el = document\.querySelector\(selector\.slice\("main > "\.length\)\);/.test(siteOverrides),
   "site-overrides.js must keep the legacy main > retry the card mirrors"
 );
+
+// ---- Days · times: the colon between a run of day names and the times reads
+// as the line's middle dot, on the card, in /api/override and in /api/event.
+// Only that colon changes; colons in times, dates, labels and titles stay.
+{
+  const { heroMetaItemText, heroMetaItems, META_SEPARATOR } = await import("../functions/_lib/hero-meta-text.js");
+  // Deep compare for the lists and fields below.
+  const eq = (actual, expected, message) =>
+    assert(JSON.stringify(actual) === JSON.stringify(expected), `${message} (got ${JSON.stringify(actual)}, want ${JSON.stringify(expected)})`);
+  eq(META_SEPARATOR, " · ", "days and times use the hero line separator");
+  const itemCases = [
+    // [input, shown, name]
+    ["Wednesday to Sunday: 12:00 PM & 1:00 PM", "Wednesday to Sunday · 12:00 PM & 1:00 PM", "weekday range with times"],
+    ["Wednesday to Sunday:12:00 PM", "Wednesday to Sunday · 12:00 PM", "no space after the colon"],
+    ["Wednesday to Sunday : 12:00 PM", "Wednesday to Sunday · 12:00 PM", "space before the colon"],
+    ["Saturday: 10:00 PM", "Saturday · 10:00 PM", "single day"],
+    ["Sat: 9pm", "Sat · 9pm", "short day, compact time"],
+    ["Mon-Fri: 9:00 AM", "Mon-Fri · 9:00 AM", "hyphen range"],
+    ["Mon – Fri: 9 AM", "Mon – Fri · 9 AM", "en dash range"],
+    ["Mon, Wed & Fri: 9 AM", "Mon, Wed & Fri · 9 AM", "day list"],
+    ["Mondays: 7 PM", "Mondays · 7 PM", "plural day"],
+    ["Every Friday: 6:00 PM", "Every Friday · 6:00 PM", "recurring every week"],
+    ["Daily: 9:00 AM & 2:00 PM", "Daily · 9:00 AM & 2:00 PM", "daily"],
+    ["Weekends: 10 AM", "Weekends · 10 AM", "weekends"],
+    ["Mon to Fri: 9 AM · Sat: 10 AM", "Mon to Fri · 9 AM · Sat · 10 AM", "two schedules typed in one item"],
+    ["WEDNESDAY TO SUNDAY: 12:00 PM", "WEDNESDAY TO SUNDAY · 12:00 PM", "upper case"],
+    ["Miércoles a domingo: 12:00", "Miércoles a domingo · 12:00", "Spanish days"],
+    ["Cada viernes: 18:00", "Cada viernes · 18:00", "Spanish every"],
+    ["Woensdag t/m zondag: 12.00 uur", "Woensdag t/m zondag · 12.00 uur", "Dutch days"],
+    ["Djarason te djadumingu: 12:00", "Djarason te djadumingu · 12:00", "Papiamentu days"],
+    // Unchanged.
+    ["12:00 PM & 1:00 PM", "12:00 PM & 1:00 PM", "times only keep their colons"],
+    ["Wednesday to Sunday", "Wednesday to Sunday", "days only"],
+    ["Saturday: Flexible", "Saturday: Flexible", "day with no time keeps its colon"],
+    ["Saturday: The Party", "Saturday: The Party", "title after a day keeps its colon"],
+    ["Monday: Movie night at 9", "Monday: Movie night at 9", "text after a day keeps its colon"],
+    ["Doors: 8 PM", "Doors: 8 PM", "label before a time keeps its colon"],
+    ["Note: 21+ only", "Note: 21+ only", "note keeps its colon"],
+    ["Saturday: 21+ only", "Saturday: 21+ only", "an age after a day is not a time"],
+    ["Saturday: 2026 edition", "Saturday: 2026 edition", "a year after a day is not a time"],
+    ["Fri: 9 to 11 PM", "Fri · 9 to 11 PM", "time range"],
+    ["Fri: 9-11pm", "Fri · 9-11pm", "compact time range"],
+    ["Zaterdag: 21u", "Zaterdag · 21u", "Dutch hour"],
+    ["Sábado: 21h30", "Sábado · 21h30", "Spanish hour"],
+    ["Dec 31: 9 PM", "Dec 31: 9 PM", "dated colon keeps its colon"],
+    ["Sat, Dec 13: 9 PM", "Sat, Dec 13: 9 PM", "day with a date keeps its colon"],
+    ["Sunset: 6 PM", "Sunset: 6 PM", "a word starting with a day name"],
+    ["Sunday Funday: 2 PM", "Sunday Funday: 2 PM", "an event name starting with a day name"],
+    ["Cascada NYE: 10 PM till late", "Cascada NYE: 10 PM till late", "title with a colon"],
+    ["", "", "empty item"],
+    ["1 hour", "1 hour", "no colon"],
+  ];
+  for (const [input, shown, name] of itemCases) eq(heroMetaItemText(input), shown, `days·times item: ${name}`);
+  eq(heroMetaItemText(null), null, "days·times: a non string item is kept");
+  eq(heroMetaItems(["Saturday: 9 PM", 7, "From $60"]), ["Saturday · 9 PM", 7, "From $60"], "days·times: item lists map one by one");
+
+  const tz = { timeZone: "America/Curacao" };
+  const edits = (list) => ({ fields: Object.fromEntries(list.map((value, i) => [`text:${metaItemSelector(i)}`, text(value)])) });
+  const cardCases = [
+    // Recurring tour (Water Bikes): the live edit, then the same with items blanked.
+    [{ ...waterBikes }, edits(["Wednesday to Sunday: 12:00 PM & 1:00 PM", "", "From $60"]), "Wednesday to Sunday · 12:00 PM & 1:00 PM", "Water Bikes live edit"],
+    [{ ...waterBikes, claudeDesign: { meta: ["Wednesday to Sunday: 12:00 PM & 1:00 PM", "1 hour"] } }, null, "Wednesday to Sunday · 12:00 PM & 1:00 PM · 1 hour", "authored weekday range"],
+    [{ ...waterBikes }, edits(["Saturday: 10:00 AM"]), "Saturday · 10:00 AM · 90 min", "single day on a recurring tour"],
+    [{ ...waterBikes }, edits(["", "", ""]), "Flexible dates", "recurring tour with every item empty"],
+    [{ ...waterBikes, claudeDesign: { meta: [] } }, null, "Flexible dates", "recurring tour with no items"],
+    [{ ...waterBikes }, edits(["12:00 PM & 1:00 PM", "", ""]), "12:00 PM & 1:00 PM", "times only"],
+    [{ ...waterBikes }, edits(["Wednesday to Sunday", "", ""]), "Wednesday to Sunday", "days only"],
+    [{ ...waterBikes }, edits(["Weekends", "1 hour", ""]), "Weekends · 1 hour", "no times"],
+    // Dated one time events: the real date leads and colons in times stay.
+    [{ id: "d1", status: "published", startDate: "2026-12-13T21:00:00-04:00", claudeDesign: { meta: ["Sat, Dec 13", "9:00 PM", "From $95"], rates: [{ name: "Early Bird" }] } }, null, "Sun, December 13 · 9:00 PM", "dated one time event"],
+    [{ id: "d2", status: "published", startDate: "2026-12-13T21:00:00-04:00", claudeDesign: { meta: ["Dec 13: 9 PM"] } }, null, "Sun, December 13: 9 PM", "dated colon stays"],
+    [{ id: "d3", status: "published", startDate: "2026-12-12T21:00:00-04:00", claudeDesign: { meta: ["Saturday: 9:00 PM", "Cascada NYE: 10 PM till late"] } }, null, "Sat, December 12 · Saturday · 9:00 PM · Cascada NYE: 10 PM till late", "dated single day and a title colon"],
+    [{ id: "d4", status: "published", startDate: "2026-12-13T21:00:00-04:00", claudeDesign: { meta: [] } }, null, "Sun, December 13", "dated event with no items"],
+    [{ id: "d5", status: "published", startDate: "2026-12-13T21:00:00-04:00", claudeDesign: { meta: ["Dec 13", ""] } }, edits(["Dec 13", ""]), "Sun, December 13", "dated event with an empty item"],
+    // Multiple dates without a start date keep the authored line.
+    [{ id: "m1", status: "published", claudeDesign: { meta: ["Dec 13 & Dec 20", "8:00 PM"] } }, null, "Dec 13 & Dec 20 · 8:00 PM", "multiple dates"],
+    [{ id: "m2", status: "published", claudeDesign: { meta: ["Fridays & Saturdays: 8:00 PM", "Doors: 7 PM"] } }, null, "Fridays & Saturdays · 8:00 PM · Doors: 7 PM", "days and a doors label"],
+    [{ id: "m3", status: "published", claudeDesign: { meta: ["", ""] } }, null, "", "every item empty"],
+  ];
+  for (const [project, override, want, name] of cardCases) eq(cardScheduleLabel(project, override, tz), want, `card: ${name}`);
+  eq(scheduleEdited({ ...waterBikes, claudeDesign: { meta: ["Saturday: 9 PM"] } }, edits(["Saturday · 9 PM"]), tz), false,
+    "card: typing the dot by hand reads the same as the colon");
+
+  // /api/override shows hero line edits the same way, and nothing else.
+  const { onRequestGet: overrideGet } = await import("../functions/api/override.js");
+  const kvFor = (records) => ({
+    async get(key, type) { const v = records[key]; return v === undefined ? null : type === "json" ? v : JSON.stringify(v); },
+    async list() { return { keys: [], list_complete: true }; },
+  });
+  const stored = {
+    fields: {
+      "text:#evMeta > span:nth-of-type(1)": text("Wednesday to Sunday: 12:00 PM & 1:00 PM"),
+      "text:#evMeta > span:nth-of-type(3)": text(""),
+      "text:#evMeta > span:nth-of-type(5)": text("From $60"),
+      "text:main > #evMeta > span:nth-of-type(7)": text("Sat: 9 PM"),
+      "text:#evTitle": text("Saturday: 10 PM"),
+      "text:#evBody": text("Midday departure times: 12:00 PM and 1:00 PM.\nMonday: 9 AM"),
+      "text:#evInfoGrid > div:nth-of-type(4)": text("otra-info-cell:{\"title\":\"Departures\",\"subtitle\":\"Daily: 12:00 PM\"}"),
+      "image:#evHeroImg": { type: "image", value: "/override-images/a.jpg" },
+    },
+  };
+  const read = async (records) => (await (await overrideGet({ request: new Request("https://x.test/api/override?id=7175"), env: { OVERRIDES: kvFor(records) } })).json()).override;
+  const shown = await read({ "event:7175": stored, "override:7175": stored });
+  eq(shown && shown.fields["text:#evMeta > span:nth-of-type(1)"], text("Wednesday to Sunday · 12:00 PM & 1:00 PM"), "/api/override: hero item days · times");
+  eq(shown && shown.fields["text:#evMeta > span:nth-of-type(3)"], text(""), "/api/override: an empty hero item stays empty");
+  eq(shown && shown.fields["text:#evMeta > span:nth-of-type(5)"], text("From $60"), "/api/override: price item unchanged");
+  eq(shown && shown.fields["text:main > #evMeta > span:nth-of-type(7)"], text("Sat · 9 PM"), "/api/override: legacy main > hero key too");
+  eq(shown && shown.fields["text:#evTitle"], text("Saturday: 10 PM"), "/api/override: a title colon stays");
+  eq(shown && shown.fields["text:#evBody"], text("Midday departure times: 12:00 PM and 1:00 PM.\nMonday: 9 AM"), "/api/override: body text stays");
+  eq(shown && shown.fields["text:#evInfoGrid > div:nth-of-type(4)"], stored.fields["text:#evInfoGrid > div:nth-of-type(4)"], "/api/override: info cells stay");
+  eq(shown && shown.fields["image:#evHeroImg"], stored.fields["image:#evHeroImg"], "/api/override: images stay");
+  const whole = await read({ "event:7175": { fields: { "text:#evMeta": text("Daily: 9 AM · From $60") } } });
+  eq(whole && whole.fields["text:#evMeta"], text("Daily · 9 AM · From $60"), "/api/override: a whole line edit too");
+
+  // /api/event shows authored hero items the same way without touching the stored design.
+  const { onRequestGet: eventGet } = await import("../functions/api/event.js");
+  const design = { meta: ["Wednesday to Sunday: 12:00 PM & 1:00 PM", "1 hour", "From $60"], rates: [] };
+  const projectRecord = { id: "draft-days", title: "Water Bikes", status: "published", publishedAt: "2026-10-10T12:00:00.000Z", createdAt: "2026-10-01T12:00:00.000Z", otraGuideId: "7175", isPerennial: true, ticketTypeIds: [], claudeDesign: design };
+  const eventKv = {
+    async get(key, type) { const v = key === "site-event:draft-days" ? projectRecord : undefined; return v === undefined ? null : type === "json" ? v : JSON.stringify(v); },
+    async list({ prefix }) { return { keys: "site-event:draft-days".startsWith(prefix) ? [{ name: "site-event:draft-days" }] : [], list_complete: true }; },
+  };
+  const savedFetch = globalThis.fetch;
+  const savedCaches = globalThis.caches;
+  globalThis.caches = { default: { async match() { return null; }, async put() {} } };
+  globalThis.fetch = async (input) => {
+    const url = String(input);
+    if (url.includes("/events/details/7175/")) return new Response(JSON.stringify({ id: 7175, title: "Water Bikes", description: "Upstream", start_date: "2026-06-01T09:00:00-04:00", end_date: "2027-06-26T19:59:00-04:00", is_perennial: true }), { headers: { "content-type": "application/json" } });
+    if (url.includes("/ticket/purchase/tickets/7175/")) return new Response(JSON.stringify({ count: 0, results: [] }), { headers: { "content-type": "application/json" } });
+    return new Response("{}", { status: 404 });
+  };
+  try {
+    const response = await eventGet({ request: new Request("https://otratickets.com/api/event?id=7175"), env: { OVERRIDES: eventKv, OTRA_API_URL: "https://og.test/api" }, waitUntil() {} });
+    const payload = await response.json();
+    eq(payload.design && payload.design.meta, ["Wednesday to Sunday · 12:00 PM & 1:00 PM", "1 hour", "From $60"], "/api/event: authored hero items read days · times");
+    eq(design.meta[0], "Wednesday to Sunday: 12:00 PM & 1:00 PM", "/api/event: the stored design keeps its text");
+  } finally {
+    globalThis.fetch = savedFetch;
+    globalThis.caches = savedCaches;
+  }
+}
 
 if (failures.length) {
   console.error("check-search-card-schedule FAILED:");

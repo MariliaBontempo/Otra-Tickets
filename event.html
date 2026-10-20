@@ -478,6 +478,9 @@ main.detail { padding: 0; padding-top: var(--header-h); } /* hero starts below t
 .ev-hero .ev-tag { margin-top: 22px; max-width: 620px; font-size: clamp(16px, 1.5vw, 21px); line-height: 1.5; color: var(--fog); text-wrap: pretty; }
 .ev-hero-meta { margin-top: 26px; display: flex; flex-wrap: wrap; align-items: center; gap: 14px 22px; font-size: clamp(17px, 1.6vw, 22px); font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--rnb-text); }
 .ev-hero-meta .dot { color: var(--rnb); }
+.ev-hero-meta[hidden], .ev-hero-meta > [hidden] { display: none !important; }
+/* A " · " inside one item (days · times) spaced like the separators between items. */
+.ev-hero-meta > span > .dot-inline { display: inline-block; margin: 0 22px; }
 
 .btn-metal {
   font-family: var(--font-body); font-weight: 600; font-size: 15px; letter-spacing: 0.06em; text-transform: uppercase;
@@ -1558,6 +1561,8 @@ html[data-presidente-event="8088"] .btn-metal:hover { background: #4cba57; box-s
           s.textContent = p;
           host.appendChild(s);
         });
+        // Hide blank items and their separators (site-overrides.js).
+        if (typeof window.otraTidyMetaLine === "function") window.otraTidyMetaLine(host);
       }
 
       function paragraphs(text) {
@@ -1689,7 +1694,7 @@ html[data-presidente-event="8088"] .btn-metal:hover { background: #4cba57; box-s
       }
     })();
   </script>
-  <script src="/site-overrides.js?v=8"></script>
+  <script src="/site-overrides.js?v=10"></script>
 <script src="/account-menu.js" defer></script>
 </body>
 </html>

@@ -3636,6 +3636,9 @@
         cursor: pointer;
       }
       .otra-admin-remove-btn:hover { filter: brightness(1.08); }
+      /* Keep a blank hero line item reachable so it can be edited back. */
+      .ev-hero-meta[data-otra-meta-empty] { display: flex !important; }
+      .ev-hero-meta > span[data-otra-meta-empty]:not(.dot) { display: inline-block !important; min-width: 34px; min-height: 34px; }
       .otra-admin-remove-btn svg { width: 16px; height: 16px; stroke-width: 2.2; }
     `;
     doc.head.appendChild(style);
