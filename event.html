@@ -839,6 +839,11 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
 .sk-tickets { display: grid; grid-template-columns: repeat(auto-fit, minmax(208px, 1fr)); gap: 18px; margin-top: 48px; }
 .sk-ticket { min-height: 120px; }
 .ev-rates-empty { grid-column: 1 / -1; }
+.ev-rate.ev-rate-off .rp { opacity: .55; }
+.ev-rate .ev-rate-sale { color: var(--silver-text, var(--fog)); letter-spacing: .04em; }
+.ev-checkout-error { padding: 40px 24px; border: 2px solid var(--rnb-soft); background: var(--ink-2); text-align: center; }
+.ev-checkout-error p { margin: 0 0 8px; font-family: var(--font-display); font-size: clamp(20px, 2vw, 26px); }
+.ev-checkout-error .ev-checkout-error-sub { font-family: inherit; font-size: 15px; color: var(--fog); margin-bottom: 20px; }
 
 /* ===== Responsive header (mobile) ===== */
 @media (max-width: 720px) {
@@ -1478,15 +1483,30 @@ html[data-presidente-event="8088"] .btn-metal:hover { background: #4cba57; box-s
       }
 
       // ----- RATES -----
-      if (hasTickets) {
-        if (design.ratesTitle) $("evRatesSection").querySelector(".ev-h2").textContent = design.ratesTitle;
+      // Each rate says where it stands in its own sale window; the heading
+      // follows the page as a whole (any on sale, else the next opening, else ended).
+      const sale = (ev.ticketSale && ev.ticketSale.state) || (hasTickets ? "on_sale" : "none");
+      if (sale === "unknown") {
+        // The checkout event's rates could not be read: list nothing rather
+        // than the wrong event's rates; checkout below still sells.
+        $("evRatesSection").hidden = true;
+      } else if (hasTickets) {
+        const h2 = $("evRatesSection").querySelector(".ev-h2");
+        if (sale === "upcoming") h2.textContent = "Tickets go on sale " + saleDate(ev.ticketSale.opensAt) + ".";
+        else if (sale === "ended" && !isPast) h2.textContent = "Ticket sales have ended.";
+        else if (design.ratesTitle) h2.textContent = design.ratesTitle;
         $("evRates").innerHTML = ev.tickets
           .map((t) => {
             const sym = cur(t.currency);
+            const note = isPast ? "" :
+              t.sale === "upcoming" ? "On sale " + saleDate(t.saleStartsAt) :
+              t.sale === "ended" ? "Sales ended" : "";
             return (
-              '<div class="ev-rate" data-otra-rate-name="' + esc(t.name) + '"><div class="rk">' + esc(t.name) + "</div>" +
+              '<div class="ev-rate' + (note ? " ev-rate-off" : "") + '" data-otra-rate-name="' + esc(t.name) + '"' +
+              (t.sale ? ' data-sale="' + esc(t.sale) + '"' : "") + '><div class="rk">' + esc(t.name) + "</div>" +
               '<div class="rp"><span class="rcur">' + esc(sym) + "</span>" + esc(money(t.price)) + "</div>" +
               (t.description ? '<div class="rn">' + esc(t.description) + "</div>" : "") +
+              (note ? '<div class="rn ev-rate-sale">' + esc(note) + "</div>" : "") +
               "</div>"
             );
           })
@@ -1584,6 +1604,13 @@ html[data-presidente-event="8088"] .btn-metal:hover { background: #4cba57; box-s
         return content + '<div class="ev-info-cell otra-empty-info-cell"></div>'.repeat(missing);
       }
 
+      function saleDate(isoText) {
+        const d = new Date(isoText || "");
+        if (isNaN(d)) return "soon";
+        return d.toLocaleDateString("en-US", { ...TZ, weekday: "short", month: "short", day: "numeric" }) +
+          " at " + d.toLocaleTimeString("en-US", { ...TZ, hour: "numeric", minute: "2-digit" });
+      }
+
       function esc(s) {
         return String(s == null ? "" : s)
           .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -1644,18 +1671,68 @@ html[data-presidente-event="8088"] .btn-metal:hover { background: #4cba57; box-s
       // resize messages, forcing an inner scrollbar — so we honor those messages
       // and grow the iframe to its full content height.
       function loadCheckout(eventId, checkoutBaseUrl, accentOverride, isRecurring) {
-        function mount() {
-          window.OtraStripeCheckoutEmbed.create({
-            eventId: eventId,
-            containerId: "otra-checkout-container",
-            baseUrl: checkoutBaseUrl,
-            isRecurring: !!isRecurring,
-            // Admin-saved accents recolour standard checkout; recurring embeds
-            // also pass the event accent so the calendar can use the Otra theme.
-            accent: accentOverride || "",
-            theme: "otratickets",
+        const container = document.getElementById("otra-checkout-container");
+        // The embed adds its "Loading Stripe Checkout" box only once a theme
+        // colors request answers, after the iframe is already in place. When
+        // that answer lands after the iframe loaded (and after the embed's own
+        // failsafe), nothing ever removes the box. Once the checkout is ready
+        // any box is dropped; if it never gets ready, say so with a retry.
+        // Declared here, not beside the function: loadCheckout runs before
+        // later declarations in this script are initialised.
+        const CHECKOUT_SETTLE_MS = 20000;
+        let ready = false;
+        let settleTimer = 0;
+        function dropLoading() {
+          container.querySelectorAll(".otra-loading").forEach((el) => el.remove());
+        }
+        function markReady() {
+          if (ready) return;
+          ready = true;
+          clearTimeout(settleTimer);
+          dropLoading();
+        }
+        function fail() {
+          if (ready) return;
+          clearTimeout(settleTimer);
+          watcher.disconnect();
+          container.innerHTML =
+            '<div class="ev-checkout-error" role="alert"><p>Checkout couldn\u2019t load.</p>' +
+            '<p class="ev-checkout-error-sub">Check your connection and try again.</p>' +
+            '<button type="button" class="btn-metal" id="evCheckoutRetry">Try again</button></div>';
+          $("evCheckoutRetry").addEventListener("click", () => {
+            container.innerHTML = "";
+            loadCheckout(eventId, checkoutBaseUrl, accentOverride, isRecurring);
           });
-          const container = document.getElementById("otra-checkout-container");
+        }
+        const watcher = new MutationObserver(() => {
+          const frame = container.querySelector("iframe");
+          if (frame && !frame.dataset.otraWatched) {
+            frame.dataset.otraWatched = "1";
+            frame.addEventListener("load", markReady);
+          }
+          if (ready) dropLoading();
+        });
+        watcher.observe(container, { childList: true });
+        settleTimer = setTimeout(fail, CHECKOUT_SETTLE_MS);
+        function mount() {
+          if (!window.OtraStripeCheckoutEmbed) { fail(); return; }
+          try {
+            window.OtraStripeCheckoutEmbed.create({
+              eventId: eventId,
+              containerId: "otra-checkout-container",
+              baseUrl: checkoutBaseUrl,
+              isRecurring: !!isRecurring,
+              // Admin-saved accents recolour standard checkout; recurring embeds
+              // also pass the event accent so the calendar can use the Otra theme.
+              accent: accentOverride || "",
+              theme: "otratickets",
+              onError: fail,
+            });
+          } catch (e) {
+            console.error("Could not mount checkout embed.", e);
+            fail();
+            return;
+          }
           let lastIframeHeight = 0;
           let didScrollToRecurringCheckout = false;
           window.addEventListener("message", function (e) {
@@ -1663,7 +1740,8 @@ html[data-presidente-event="8088"] .btn-metal:hover { background: #4cba57; box-s
             const d = e.data;
             if (d && d.type === "OTRA_IFRAME_RESIZE" && d.height) {
               const iframe = container && container.querySelector("iframe");
-              if (!iframe) return;
+              if (!iframe || e.source !== iframe.contentWindow) return;
+              markReady();
               const nextHeight = Math.ceil(d.height);
               iframe.setAttribute("scrolling", "no");
               iframe.style.height = nextHeight + "px";
@@ -1689,7 +1767,11 @@ html[data-presidente-event="8088"] .btn-metal:hover { background: #4cba57; box-s
         const s = document.createElement("script");
         s.src = checkoutBaseUrl + "/embed/stripe-script.js";
         s.onload = mount;
-        s.onerror = function () { console.error("Could not load checkout embed."); };
+        s.onerror = function () {
+          console.error("Could not load checkout embed.");
+          s.remove();
+          fail();
+        };
         document.head.appendChild(s);
       }
     })();

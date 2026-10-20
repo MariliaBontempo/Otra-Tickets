@@ -10,6 +10,7 @@ import { requestToken } from "../_lib/session.js";
 import { findBoundProjects, resolvePageOverride } from "../_lib/page-override.js";
 import { hasEnded } from "../_lib/event-ended.js";
 import { heroMetaItems } from "../_lib/hero-meta-text.js";
+import { ticketSaleState, withSaleState } from "../_lib/ticket-sale-state.js";
 import { HIDDEN_DETAIL_EXCEPTIONS, guideApiBase, guideDetailMissing, keepsSellingWhileHidden } from "../_lib/guide-event-hidden.js";
 
 const API = "https://otraguide.com/api";
@@ -66,6 +67,22 @@ export async function onRequestGet(context) {
   if (payload.design && typeof payload.design === "object" && Array.isArray(payload.design.meta)) {
     payload.design = { ...payload.design, meta: heroMetaItems(payload.design.meta) };
   }
+  // An override can point checkout at another Guide event (a newer edition).
+  // The rates on the page must be the ones that checkout sells, not the
+  // page's own (often empty) feed.
+  const checkoutId = String(payload.checkoutEventId || "");
+  if (!isDraftId(id) && /^\d+$/.test(checkoutId) && checkoutId !== String(base.checkoutEventId || "")) {
+    const checkoutTickets = await fetchJson(`${apiBase(context.env)}/ticket/purchase/tickets/${checkoutId}/?include_choice_addons=1`);
+    if (checkoutTickets) {
+      payload = { ...payload, ...ticketLists(checkoutTickets) };
+    } else {
+      // Unknown rates: show none rather than the wrong event's, and say nothing about the sale.
+      payload = { ...payload, tickets: [], addons: [], ticketsUnknown: true };
+    }
+  }
+  payload.tickets = withSaleState(payload.tickets);
+  payload.ticketSale = payload.ticketsUnknown ? { state: "unknown", opensAt: null } : ticketSaleState(payload.tickets);
+  delete payload.ticketsUnknown;
   payload.slug = project && project.frozenSlug ? project.frozenSlug : eventSlug(payload.title);
   if (staffPreview) payload.staffPreview = true;
   // Worked out per response (the base payload is edge cached), so a page
@@ -171,6 +188,8 @@ function ticketLists(ticketData) {
     description: t.description || "",
     price: t.price,
     currency: (t.base_currency && t.base_currency.code) || "USD",
+    saleStartsAt: t.sale_start_time || null,
+    saleEndsAt: t.sale_end_time || null,
   }));
   const addons = (ticketData && Array.isArray(ticketData.addons) ? ticketData.addons : []).map((a) => ({
     name: a.title,
