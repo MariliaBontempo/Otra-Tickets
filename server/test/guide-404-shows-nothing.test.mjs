@@ -275,11 +275,15 @@ test("a Guide that never answers counts as not missing once the check times out"
   globalThis.fetch = (input, init = {}) => new Promise((resolve, reject) => {
     init.signal.addEventListener("abort", () => reject(init.signal.reason));
   });
+  // AbortSignal.timeout does not keep the event loop alive on its own (a
+  // server always does); hold it open so the test sees the abort fire.
+  const keepAlive = setTimeout(() => {}, 8000);
   try {
     const started = Date.now();
     assert.equal(await guideDetailMissing("https://guide.test/api", "7567"), false);
     assert.ok(Date.now() - started < 6000);
   } finally {
+    clearTimeout(keepAlive);
     globalThis.fetch = originalFetch;
     forgetGuideStatuses();
   }
