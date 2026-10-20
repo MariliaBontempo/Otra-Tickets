@@ -36,8 +36,11 @@ const DAY = `${EVERY}(?:${DAY_WORDS.join("|")})\\.?`;
 // Spanish "a"/"al"/"y", Dutch "tot"/"t/m"/"en", Papiamentu "te"/"i".
 const JOIN = "(?:\\s*(?:,|/|&|\\+|-|–|—)\\s*|\\s+(?:to|through|thru|till|until|and|a|al|y|hasta|tot|t/m|tot\\s+en\\s+met|en|te|i)\\s+)";
 const DAY_RUN = `${DAY}(?:${JOIN}${DAY})*`;
-// A time: 12:00, 9 AM, 9.30, 21h, 21u, 8pm.
-const TIME_AHEAD = "(?=\\d{1,2}(?:[:.h]\\d{2})?\\s*(?:[ap]\\.?\\s?m\\.?|h|u|uur)?(?![\\d]))";
+// A time: 12:00, 9.30, 9 AM, 8pm, 9 to 11 PM, 21h, 21h30, 21u, 12.00 uur. A
+// bare number ("21+ only", "2026 edition") is not a time.
+const MERIDIEM = "\\s*[ap]\\.?\\s?m\\b\\.?";
+const TIME = `\\d{1,2}(?:[:.]\\d{2}(?!\\d)|${MERIDIEM}|h(?:\\d{2})?\\b|u\\b|\\s*uur\\b|\\s*(?:-|–|to)\\s*\\d{1,2}(?:[:.]\\d{2})?${MERIDIEM})`;
+const TIME_AHEAD = `(?=${TIME})`;
 // The day run starts the item or follows a separator another edit typed in
 // ("Mon to Fri: 9 AM · Sat: 10 AM", "Mon: 9 AM; Tue: 10 AM").
 const DAYS_COLON_TIME = new RegExp(`(^|[·|;]\\s*)(${DAY_RUN})\\s*:\\s*${TIME_AHEAD}`, "giu");
