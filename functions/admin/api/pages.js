@@ -37,7 +37,7 @@ const LOOKUP_TIMEOUT_MS = 10000;
 // at a time, each with its own timeout. A staff chunk that fails is retried
 // anonymously so only its staff only events can be missing, and that is
 // reported.
-const CHUNK_CONCURRENCY = 6;
+const CHUNK_CONCURRENCY = 9;
 const STAFF_CHUNK_TIMEOUT_MS = 20000;
 const PUBLIC_CHUNK_TIMEOUT_MS = 10000;
 const CHUNK_TTL_SECONDS = 600;
