@@ -181,6 +181,7 @@ const html = readFileSync(new URL("../../event.html", import.meta.url), "utf8");
 test("event.html titles the rates from the sale state, not from the ticket count alone", () => {
   assert.match(html, /"Tickets go on sale " \+ saleDate\(ev\.ticketSale\.opensAt\)/);
   assert.match(html, /"Ticket sales have ended\."/);
+  assert.match(html, /const selling = ev\.tickets\.filter\(\(t\) => t\.sale === "on_sale"\);/);
   assert.match(html, /t\.sale === "upcoming" \? "On sale " \+ saleDate\(t\.saleStartsAt\)/);
   assert.match(html, /sale === "unknown"[\s\S]{0,200}\$\("evRatesSection"\)\.hidden = true/);
 });

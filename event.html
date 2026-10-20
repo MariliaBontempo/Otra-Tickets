@@ -1471,8 +1471,11 @@ html[data-presidente-event="8088"] .btn-metal:hover { background: #4cba57; box-s
       if (!cells.length && ev.isPerennial) cells.push(["Availability", "Flexible dates"]);
       if (!design.practicalInfo && ev.isPerennial) cells.push(["Location", "Curaçao"]);
       if (hasTickets) {
-        const min = Math.min(...ev.tickets.map((t) => Number(t.price) || 0));
-        const code = ev.tickets[0].currency;
+        // "From" quotes what can be bought now when anything is on sale.
+        const selling = ev.tickets.filter((t) => t.sale === "on_sale");
+        const priced = selling.length ? selling : ev.tickets;
+        const min = Math.min(...priced.map((t) => Number(t.price) || 0));
+        const code = priced[0].currency;
         cells.push(["Tickets", "From " + cur(code) + money(min)]);
       }
       if (cells.length) {
