@@ -82,18 +82,19 @@ const publishedProject = {
 const photoEdit = { description: '', image: '', fields: { 'image:#evHeroImg': { type: 'image', value: '/override-images/d/new.jpg' } } };
 const textEdit = { description: 'novo texto', image: '', fields: { 'image:#evHeroImg': { type: 'image', value: '/override-images/d/old.jpg' } } };
 
-// 1. photo edit on a published draft (override saved under the draft id) syncs
-let result = await putOverride({ overrideId: 'draft-edit-1', project: publishedProject, body: photoEdit });
+// 1. photo edit on a published draft (saved under its live Otra Guide id) syncs
+let result = await putOverride({ overrideId: '9100', project: publishedProject, body: photoEdit });
 assert(result.status === 200, 'photo edit save must succeed');
 assert(result.photoCalls.length === 1, 'a photo edit on a published draft must re-sync to Otra Guide');
 assert(result.photoCalls[0]?.url.includes('/event-images/9100/'), 'the re-sync must target the bound Otra Guide event');
 
-// 2. the editor may save under the Otra Guide event id instead of the draft id
-result = await putOverride({ overrideId: '9100', project: publishedProject, body: photoEdit });
-assert(result.photoCalls.length === 1, 'overrides saved under the Otra Guide id must re-sync too');
+// 2. a save on the draft id of a published draft is refused (the admin edits
+//    the live page), so it never re-syncs from a stale tab
+result = await putOverride({ overrideId: 'draft-edit-1', project: publishedProject, body: photoEdit });
+assert(result.status === 409 && result.photoCalls.length === 0, 'a draft id save on a published draft must be refused without a sync');
 
 // 3. text-only edits skip the round trip
-result = await putOverride({ overrideId: 'draft-edit-1', project: publishedProject, body: textEdit });
+result = await putOverride({ overrideId: '9100', project: publishedProject, body: textEdit });
 assert(result.photoCalls.length === 0, 'text-only edits must not re-upload photos');
 
 // 4. unpublished drafts stay silent (publish will sync later)
@@ -102,7 +103,7 @@ assert(result.photoCalls.length === 0, 'unpublished drafts must not sync on edit
 
 // 5. drafts bound to a pre-existing Otra Guide event are never touched
 result = await putOverride({
-  overrideId: 'draft-edit-1',
+  overrideId: '9100',
   project: { ...publishedProject, usesExistingOtraGuideEvent: true },
   body: photoEdit,
 });
@@ -113,7 +114,7 @@ result = await putOverride({ overrideId: '424242', project: null, body: photoEdi
 assert(result.photoCalls.length === 0, 'manual pages have no Otra Guide event to sync');
 
 // 7. a sync failure warns but never fails the save
-result = await putOverride({ overrideId: 'draft-edit-1', project: publishedProject, body: photoEdit, failEndpoint: true });
+result = await putOverride({ overrideId: '9100', project: publishedProject, body: photoEdit, failEndpoint: true });
 assert(result.status === 200, 'a failed re-sync must not fail the override save');
 assert(String(result.body.warning || '').includes('photo sync failed'), 'the editor must see the re-sync warning');
 

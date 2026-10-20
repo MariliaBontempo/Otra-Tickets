@@ -2,6 +2,7 @@
 // Files starting with "_" are not routed by Pages. They are import-only.
 
 import { decodeJwtPayload, fetchUserProfile } from "./_auth.js";
+import { TOP_LEVEL_KEYS } from "../../_lib/page-override.js";
 
 export const AUDIT_CAP = 200;
 export const HOMEPAGE_AUDIT_ID = "homepage";
@@ -171,7 +172,7 @@ function fieldSnapshot(value) {
 
 export function changedOverrideFields(previous, next) {
   const changed = [];
-  for (const key of ["description", "image", "checkoutEventId", "accentColor"]) {
+  for (const key of TOP_LEVEL_KEYS) {
     const before = previous && previous[key] != null ? String(previous[key]) : "";
     const after = next && next[key] != null ? String(next[key]) : "";
     if (before !== after) changed.push(key);

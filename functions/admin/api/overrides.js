@@ -6,9 +6,9 @@
 import { requireStaff, staffSession, json } from "./_auth.js";
 import { actorForAudit, appendAudit, changedOverrideFields } from "./_audit.js";
 import { resyncPublishedProjectPhotos } from "./projects.js";
+import { PAGE_EDITS_VERSION, TOP_LEVEL_KEYS, isLegacyDoc, isPublishedBound, isOtraGuideId, resolvePageOverride } from "../../_lib/page-override.js";
 
 const KEY = (id) => `event:${id}`;
-const LEGACY_KEY = (id) => `override:${id}`;
 
 export async function onRequestGet(context) {
   const id = getId(context.request);
@@ -18,7 +18,10 @@ export async function onRequestGet(context) {
   const kv = context.env.OVERRIDES;
   if (!kv) return json({ error: "overrides store not configured" }, 503);
 
-  const override = await readOverride(kv, id);
+  // The editor starts from what the public page shows: for a published
+  // draft that is its draft edits with the later edits on top.
+  const { override, draftId } = await readOverride(kv, id);
+  if (override && draftId) override.draftEditsFrom = draftId;
   return json({ override });
 }
 
@@ -30,6 +33,21 @@ export async function onRequestPut(context) {
 
   const kv = context.env.OVERRIDES;
   if (!kv) return json({ error: "overrides store not configured" }, 503);
+
+  // A published bound draft lives under its Otra Guide id. A save on the
+  // draft id (an editor tab left open from before publish) would change the
+  // edits merged under the live page, so send the editor to the live page.
+  if (id.startsWith("draft-")) {
+    let project = null;
+    try {
+      project = await kv.get(`site-event:${id}`, "json");
+    } catch {
+      project = null;
+    }
+    if (isPublishedBound(project)) {
+      return json({ error: "this draft is published; edit the live page instead", liveId: String(project.otraGuideId) }, 409);
+    }
+  }
 
   let body;
   try {
@@ -57,6 +75,7 @@ export async function onRequestPut(context) {
     }
   }
 
+  const { override: previous, draftId, fromDraft, coversThisDraft, legacyAsIs } = await readOverride(kv, id);
   const override = {
     id,
     description,
@@ -66,7 +85,26 @@ export async function onRequestPut(context) {
     fields,
     updatedAt: new Date().toISOString(),
   };
-  const previous = await readOverride(kv, id);
+  if (draftId && fromDraft) {
+    // A client that did not load the merged view (an editor tab opened
+    // before this change) sends only what it saw. Keep the draft edits
+    // under its changes instead of hiding them. When the page was served as
+    // is there is nothing to restore, so its removals stand.
+    if (previous && body.draftEditsFrom !== draftId) {
+      override.fields = { ...previous.fields, ...override.fields };
+      for (const key of TOP_LEVEL_KEYS) {
+        if (!override[key] && previous[key]) override[key] = previous[key];
+      }
+    }
+  }
+  // This document now holds every edit of the draft. A legacy page served
+  // as is (saved before the merged view existed) instead records the one
+  // draft whose edits it hides: that draft stays hidden, so the page keeps
+  // rendering as before and the edits stay there for a deliberate restore,
+  // while any other draft published later is merged.
+  if (draftId && (fromDraft || coversThisDraft)) override.draftEditsFrom = draftId;
+  else if (legacyAsIs) override.draftEditsHidden = draftId;
+  if (isOtraGuideId(id)) override.pageEditsVersion = PAGE_EDITS_VERSION;
   await kv.put(KEY(id), JSON.stringify(override));
   await appendAudit(kv, {
     actor: await actorForAudit(session.token, session.role, context.env),
@@ -111,8 +149,12 @@ function photoSignature(override) {
 }
 
 async function readOverride(kv, id) {
-  const raw = (await kv.get(KEY(id))) || (await kv.get(LEGACY_KEY(id)));
-  return raw ? normalizeOverride(JSON.parse(raw), id) : null;
+  const { override, draftId, fromDraft } = await resolvePageOverride(kv, id);
+  const coversThisDraft = Boolean(override && draftId && override.draftEditsFrom === draftId);
+  const legacyAsIs = Boolean(
+    draftId && !fromDraft && override && !coversThisDraft && (isLegacyDoc(override) || override.draftEditsHidden === draftId)
+  );
+  return { override: override ? normalizeOverride(override, id) : null, draftId, fromDraft, coversThisDraft, legacyAsIs };
 }
 
 function normalizeOverride(raw, id) {

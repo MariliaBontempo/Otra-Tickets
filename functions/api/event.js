@@ -7,6 +7,7 @@
 import { eventSlug } from "../_lib/event-slug.js";
 import { checkStaff } from "../admin/api/_auth.js";
 import { requestToken } from "../_lib/session.js";
+import { findBoundProjects, resolvePageOverride } from "../_lib/page-override.js";
 
 const API = "https://otraguide.com/api";
 const UPSTREAM_TTL = 300;
@@ -21,7 +22,10 @@ export async function onRequestGet(context) {
   const id = (url.searchParams.get("id") || "").trim();
   if (!isEventId(id)) return json({ error: "invalid id" }, 400);
 
-  const project = /^\d+$/.test(id) ? await findProjectByOtraGuideId(context.env, id) : null;
+  // One site event scan: the newest bound project drives the design, the
+  // newest published one feeds the page edits.
+  const bound = /^\d+$/.test(id) ? await findBoundProjects(context.env && context.env.OVERRIDES, id) : null;
+  const project = bound ? bound.latest : null;
   const base = await getBasePayload(context, id, url, project);
   if (!base) return json({ error: "not found" }, 404);
 
@@ -36,7 +40,7 @@ export async function onRequestGet(context) {
   const staffPreview = adminOnly || base.staffView === true;
   delete base.staffView;
 
-  const override = await readOverride(context.env, id, project && project.id);
+  const override = await readOverride(context.env, id, bound && bound.published ? String(bound.published.id) : "");
   let payload = override ? { ...base, ...pickOverride(override) } : base;
   if (project) {
     payload = {
@@ -132,23 +136,6 @@ async function getBasePayload(context, id, url, project) {
   return base;
 }
 
-async function findProjectByOtraGuideId(env, id) {
-  const kv = env && env.OVERRIDES;
-  if (!kv) return null;
-  let latest = null;
-  let cursor;
-  do {
-    const page = await kv.list({ prefix: "site-event:", cursor });
-    for (const key of page.keys || []) {
-      const project = await kv.get(key.name, "json");
-      if (!project || project.archivedAt || String(project.otraGuideId || "") !== String(id)) continue;
-      if (!latest || String(project.createdAt || "") > String(latest.createdAt || "")) latest = project;
-    }
-    cursor = page.list_complete ? undefined : page.cursor;
-  } while (cursor);
-  return latest;
-}
-
 function apiBase(env) {
   return String((env && env.OTRA_API_URL) || API).replace(/\/$/, "");
 }
@@ -197,16 +184,14 @@ function isStaffRequest(context) {
   return staffChecks.get(request);
 }
 
-async function readOverride(env, id, fallbackId = "") {
+async function readOverride(env, id, draftId) {
   const kv = env && env.OVERRIDES;
   if (!kv) return null;
   try {
-    const raw =
-      (await kv.get(`event:${id}`)) ||
-      (await kv.get(`override:${id}`)) ||
-      (fallbackId ? await kv.get(`event:${fallbackId}`) : null) ||
-      (fallbackId ? await kv.get(`override:${fallbackId}`) : null);
-    return raw ? JSON.parse(raw) : null;
+    // A published bound draft keeps its edits under its own id; the shared
+    // resolver puts the edits saved under the Otra Guide id on top of them.
+    const { override } = await resolvePageOverride(kv, id, { draftId: draftId || "" });
+    return override;
   } catch {
     return null;
   }

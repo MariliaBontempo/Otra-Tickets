@@ -10,6 +10,7 @@ import { mintFrozenSlug, liveSlugBase } from "../../_lib/event-slug.js";
 import { normalizeCloneSaleWindows, shiftCloneEventDay, toDay } from "../../_lib/clone-sale-windows.js";
 import { rewriteProjectDate } from "./events.js";
 import { contentSnapshot, validateContentPatch } from "./_draft-content.js";
+import { isOtraGuideId, isPublishedBound, readOverrideDoc, resolvePageOverride } from "../../_lib/page-override.js";
 
 const MAX_BYTES = 50 * 1024 * 1024;
 const DRAFT_PREFIX = "site-event:";
@@ -185,12 +186,19 @@ export async function onRequestPost(context) {
 
     // Bring the page overrides along so the clone starts looking identical.
     try {
+      // A live page shows its published draft edits with the later edits
+      // on top, so the clone copies that same view.
+      const livePageId = isOtraGuideId(sourcePageId)
+        ? sourcePageId
+        : isPublishedBound(source)
+          ? String(source.otraGuideId)
+          : "";
       const override =
-        (await kv.get(`event:${sourcePageId}`, "json")) ||
-        (await kv.get(`event:${source.id}`, "json")) ||
-        (await kv.get(`override:${sourcePageId}`, "json"));
+        (livePageId ? (await resolvePageOverride(kv, livePageId)).override : null) ||
+        (await readOverrideDoc(kv, source.id));
       if (override && typeof override === "object") {
-        await kv.put(`event:${cloneId}`, JSON.stringify({ ...override, id: cloneId }));
+        const { draftEditsFrom: _merged, draftEditsHidden: _hidden, pageEditsVersion: _version, ...copy } = override;
+        await kv.put(`event:${cloneId}`, JSON.stringify({ ...copy, id: cloneId }));
         await appendAudit(kv, {
           actor: await actorForAudit(session.token, session.role, context.env),
           action: "save",
@@ -532,10 +540,15 @@ export async function resyncPublishedProjectPhotos(context, accessToken, overrid
 
 async function syncEventPhotos(context, accessToken, project, overrideDoc = null) {
   const kv = context.env.OVERRIDES;
+  // Once bound, the page edits live under the Otra Guide id on top of the
+  // draft edits; a republish must not sync an older photo set.
+  const boundId = isOtraGuideId(project.otraGuideId) ? String(project.otraGuideId) : "";
   const override =
     overrideDoc ||
     (kv
-      ? (await kv.get(`event:${project.id}`, "json")) || (await kv.get(`override:${project.id}`, "json"))
+      ? boundId
+        ? (await resolvePageOverride(kv, boundId, { draftId: project.id })).override
+        : await readOverrideDoc(kv, project.id)
       : null);
   const urls = collectProjectPhotoUrls(override, project);
   const files = [];

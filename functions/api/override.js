@@ -3,6 +3,8 @@
 // Public read-only override endpoint for hand-built pages that do not render
 // through /api/event. Admin writes stay behind /admin/api/overrides.
 
+import { resolvePageOverride } from "../_lib/page-override.js";
+
 export async function onRequestGet(context) {
   const url = new URL(context.request.url);
   const id = (url.searchParams.get("id") || "").trim();
@@ -11,10 +13,7 @@ export async function onRequestGet(context) {
   if (!context.env.OVERRIDES) return json({ override: null });
 
   try {
-    const override =
-      (await context.env.OVERRIDES.get(`event:${id}`, "json")) ||
-      (await context.env.OVERRIDES.get(`override:${id}`, "json")) ||
-      (await readDraftOverrideForOtraGuideId(context.env.OVERRIDES, id));
+    const { override } = await resolvePageOverride(context.env.OVERRIDES, id);
     if (!override || typeof override !== "object") return json({ override: null });
     const rawAccent = typeof override.accentColor === "string" ? override.accentColor.trim() : "";
     return json({
@@ -30,25 +29,6 @@ export async function onRequestGet(context) {
   } catch {
     return json({ error: "could not load override" }, 500);
   }
-}
-
-async function readDraftOverrideForOtraGuideId(kv, id) {
-  if (!/^\d+$/.test(id)) return null;
-  let cursor;
-  do {
-    const page = await kv.list({ prefix: "site-event:", cursor });
-    for (const key of page.keys || []) {
-      const project = await kv.get(key.name, "json");
-      if (!project || String(project.otraGuideId || "") !== id) continue;
-      const draftId = String(project.id || key.name.replace(/^site-event:/, ""));
-      const override =
-        (await kv.get(`event:${draftId}`, "json")) ||
-        (await kv.get(`override:${draftId}`, "json"));
-      if (override) return override;
-    }
-    cursor = page.list_complete ? undefined : page.cursor;
-  } while (cursor);
-  return null;
 }
 
 function normalizeFields(raw) {

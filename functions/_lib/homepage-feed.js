@@ -10,6 +10,7 @@
 import { eventSlug, legacyCuratedTitle, persistedFrozenSlug } from "./event-slug.js";
 import { readHiddenPageIds } from "./hidden-pages.js";
 import { cardScheduleLabel, scheduleEdited, validDateValue } from "./schedule-line.js";
+import { isOtraGuideId, readOverrideDoc, resolvePageOverride } from "./page-override.js";
 
 const API = "https://otraguide.com/api";
 
@@ -86,6 +87,9 @@ const FROZEN_SLUG = Symbol("frozenSlug");
 // Site event project behind a card, kept so applyOverrides can rebuild the
 // schedule line from the same page override the event page applies.
 const SCHEDULE_SOURCE = Symbol("scheduleSource");
+// Draft id of a published site event card, so applyOverrides can read the
+// page edits through the shared resolver without scanning site events.
+const DRAFT_ID = Symbol("draftId");
 
 // Build the full { events, rows } homepage payload.
 //   includeAdminOnly — include KV site events flagged adminOnly (staff preview)
@@ -543,20 +547,22 @@ export async function buildPublishedSiteEvents(env, { includeAdminOnly = false }
       const startDate = validDateValue(project.startDate);
       const endDate = validDateValue(project.endDate);
       // The card must mirror the event detail's hero photo. A published draft's
-      // live hero is edited into its draft override (event:<draftId>), while
+      // live hero is edited into its page override (see page-override.js), while
       // project.image holds the Otra Guide event's stock image captured at bind
       // time — so prefer the override hero, exactly like the detail page does.
       let overrideImg = "";
       let overrideTitle = "";
-      let draftOverride = null;
+      let pageOverride = null;
       try {
-        draftOverride =
-          (await kv.get(`event:${draftId}`, "json")) ||
-          (await kv.get(`override:${draftId}`, "json"));
-        overrideImg = homepageOverrideImage(draftOverride);
-        overrideTitle = homepageOverrideTitle(draftOverride);
+        // Bound pages read the same merged edits as the event page: draft
+        // edits with the edits saved after publishing on top.
+        pageOverride = isOtraGuideId(project.otraGuideId)
+          ? (await resolvePageOverride(kv, id, { draftId })).override
+          : await readOverrideDoc(kv, draftId);
+        overrideImg = homepageOverrideImage(pageOverride);
+        overrideTitle = homepageOverrideTitle(pageOverride);
       } catch {
-        draftOverride = null;
+        pageOverride = null;
         overrideImg = "";
         overrideTitle = "";
       }
@@ -604,7 +610,7 @@ export async function buildPublishedSiteEvents(env, { includeAdminOnly = false }
         // KV drafts carry no Otra Guide location; dedupe backfills it from the
         // matching upstream event so the card location still comes from there.
         location: "",
-        dateLabel: siteEventDateLabel(project, draftOverride, localCard),
+        dateLabel: siteEventDateLabel(project, pageOverride, localCard),
         img:
           overrideImg ||
           currentDetailImg ||
@@ -616,6 +622,7 @@ export async function buildPublishedSiteEvents(env, { includeAdminOnly = false }
         ...(slugSource ? { [SLUG_SOURCE]: slugSource } : {}),
         ...(frozen ? { [FROZEN_SLUG]: frozen } : {}),
         [SCHEDULE_SOURCE]: { project: scheduleProject(project), localCard: localCard || null },
+        [DRAFT_ID]: draftId,
       });
     }
     cursor = page.list_complete ? undefined : page.cursor;
@@ -808,10 +815,12 @@ export async function applyOverrides(events, env) {
   const overrides = await Promise.all(
     events.map(async (ev) => {
       try {
-        return (
-          (await env.OVERRIDES.get(`event:${ev.id}`, "json")) ||
-          (await env.OVERRIDES.get(`override:${ev.id}`, "json"))
-        );
+        // Same edits the event page shows: draft edits with the edits saved
+        // after publishing on top.
+        const { override } = await resolvePageOverride(env.OVERRIDES, String(ev.id), {
+          draftId: ev[DRAFT_ID] || "",
+        });
+        return override;
       } catch {
         return null;
       }
@@ -821,8 +830,8 @@ export async function applyOverrides(events, env) {
     const override = overrides[i];
     const image = homepageOverrideImage(override);
     const title = homepageOverrideTitle(override);
-    // The event page reads event:<id> before the draft override, so when a
-    // bound card has its own override the schedule line follows that one.
+    // Same merged page edits the event page applies (draft edits with the
+    // later edits on top), so the schedule line follows them too.
     const scheduleSource = ev[SCHEDULE_SOURCE];
     const dateLabel =
       override && scheduleSource
