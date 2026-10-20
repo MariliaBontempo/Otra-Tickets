@@ -197,7 +197,7 @@ export async function onRequestPost(context) {
         (livePageId ? (await resolvePageOverride(kv, livePageId)).override : null) ||
         (await readOverrideDoc(kv, source.id));
       if (override && typeof override === "object") {
-        const { draftEditsFrom: _merged, pageEditsVersion: _version, ...copy } = override;
+        const { draftEditsFrom: _merged, draftEditsHidden: _hidden, pageEditsVersion: _version, ...copy } = override;
         await kv.put(`event:${cloneId}`, JSON.stringify({ ...copy, id: cloneId }));
         await appendAudit(kv, {
           actor: await actorForAudit(session.token, session.role, context.env),

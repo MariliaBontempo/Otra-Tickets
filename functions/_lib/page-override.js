@@ -112,7 +112,8 @@ export function mergeOverrideDocs(draftDoc, eventDoc) {
 //   (draftEditsFrom), and the draft has not changed since; or
 // - it is a legacy document (saved before the merged view existed, so no
 //   pageEditsVersion and no draftEditsFrom) at least as new as the draft
-//   document. Those pages keep rendering exactly as they did, so shipping
+//   document, or a legacy document saved again since, which then names the
+//   one draft it hides in draftEditsHidden. Those pages keep rendering exactly as they did, so shipping
 //   the merge changes no live page; restoring draft edits such a page hid is
 //   a deliberate, separate step.
 // Anything else is merged: a draft document newer than the event document,
@@ -122,6 +123,7 @@ export function coversDraft(eventDoc, draftId, draftDoc) {
   if (!eventDoc || !draftId) return false;
   if (draftDoc && stamp(draftDoc) > stamp(eventDoc)) return false;
   if (eventDoc.draftEditsFrom === draftId) return true;
+  if (eventDoc.draftEditsHidden === draftId) return true;
   return isLegacyDoc(eventDoc);
 }
 

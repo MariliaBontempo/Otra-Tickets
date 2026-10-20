@@ -161,13 +161,17 @@ const draftEdits = {
   await adminSave(kv, '7175', editorBody(loaded, (next) => { next.fields['text:#evTitle'] = text('Edited again'); }));
   eq(Object.keys((await publicFields(kv, '7175')).fields).sort(), ['text:#evSub', 'text:#evTitle'], '2: saving it changes only the edited key');
   assert(!('draftEditsFrom' in kv.json('event:7175')), '2: an editor save on a page served as is adds no marker');
-  assert(!('pageEditsVersion' in kv.json('event:7175')), '2: and no format marker, so it stays recognisably legacy');
+  eq(kv.json('event:7175').draftEditsHidden, DRAFT, '2: a save on a page served as is names the draft it hides');
+  eq(kv.json('event:7175').pageEditsVersion, 2, '2: and writes the format marker');
+  await adminSave(kv, '7175', editorBody(await adminLoad(kv, '7175'), (next) => { next.fields['text:#evSub'] = text('Third save'); }));
+  eq(Object.keys((await publicFields(kv, '7175')).fields).sort(), ['text:#evSub', 'text:#evTitle'], '2: later saves still keep that draft hidden');
+  eq(kv.json('event:7175').draftEditsHidden, DRAFT, '2: and keep naming it');
   // An editor tab opened before the fix sends only what it saw and the
   // page stays the same.
   const stale = makeKv({ [`site-event:${DRAFT}`]: project(), [`event:${DRAFT}`]: draftEdits, 'event:7175': legacyDoc });
   await adminSave(stale, '7175', { fields: { 'text:#evTitle': text('Stale tab title'), 'text:#evSub': text('Later subtitle') } });
   eq(stale.json('event:7175').fields, { 'text:#evTitle': text('Stale tab title'), 'text:#evSub': text('Later subtitle') }, '2: stale tab save on an old page keeps the old page keys');
-  assert(!('draftEditsFrom' in stale.json('event:7175')), '2: a page served as is stays unmarked, so its hidden draft edits stay restorable');
+  assert(!('draftEditsFrom' in stale.json('event:7175')), '2: a page served as is gets no draft marker, so its hidden draft edits stay restorable');
   await adminSave(stale, '7175', { fields: { 'text:#evTitle': text('Stale tab title') } });
   eq(stale.json('event:7175').fields, { 'text:#evTitle': text('Stale tab title') }, '2: a stale tab removal on a page served as is sticks');
   eq(Object.keys((await publicFields(stale, '7175')).fields), ['text:#evTitle'], '2: and the page shows the removal');
@@ -212,6 +216,30 @@ const draftEdits = {
   eq(page.fields['text:#evTitle'], text('Live edit'), '2b: the later live edit wins its key');
   const loaded = await adminLoad(kv, '7175');
   eq(loaded.draftEditsFrom, EXISTING, '2b: the editor merges the published draft');
+}
+
+// 2c. A legacy live page saved after deploy still merges a different draft
+//     published later, even one whose document is older than that save.
+{
+  const B = 'draft-1796000000000-eeeeeeee';
+  const kv = makeKv({
+    [`site-event:${DRAFT}`]: project(),
+    [`event:${DRAFT}`]: draftEdits,
+    'event:7175': { fields: { 'text:#evTitle': text('Old live title') }, updatedAt: '2026-10-12T00:00:00.000Z' },
+    [`site-event:${B}`]: project({ id: B, status: 'draft', publishedAt: '', createdAt: '2026-09-30T00:00:00.000Z' }),
+    [`event:${B}`]: { fields: { 'text:#evMeta': text('B meta') }, updatedAt: '2026-10-01T00:00:00.000Z' },
+  });
+  const before = await publicFields(kv, '7175');
+  eq(before.fields, { 'text:#evTitle': text('Old live title') }, '2c: the legacy page renders as before');
+  await adminSave(kv, '7175', editorBody(await adminLoad(kv, '7175'), (next) => { next.fields['text:#evTitle'] = text('Saved after deploy'); }));
+  eq(kv.json('event:7175').draftEditsHidden, DRAFT, '2c: the save names the hidden draft');
+  // B is published and the old draft archived.
+  kv.store.set(`site-event:${DRAFT}`, JSON.stringify(project({ archivedAt: '2026-10-20T00:00:00.000Z' })));
+  kv.store.set(`site-event:${B}`, JSON.stringify(project({ id: B, createdAt: '2026-09-30T00:00:00.000Z', publishedAt: '2026-10-20T00:00:00.000Z' })));
+  const after = await publicFields(kv, '7175');
+  eq(after.fields['text:#evMeta'], text('B meta'), '2c: the newly published draft edits show');
+  eq(after.fields['text:#evTitle'], text('Saved after deploy'), '2c: the later live edit wins its key');
+  assert(!('text:#evMeta' in before.fields) && !after.fields['text:#evMeta'].value.includes('Every Saturday'), '2c: the hidden old draft stays out');
 }
 
 // 3. Later edits win per key, in both directions, by document time.
@@ -456,7 +484,7 @@ const draftEdits = {
   const cloneDoc = body.project ? kv.json(`event:${body.project.id}`) : null;
   eq(cloneDoc && cloneDoc.fields['text:#evMeta'], text('Every Saturday · 90 min'), '8: clone keeps the draft hero line');
   eq(cloneDoc && cloneDoc.fields['text:#evSub'], text('Older sub'), '8: clone keeps the live only key');
-  assert(cloneDoc && !('draftEditsFrom' in cloneDoc) && !('pageEditsVersion' in cloneDoc), '8: clone document carries no markers');
+  assert(cloneDoc && !('draftEditsFrom' in cloneDoc) && !('pageEditsVersion' in cloneDoc) && !('draftEditsHidden' in cloneDoc), '8: clone document carries no markers');
 }
 
 globalThis.fetch = realFetch;

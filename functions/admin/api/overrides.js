@@ -98,10 +98,13 @@ export async function onRequestPut(context) {
     }
   }
   // This document now holds every edit of the draft. A legacy page served
-  // as is (saved before the merged view existed) stays unmarked, so the
-  // draft edits it hides are still there for a deliberate restore.
+  // as is (saved before the merged view existed) instead records the one
+  // draft whose edits it hides: that draft stays hidden, so the page keeps
+  // rendering as before and the edits stay there for a deliberate restore,
+  // while any other draft published later is merged.
   if (draftId && (fromDraft || coversThisDraft)) override.draftEditsFrom = draftId;
-  if (isOtraGuideId(id) && !legacyAsIs) override.pageEditsVersion = PAGE_EDITS_VERSION;
+  else if (legacyAsIs) override.draftEditsHidden = draftId;
+  if (isOtraGuideId(id)) override.pageEditsVersion = PAGE_EDITS_VERSION;
   await kv.put(KEY(id), JSON.stringify(override));
   await appendAudit(kv, {
     actor: await actorForAudit(session.token, session.role, context.env),
@@ -148,7 +151,9 @@ function photoSignature(override) {
 async function readOverride(kv, id) {
   const { override, draftId, fromDraft } = await resolvePageOverride(kv, id);
   const coversThisDraft = Boolean(override && draftId && override.draftEditsFrom === draftId);
-  const legacyAsIs = Boolean(draftId && !fromDraft && isLegacyDoc(override));
+  const legacyAsIs = Boolean(
+    draftId && !fromDraft && override && !coversThisDraft && (isLegacyDoc(override) || override.draftEditsHidden === draftId)
+  );
   return { override: override ? normalizeOverride(override, id) : null, draftId, fromDraft, coversThisDraft, legacyAsIs };
 }
 
