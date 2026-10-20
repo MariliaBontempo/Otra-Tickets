@@ -227,4 +227,7 @@ test("event.html drops a late checkout loader, and shows an error with a retry w
   assert.equal(/function fail\(\) \{[\s\S]{0,400}container\.innerHTML = '/.test(fn), false);
   assert.match(fn, /function markReady\(\) \{[\s\S]{0,300}container\.hidden = false;/);
   assert.match(fn, /id="evCheckoutRetry"/);
+  // A retry swaps the resize listener instead of stacking another one.
+  assert.match(fn, /window\.removeEventListener\("message", loadCheckout\.onMessage\)/);
+  assert.equal((fn.match(/window\.addEventListener\("message"/g) || []).length, 1);
 });

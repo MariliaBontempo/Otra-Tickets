@@ -1755,7 +1755,9 @@ html[data-presidente-event="8088"] .btn-metal:hover { background: #4cba57; box-s
           }
           let lastIframeHeight = 0;
           let didScrollToRecurringCheckout = false;
-          window.addEventListener("message", function (e) {
+          // One resize listener per page: a retry replaces the previous attempt's.
+          if (loadCheckout.onMessage) window.removeEventListener("message", loadCheckout.onMessage);
+          loadCheckout.onMessage = function (e) {
             if (e.origin !== new URL(checkoutBaseUrl).origin) return;
             const d = e.data;
             if (d && d.type === "OTRA_IFRAME_RESIZE" && d.height) {
@@ -1781,7 +1783,8 @@ html[data-presidente-event="8088"] .btn-metal:hover { background: #4cba57; box-s
               }
               lastIframeHeight = nextHeight;
             }
-          });
+          };
+          window.addEventListener("message", loadCheckout.onMessage);
         }
         if (window.OtraStripeCheckoutEmbed) { mount(); return; }
         const s = document.createElement("script");
