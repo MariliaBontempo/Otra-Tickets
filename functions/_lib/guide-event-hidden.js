@@ -74,7 +74,7 @@ async function discardBody(resp) {
 // True when the exception above applies: the exact project, and a live feed.
 export async function keepsSellingWhileHidden(api, guideId, projectId, ticketData) {
   if (!projectId || HIDDEN_DETAIL_EXCEPTIONS[String(guideId)] !== String(projectId)) return false;
-  const data = ticketData === undefined ? await ticketFeed(api, guideId) : ticketData;
+  const data = ticketData === undefined ? await guideTicketFeed(api, guideId) : ticketData;
   return Boolean(data && Array.isArray(data.results) && data.results.length);
 }
 
@@ -85,7 +85,9 @@ export async function isHiddenGuideEvent(env, guideId, projectId = "") {
   return !(await keepsSellingWhileHidden(api, guideId, projectId));
 }
 
-async function ticketFeed(api, guideId) {
+// A Guide event's public ticket feed, or null when it fails or takes longer
+// than the check timeout (a slow Guide never holds a page response).
+export async function guideTicketFeed(api, guideId) {
   try {
     const resp = await fetch(`${api}/ticket/purchase/tickets/${guideId}/?include_choice_addons=1`, {
       headers: { Accept: "application/json" },

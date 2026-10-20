@@ -11,7 +11,7 @@ import { findBoundProjects, resolvePageOverride } from "../_lib/page-override.js
 import { hasEnded } from "../_lib/event-ended.js";
 import { heroMetaItems } from "../_lib/hero-meta-text.js";
 import { ticketSaleState, withSaleState } from "../_lib/ticket-sale-state.js";
-import { HIDDEN_DETAIL_EXCEPTIONS, guideApiBase, guideDetailMissing, keepsSellingWhileHidden } from "../_lib/guide-event-hidden.js";
+import { HIDDEN_DETAIL_EXCEPTIONS, guideApiBase, guideDetailMissing, guideTicketFeed, keepsSellingWhileHidden } from "../_lib/guide-event-hidden.js";
 
 const API = "https://otraguide.com/api";
 const UPSTREAM_TTL = 300;
@@ -72,7 +72,7 @@ export async function onRequestGet(context) {
   // page's own (often empty) feed.
   const checkoutId = String(payload.checkoutEventId || "");
   if (!isDraftId(id) && /^\d+$/.test(checkoutId) && checkoutId !== String(base.checkoutEventId || "")) {
-    const checkoutTickets = await fetchJson(`${apiBase(context.env)}/ticket/purchase/tickets/${checkoutId}/?include_choice_addons=1`);
+    const checkoutTickets = await guideTicketFeed(apiBase(context.env), checkoutId);
     if (checkoutTickets) {
       payload = { ...payload, ...ticketLists(checkoutTickets) };
     } else {

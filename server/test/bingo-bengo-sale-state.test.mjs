@@ -50,13 +50,13 @@ function kvWith(docs = {}) {
   };
 }
 
-async function withUpstream(fn, { feedDown = [] } = {}) {
+async function withUpstream(fn, { feedDown = [], feedHangs = [] } = {}) {
   forgetGuideStatuses();
   const originalFetch = globalThis.fetch;
   const originalCaches = globalThis.caches;
   const calls = [];
   globalThis.caches = { default: { async match() { return null; }, async put() {} } };
-  globalThis.fetch = async (input) => {
+  globalThis.fetch = async (input, init = {}) => {
     const url = new URL(typeof input === "string" ? input : input.url);
     const path = url.pathname;
     calls.push(path);
@@ -66,6 +66,11 @@ async function withUpstream(fn, { feedDown = [] } = {}) {
     }
     if ((m = path.match(/^\/api\/ticket\/purchase\/tickets\/(\d+)\/$/))) {
       if (feedDown.includes(m[1])) return new Response("bad gateway", { status: 502 });
+      if (feedHangs.includes(m[1])) {
+        return new Promise((resolve, reject) => {
+          init.signal?.addEventListener("abort", () => reject(init.signal.reason));
+        });
+      }
       return Response.json(feeds[m[1]] || { results: [], addons: [] });
     }
     return new Response("", { status: 404 });
@@ -163,6 +168,23 @@ test("when the checkout event's feed fails, no rates are shown and nothing is cl
     assert.deepEqual(body.ticketSale, { state: "unknown", opensAt: null });
     assert.equal("ticketsUnknown" in body, false);
   }, { feedDown: ["7524"] });
+});
+
+test("a checkout feed that never answers times out to no rates instead of holding the page", { timeout: 8000 }, async () => {
+  // AbortSignal.timeout does not keep the test's event loop alive on its own.
+  const keepAlive = setTimeout(() => {}, 8000);
+  try {
+    await withUpstream(async () => {
+      const started = Date.now();
+      const { status, body } = await get("7479", bingoOverride);
+      assert.equal(status, 200);
+      assert.ok(Date.now() - started < 6000);
+      assert.deepEqual(body.tickets, []);
+      assert.equal(body.ticketSale.state, "unknown");
+    }, { feedHangs: ["7524"] });
+  } finally {
+    clearTimeout(keepAlive);
+  }
 });
 
 test("sale windows: start and end edges, and tickets without a window", () => {
