@@ -213,7 +213,8 @@ const html = readFileSync(new URL("../../event.html", import.meta.url), "utf8");
 test("event.html titles the rates from the sale state, not from the ticket count alone", () => {
   assert.match(html, /"Tickets go on sale " \+ saleDate\(ev\.ticketSale\.opensAt\)/);
   assert.match(html, /"Ticket sales have ended\."/);
-  assert.match(html, /const selling = ev\.tickets\.filter\(\(t\) => t\.sale === "on_sale"\);/);
+  // "From" quotes tiers on sale now, else tiers still to open, never closed ones (past pages keep every tier).
+  assert.match(html, /const priced = !hasTickets \? \[\] : isPast \? ev\.tickets\s*: ev\.tickets\.some\(\(t\) => t\.sale === "on_sale"\) \? ev\.tickets\.filter\(\(t\) => t\.sale === "on_sale"\)\s*: ev\.tickets\.filter\(\(t\) => t\.sale !== "ended"\);/);
   assert.match(html, /t\.sale === "upcoming" \? "On sale " \+ saleDate\(t\.saleStartsAt\)/);
   assert.match(html, /sale === "unknown"[\s\S]{0,200}\$\("evRatesSection"\)\.hidden = true/);
 });

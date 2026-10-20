@@ -1470,10 +1470,13 @@ html[data-presidente-event="8088"] .btn-metal:hover { background: #4cba57; box-s
       }
       if (!cells.length && ev.isPerennial) cells.push(["Availability", "Flexible dates"]);
       if (!design.practicalInfo && ev.isPerennial) cells.push(["Location", "Curaçao"]);
-      if (hasTickets) {
-        // "From" quotes what can be bought now when anything is on sale.
-        const selling = ev.tickets.filter((t) => t.sale === "on_sale");
-        const priced = selling.length ? selling : ev.tickets;
+      // "From" quotes what can be bought now; with nothing on sale yet, the
+      // tiers still to open. Tiers whose sale ended never set it (a past page
+      // keeps its record of every tier).
+      const priced = !hasTickets ? [] : isPast ? ev.tickets
+        : ev.tickets.some((t) => t.sale === "on_sale") ? ev.tickets.filter((t) => t.sale === "on_sale")
+        : ev.tickets.filter((t) => t.sale !== "ended");
+      if (priced.length) {
         const min = Math.min(...priced.map((t) => Number(t.price) || 0));
         const code = priced[0].currency;
         cells.push(["Tickets", "From " + cur(code) + money(min)]);
