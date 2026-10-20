@@ -4,9 +4,10 @@
 // then ticketed Otra Guide events that open through event.html?id=<id>.
 //
 // Ticketed events come from one staff call to the Otra Guide calendar feed
-// (category 339, about a month back to a year ahead) plus the first page of the
-// category feed, which carries promoted, pinned and still running events the
-// calendar window can miss. The staff Bearer token is forwarded so staff-only
+// (category 339, about a month back to a year ahead) plus the same first 4
+// pages of the category feed the list used before, which carry promoted,
+// pinned, perennial and still running events the calendar window can miss. So
+// the list is always a superset of the old one. The staff Bearer token is forwarded so staff-only
 // events such as Cascada NYE appear, and happy hours and other unticketed rows
 // are dropped before any ticket check. Events known only from KV drafts or
 // overrides (for example unpublished ones) are looked up one by one through
@@ -22,6 +23,7 @@ const LOOKBACK_DAYS = 30;
 const LOOKAHEAD_MONTHS = 12;
 const MAX_TICKET_CHECKS = 100;
 const LOOKUP_CONCURRENCY = 10;
+const FEED_HEAD_PAGES = 4;
 const FEED_HEAD_SIZE = 20;
 const MAX_FALLBACK_LOOKUPS = 25;
 const CALENDAR_TIMEOUT_MS = 25000;
@@ -213,21 +215,27 @@ async function getTemplatePages(context, token, knownIds) {
 
 async function buildTemplatePages(env, token, knownIds = []) {
   const { start, end } = calendarWindow(new Date());
-  const [calendar, feedHead] = await Promise.all([
+  const [calendar, ...feedPages] = await Promise.all([
     otraGet(env, token, `/events/nonperennial/calendar/?category_id=${CATEGORY_ID}&start=${start}&end=${end}`, {
       timeoutMs: CALENDAR_TIMEOUT_MS,
     }),
-    otraGet(env, token, `/events/nonperennial/?category_id=${CATEGORY_ID}&page=1&page_size=${FEED_HEAD_SIZE}`, {
-      timeoutMs: LOOKUP_TIMEOUT_MS,
-    }),
+    ...Array.from({ length: FEED_HEAD_PAGES }, (_, i) =>
+      otraGet(env, token, `/events/nonperennial/?category_id=${CATEGORY_ID}&page=${i + 1}&page_size=${FEED_HEAD_SIZE}`, {
+        timeoutMs: LOOKUP_TIMEOUT_MS,
+      })
+    ),
   ]);
-  if (calendar.status === 401 || feedHead.status === 401) return { status: 401, pages: [] };
+  if ([calendar, ...feedPages].some((result) => result.status === 401)) return { status: 401, pages: [] };
   const rows = Array.isArray(calendar.data) ? calendar.data : null;
-  const headRows = feedHead.data && Array.isArray(feedHead.data.results) ? feedHead.data.results : null;
   let error = rows ? "" : `calendar feed unavailable (${calendar.status || "network"})`;
-  if (!headRows && !error) error = `category feed unavailable (${feedHead.status || "network"})`;
+  // A page past the end of a short feed answers 404; that is not a failure.
+  const headRows = [];
+  for (const page of feedPages) {
+    if (page.data && Array.isArray(page.data.results)) headRows.push(...page.data.results);
+    else if (page.status !== 404 && !error) error = `category feed unavailable (${page.status || "network"})`;
+  }
 
-  const groups = mergeFeedHead(await resolveGroups(env, token, groupBySlug(rows || [])), headRows || []);
+  const groups = mergeFeedHead(await resolveGroups(env, token, groupBySlug(rows || [])), headRows);
   const candidates = groups
     .filter((ev) => !FEATURED_IDS.has(ev.id) && !EXCLUDED_IDS.has(ev.id))
     .sort(byStart)
@@ -324,7 +332,7 @@ async function resolveGroups(env, token, groups) {
   return [...byId.values()];
 }
 
-// Feed head rows already carry base event ids (no occurrence copies), so they
+// Feed rows already carry base event ids (no occurrence copies), so they
 // only add events the calendar did not return.
 function mergeFeedHead(groups, headRows) {
   const byId = new Map(groups.map((ev) => [ev.id, ev]));

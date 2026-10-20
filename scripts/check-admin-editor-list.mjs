@@ -59,6 +59,7 @@ globalThis.fetch = async (input, init = {}) => {
   if (url.includes('/events/nonperennial/?')) {
     if (mode === 'down') return new Response('upstream error', { status: 502 });
     // Feed head: promoted and still running events (base ids) plus daily rows.
+    if (!url.includes('page=1&')) return Response.json({ count: 900, results: [] });
     return Response.json({ count: 900, results: [
       { id: 8088, title: 'Mike Gatta 50/50/50 Finish Line', start_date: '2026-08-12T18:00:00-04:00', is_ticketed: true, is_perennial: false },
       { id: 8257, title: 'Cascada NYE 2027', start_date: '2026-12-31T21:00:00-04:00', is_ticketed: true, is_perennial: false },
@@ -160,14 +161,14 @@ assert(!ids.includes('8301'), 'override events without tickets must not be liste
 assert(!calls.some((c) => c.url.includes('admin-ticketed-search/?id=8257')), 'events already in the calendar must not be looked up again');
 assert(!payload.upstreamError, 'healthy build must not report an upstream error');
 const headCalls = calls.filter((c) => /\/events\/nonperennial\/\?/.test(c.url));
-assert(headCalls.length === 1 && /page=1&page_size=20/.test(headCalls[0].url) && /category_id=339/.test(headCalls[0].url), 'exactly one feed head call (category 339, page 1)');
+assert(headCalls.length === 4 && headCalls.every((c) => /category_id=339&page=[1-4]&page_size=20$/.test(c.url)), 'the old 4 x 20 category feed window must still be read so nothing the old list showed disappears');
 assert(byId('8088'), 'still running promoted event from the feed head must be listed even though it started before the calendar window');
 assert(ids.filter((id) => id === '8257').length === 1, 'an event in both the calendar and the feed head must appear once');
 const nonPerennial = payload.pages.filter((p) => /^\d+$/.test(p.id) && p.type !== 'Manual page');
 const tourIndex = nonPerennial.findIndex((p) => p.type === 'Published tour');
 assert(tourIndex === -1 || nonPerennial.slice(tourIndex).every((p) => p.type === 'Published tour'), 'tours must sort after dated events');
 const totalUpstream = calls.filter((c) => !c.url.endsWith('/users/user-role/')).length;
-assert(totalUpstream <= 14, `whole build must stay small (got ${totalUpstream} upstream calls)`);
+assert(totalUpstream <= 18, `whole build must stay small (got ${totalUpstream} upstream calls)`);
 
 // 3. A second request inside the TTL is served from cache.
 calls = [];
