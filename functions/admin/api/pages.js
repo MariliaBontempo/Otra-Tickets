@@ -3,8 +3,8 @@
 // Staff-only list for the admin dropdown. It returns the hand-built pages first,
 // then ticketed Otra Guide events that open through event.html?id=<id>.
 //
-// Ticketed events come from one staff call to the Otra Guide calendar feed
-// (category 339, about a month back to a year ahead) plus the same first 4
+// Ticketed events come from the staff Otra Guide calendar feed (category 339,
+// about a month back to a year ahead, read in half month chunks) plus the same first 4
 // pages of the category feed the list used before, which carry promoted,
 // pinned, perennial and still running events the calendar window can miss, so
 // the list is always a superset of the old one. The staff Bearer token is
@@ -28,12 +28,32 @@ const FEED_HEAD_PAGES = 4;
 const FEED_HEAD_SIZE = 20;
 const MAX_FALLBACK_LOOKUPS = 25;
 const TITLE_SEARCH_LIMIT = 20; // Django AdminTicketedEventSearchAPIView returns at most 20 rows
-const CALENDAR_TIMEOUT_MS = 40000;
 const LOOKUP_TIMEOUT_MS = 10000;
-const CACHE_TTL_SECONDS = 300;
-// Server side only cache entry (never routed). Staff-visible content, so it
-// lives under its own admin key and is only read after requireStaff.
+// The calendar returns every event of the region (about 17k rows and 5 MB a
+// year, of which under 1k are ticketed), and for a signed in user Django runs
+// two favorite queries per row, so one staff call for the whole year takes
+// longer than any sane timeout. It is read in half month chunks instead
+// (stable boundaries, so a chunk's cache entry survives across days), a few
+// at a time, each with its own timeout. A staff chunk that fails is retried
+// anonymously so only its staff only events can be missing, and that is
+// reported.
+const CHUNK_CONCURRENCY = 9;
+const STAFF_CHUNK_TIMEOUT_MS = 20000;
+const PUBLIC_CHUNK_TIMEOUT_MS = 10000;
+const CHUNK_TTL_SECONDS = 600;
+// A request with nothing cached waits at most this long for the calendar.
+// Chunks still running keep filling their cache in the background, and the
+// partial list says so.
+const COLD_BUILD_DEADLINE_MS = 12000;
+// A complete list is served for up to LIST_MAX_AGE_SECONDS; after
+// LIST_FRESH_SECONDS the next request still gets it at once and a rebuild runs
+// in the background.
+const LIST_FRESH_SECONDS = 300;
+const LIST_MAX_AGE_SECONDS = 6 * 3600;
+// Server side only cache entries (never routed). Staff-visible content, so
+// they live under admin keys and are only read after requireStaff.
 const CACHE_PATH = "/admin/api/pages-upstream-cache";
+const CHUNK_CACHE_PATH = "/admin/api/pages-calendar-chunk";
 // Calendar rows for a recurring event are per occurrence copies whose title is
 // prefixed with the local start time, for example "09:00 - Iguana Ride".
 const OCCURRENCE_TITLE = /^\d{2}:\d{2} - /;
@@ -183,53 +203,76 @@ function cleanIds(values) {
   return values.map((value) => String(value).trim()).filter((value) => /^\d+$/.test(value)).map(Number);
 }
 
-// Cached wrapper. Only a fully successful build is cached, so an outage or a
-// rejected token never pins an empty list for the next staff user.
+// Stale while revalidate wrapper around the built list. A complete list is
+// fresh for LIST_FRESH_SECONDS. After that it is still served at once (up to
+// LIST_MAX_AGE_SECONDS) while one background rebuild replaces it. Only a
+// complete build is stored, so a partial list never replaces a complete one
+// and an outage or a rejected token never pins a short list; a request with
+// nothing stored builds with a deadline (chunks that finished meanwhile are
+// cached, so the next attempt is quicker).
+let backgroundRebuild = null;
+
 async function getTemplatePages(context, token, knownIds) {
   const cache = globalThis.caches && globalThis.caches.default;
-  const cacheKey = cache && context.request ? new Request(new URL(CACHE_PATH, context.request.url)) : null;
-  if (cacheKey) {
-    try {
-      const hit = await cache.match(cacheKey);
-      if (hit) {
-        const payload = await hit.json();
-        if (payload && Array.isArray(payload.pages)) return { status: 200, pages: payload.pages, note: payload.note || "" };
-      }
-    } catch {
-      // Treat an unreadable cache entry as a miss.
-    }
-  }
+  const base = context.request ? context.request.url : "";
+  const cacheKey = cache && base ? new Request(new URL(CACHE_PATH, base)) : null;
+  const io = { cache, base, waitUntil: (p) => (context.waitUntil ? context.waitUntil(p) : undefined) };
+  const entry = cacheKey ? await readEntry(cache, cacheKey) : null;
 
-  const built = await buildTemplatePages(context.env, token, knownIds);
-  if (cacheKey && !built.error && built.status === 200) {
-    const response = new Response(JSON.stringify({ pages: built.pages, note: built.note || "" }), {
-      headers: {
-        "content-type": "application/json; charset=utf-8",
-        "cache-control": `max-age=${CACHE_TTL_SECONDS}`,
-      },
-    });
-    const put = cache.put(cacheKey, response).catch(() => {});
-    if (context.waitUntil) context.waitUntil(put);
-    else await put;
+  if (entry) {
+    if ((Date.now() - entry.builtAt) / 1000 >= LIST_FRESH_SECONDS && !backgroundRebuild) {
+      backgroundRebuild = rebuildAndStore(context.env, token, knownIds, io, cacheKey, Infinity)
+        .catch(() => {})
+        .finally(() => {
+          backgroundRebuild = null;
+        });
+      io.waitUntil(backgroundRebuild);
+    }
+    return { status: 200, pages: entry.pages, note: entry.note };
+  }
+  return rebuildAndStore(context.env, token, knownIds, io, cacheKey, COLD_BUILD_DEADLINE_MS);
+}
+
+async function rebuildAndStore(env, token, knownIds, io, cacheKey, deadlineMs) {
+  const built = await buildTemplatePages(env, token, knownIds, { ...io, deadlineMs });
+  if (cacheKey && built.status === 200 && !built.error) {
+    const body = JSON.stringify({ pages: built.pages, note: built.note || "", builtAt: Date.now() });
+    const put = io.cache
+      .put(cacheKey, new Response(body, {
+        headers: { "content-type": "application/json; charset=utf-8", "cache-control": `max-age=${LIST_MAX_AGE_SECONDS}` },
+      }))
+      .catch(() => {});
+    io.waitUntil(put);
+    await put;
   }
   return built;
 }
 
-async function buildTemplatePages(env, token, knownIds = []) {
-  const { start, end } = calendarWindow(new Date());
+async function readEntry(cache, cacheKey) {
+  try {
+    const hit = await cache.match(cacheKey);
+    if (!hit) return null;
+    const payload = await hit.json();
+    if (!payload || !Array.isArray(payload.pages)) return null;
+    return { pages: payload.pages, note: payload.note || "", builtAt: Number(payload.builtAt) || 0 };
+  } catch {
+    // Treat an unreadable cache entry as a miss.
+    return null;
+  }
+}
+
+async function buildTemplatePages(env, token, knownIds = [], io = {}) {
   const [calendar, ...feedPages] = await Promise.all([
-    otraGet(env, token, `/events/nonperennial/calendar/?category_id=${CATEGORY_ID}&start=${start}&end=${end}`, {
-      timeoutMs: CALENDAR_TIMEOUT_MS,
-    }),
+    readCalendar(env, token, io),
     ...Array.from({ length: FEED_HEAD_PAGES }, (_, i) =>
       otraGet(env, token, `/events/nonperennial/?category_id=${CATEGORY_ID}&page=${i + 1}&page_size=${FEED_HEAD_SIZE}`, {
         timeoutMs: LOOKUP_TIMEOUT_MS,
       })
     ),
   ]);
-  if ([calendar, ...feedPages].some((result) => result.status === 401)) return { status: 401, pages: [] };
-  const rows = Array.isArray(calendar.data) ? calendar.data : null;
-  let error = rows ? "" : `calendar feed unavailable (${calendar.status || "network"})`;
+  if (calendar.status === 401 || feedPages.some((result) => result.status === 401)) return { status: 401, pages: [] };
+  const rows = calendar.rows;
+  let error = calendar.error;
   // A page past the end of a short feed answers 404; that is not a failure.
   const headRows = [];
   for (const page of feedPages) {
@@ -238,7 +281,7 @@ async function buildTemplatePages(env, token, knownIds = []) {
   }
 
   const lookup = ticketedLookup(env, token);
-  const resolved = await resolveGroups(env, token, lookup, groupBySlug(rows || [], Date.now()));
+  const resolved = await resolveGroups(env, token, lookup, groupBySlug(rows, Date.now()));
   if (resolved.failed && !error) error = "some recurring events could not be resolved";
   const groups = mergeFeedHead(resolved.groups, headRows);
   const eligible = groups.filter((ev) => !FEATURED_IDS.has(ev.id) && !EXCLUDED_IDS.has(ev.id)).sort(byStart);
@@ -336,11 +379,135 @@ function ticketedLookup(env, token) {
   }
 }
 
-function calendarWindow(now) {
-  const start = new Date(now.getTime() - LOOKBACK_DAYS * 86400000);
-  const end = new Date(now.getTime());
-  end.setUTCMonth(end.getUTCMonth() + LOOKAHEAD_MONTHS);
-  return { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10) };
+// Half month chunks, the 1st to the 15th and the 16th to the month's end
+// (inclusive dates, as Django reads them), from the chunk holding today minus
+// LOOKBACK_DAYS through the one holding today plus LOOKAHEAD_MONTHS.
+export function calendarChunks(now) {
+  const from = new Date(now.getTime() - LOOKBACK_DAYS * 86400000);
+  const until = new Date(now.getTime());
+  until.setUTCMonth(until.getUTCMonth() + LOOKAHEAD_MONTHS);
+  const chunks = [];
+  let year = from.getUTCFullYear();
+  let month = from.getUTCMonth();
+  let firstHalf = from.getUTCDate() <= 15;
+  while (Date.UTC(year, month, firstHalf ? 1 : 16) <= until.getTime()) {
+    const lastDay = firstHalf ? 15 : new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+    chunks.push({ start: isoDate(year, month, firstHalf ? 1 : 16), end: isoDate(year, month, lastDay) });
+    if (!firstHalf) {
+      month += 1;
+      if (month === 12) {
+        month = 0;
+        year += 1;
+      }
+    }
+    firstHalf = !firstHalf;
+  }
+  return chunks;
+}
+
+function isoDate(year, month, day) {
+  return new Date(Date.UTC(year, month, day)).toISOString().slice(0, 10);
+}
+
+// Reads every chunk, CHUNK_CONCURRENCY at a time. With a finite deadline
+// (a request with nothing cached) it stops waiting once the deadline passes;
+// the chunks still running carry on in the background and fill their cache.
+async function readCalendar(env, token, io = {}) {
+  const chunks = calendarChunks(new Date());
+  const settled = new Array(chunks.length);
+  const all = mapLimited(chunks, CHUNK_CONCURRENCY, async (chunk, i) => {
+    settled[i] = await readChunk(env, token, chunk, io);
+  });
+  // PAGES_COLD_DEADLINE_MS is a test hook; it never caps a background rebuild.
+  const coldDeadline = Number.isFinite(io.deadlineMs) ? io.deadlineMs : Infinity;
+  const deadlineMs = Number.isFinite(coldDeadline) ? Number(env && env.PAGES_COLD_DEADLINE_MS) || coldDeadline : Infinity;
+  if (Number.isFinite(deadlineMs)) {
+    let timer;
+    const deadline = new Promise((resolve) => {
+      timer = setTimeout(resolve, deadlineMs);
+    });
+    await Promise.race([all, deadline]);
+    clearTimeout(timer);
+    if (io.waitUntil) io.waitUntil(all.catch(() => {}));
+  } else {
+    await all;
+  }
+
+  if (settled.some((result) => result && result.status === 401)) return { status: 401, rows: [], error: "" };
+  const rows = [];
+  let missing = 0;
+  let publicOnly = 0;
+  for (const result of settled) {
+    if (!result || !result.rows) {
+      missing += 1;
+      continue;
+    }
+    if (result.publicOnly) publicOnly += 1;
+    rows.push(...result.rows);
+  }
+  let error = "";
+  if (missing) {
+    error = `calendar incomplete: ${missing} of ${chunks.length} date ranges are still loading or unavailable, reopen the list in a minute`;
+  } else if (publicOnly) {
+    error = `staff only events may be missing for ${publicOnly} of ${chunks.length} date ranges`;
+  }
+  return { status: 200, rows, error };
+}
+
+// One chunk: its cache entry, else the staff call, else the same call made
+// anonymously (public rows only, not cached). Only ticketed or perennial rows
+// are kept, which is all the list uses.
+async function readChunk(env, token, chunk, io) {
+  const path = `/events/nonperennial/calendar/?category_id=${CATEGORY_ID}&start=${chunk.start}&end=${chunk.end}`;
+  const key =
+    io.cache && io.base ? new Request(new URL(`${CHUNK_CACHE_PATH}/${chunk.start}_${chunk.end}`, io.base)) : null;
+  if (key) {
+    try {
+      const hit = await io.cache.match(key);
+      if (hit) {
+        const rows = await hit.json();
+        if (Array.isArray(rows)) return { rows };
+      }
+    } catch {
+      // Unreadable entry: read the chunk again.
+    }
+  }
+
+  const staffTimeout = Number(env && env.PAGES_CHUNK_TIMEOUT_MS) || STAFF_CHUNK_TIMEOUT_MS;
+  const staff = await otraGet(env, token, path, { timeoutMs: staffTimeout });
+  if (staff.status === 401) return { status: 401 };
+  if (Array.isArray(staff.data)) {
+    const rows = slimRows(staff.data);
+    if (key) {
+      const put = io.cache
+        .put(key, new Response(JSON.stringify(rows), {
+          headers: { "content-type": "application/json; charset=utf-8", "cache-control": `max-age=${CHUNK_TTL_SECONDS}` },
+        }))
+        .catch(() => {});
+      if (io.waitUntil) io.waitUntil(put);
+      await put;
+    }
+    return { rows };
+  }
+
+  const publicTimeout = Number(env && env.PAGES_CHUNK_TIMEOUT_MS) || PUBLIC_CHUNK_TIMEOUT_MS;
+  const anonymous = await otraGet(env, "", path, { timeoutMs: publicTimeout });
+  if (Array.isArray(anonymous.data)) return { rows: slimRows(anonymous.data), publicOnly: true };
+  return { rows: null, status: staff.status };
+}
+
+function slimRows(rows) {
+  return rows
+    .filter((row) => row && (row.is_ticketed || row.is_perennial))
+    .map((row) => ({
+      id: row.id,
+      title: row.title,
+      slug: row.slug,
+      start_date: row.start_date,
+      end_date: row.end_date,
+      is_ticketed: row.is_ticketed,
+      is_perennial: row.is_perennial,
+    }));
 }
 
 // Keep only ticketed or perennial rows, then fold the per occurrence rows of a
