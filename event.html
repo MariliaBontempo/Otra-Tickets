@@ -1690,17 +1690,34 @@ html[data-presidente-event="8088"] .btn-metal:hover { background: #4cba57; box-s
           ready = true;
           clearTimeout(settleTimer);
           dropLoading();
+          // A slow checkout that loads after the error showed takes its place back.
+          container.hidden = false;
+          const note = document.getElementById("evCheckoutError");
+          if (note) note.remove();
         }
+        // The error never destroys an iframe that is still loading: the
+        // checkout page only reports its size once fully loaded, which slow
+        // subresources can hold up. It hides it, and markReady brings it back.
         function fail() {
           if (ready) return;
           clearTimeout(settleTimer);
-          watcher.disconnect();
-          container.innerHTML =
-            '<div class="ev-checkout-error" role="alert"><p>Checkout couldn\u2019t load.</p>' +
+          dropLoading();
+          container.hidden = true;
+          if (document.getElementById("evCheckoutError")) return;
+          const note = document.createElement("div");
+          note.id = "evCheckoutError";
+          note.className = "ev-checkout-error";
+          note.setAttribute("role", "alert");
+          note.innerHTML =
+            "<p>Checkout couldn\u2019t load.</p>" +
             '<p class="ev-checkout-error-sub">Check your connection and try again.</p>' +
-            '<button type="button" class="btn-metal" id="evCheckoutRetry">Try again</button></div>';
+            '<button type="button" class="btn-metal" id="evCheckoutRetry">Try again</button>';
+          container.parentNode.insertBefore(note, container);
           $("evCheckoutRetry").addEventListener("click", () => {
+            note.remove();
+            watcher.disconnect();
             container.innerHTML = "";
+            container.hidden = false;
             loadCheckout(eventId, checkoutBaseUrl, accentOverride, isRecurring);
           });
         }

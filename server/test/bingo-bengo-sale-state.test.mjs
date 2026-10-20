@@ -33,12 +33,14 @@ const feeds = {
     ticket(4, "Regular", 100, iso(now - DAY), iso(now + 20 * DAY)),
     ticket(5, "Door", 120, iso(now + 20 * DAY), iso(now + 21 * DAY)),
   ], addons: [] },
+  // A series whose parent tier window closed while later dates still sell.
+  7603: { results: [ticket(8, "Night", 40, iso(now - 60 * DAY), iso(now - 30 * DAY))], addons: [] },
   // Every tier closed while the event itself is still ahead.
   7602: { results: [ticket(6, "Regular", 100, iso(now - 30 * DAY), iso(now - DAY))], addons: [] },
 };
 
 const detail = (id, title) => ({ id, title, start_date: iso(now + 50 * DAY), end_date: iso(now + 50 * DAY + 3 * 3600e3), is_ticketed: true, is_perennial: false });
-const details = { 7479: detail(7479, "Bingo Bengo"), 7600: detail(7600, "Not Yet"), 7601: detail(7601, "Mixed"), 7602: detail(7602, "Closed") };
+const details = { 7603: { ...detail(7603, "Weekly Series"), has_mini_events: true }, 7479: detail(7479, "Bingo Bengo"), 7600: detail(7600, "Not Yet"), 7601: detail(7601, "Mixed"), 7602: detail(7602, "Closed") };
 
 function kvWith(docs = {}) {
   const byKey = new Map(Object.entries(docs));
@@ -136,6 +138,15 @@ test("every tier closed before the event: sales ended, the event itself is not p
   });
 });
 
+test("a recurring series never reads its parent tier windows as sales ended", async () => {
+  await withUpstream(async () => {
+    const { body } = await get("7603");
+    assert.equal(body.isRecurring, true);
+    assert.deepEqual(body.ticketSale, { state: "on_sale", opensAt: null });
+    assert.equal("sale" in body.tickets[0], false);
+  });
+});
+
 test("no ticket types at all stays the plain empty state", async () => {
   await withUpstream(async () => {
     const { body } = await get("7479");
@@ -188,5 +199,9 @@ test("event.html drops a late checkout loader, and shows an error with a retry w
   assert.match(fn, /onError: fail/);
   assert.match(fn, /s\.onerror = function \(\) \{[\s\S]{0,120}fail\(\);/);
   assert.match(fn, /Checkout couldn\\u2019t load\./);
+  // A slow iframe is hidden behind the error, never destroyed, and comes back once ready.
+  assert.match(fn, /function fail\(\) \{[\s\S]{0,200}container\.hidden = true;/);
+  assert.equal(/function fail\(\) \{[\s\S]{0,400}container\.innerHTML = '/.test(fn), false);
+  assert.match(fn, /function markReady\(\) \{[\s\S]{0,300}container\.hidden = false;/);
   assert.match(fn, /id="evCheckoutRetry"/);
 });

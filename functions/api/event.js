@@ -80,8 +80,14 @@ export async function onRequestGet(context) {
       payload = { ...payload, tickets: [], addons: [], ticketsUnknown: true };
     }
   }
-  payload.tickets = withSaleState(payload.tickets);
-  payload.ticketSale = payload.ticketsUnknown ? { state: "unknown", opensAt: null } : ticketSaleState(payload.tickets);
+  // A series or a perennial sells dates the parent windows do not describe,
+  // so only a single dated event reads its tiers' windows.
+  const windowed = !payload.isRecurring && !payload.isPerennial;
+  if (windowed) payload.tickets = withSaleState(payload.tickets);
+  payload.ticketSale = payload.ticketsUnknown
+    ? { state: "unknown", opensAt: null }
+    : windowed ? ticketSaleState(payload.tickets)
+    : { state: Array.isArray(payload.tickets) && payload.tickets.length ? "on_sale" : "none", opensAt: null };
   delete payload.ticketsUnknown;
   payload.slug = project && project.frozenSlug ? project.frozenSlug : eventSlug(payload.title);
   if (staffPreview) payload.staffPreview = true;
