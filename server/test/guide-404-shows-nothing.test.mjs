@@ -260,3 +260,27 @@ test("a found or 404 answer is remembered briefly; an error is asked again", asy
     assert.equal(calls.length, 2, "a 502 is not remembered");
   }, { guideDown: true });
 });
+
+test("simultaneous checks for the same event share one Guide call", async () => {
+  await withUpstream(async (calls) => {
+    const answers = await Promise.all([1, 2, 3].map(() => guideDetailMissing("https://guide.test/api", "7567")));
+    assert.deepEqual(answers, [true, true, true]);
+    assert.equal(calls.length, 1);
+  });
+});
+
+test("a Guide that never answers counts as not missing once the check times out", { timeout: 10000 }, async () => {
+  const originalFetch = globalThis.fetch;
+  forgetGuideStatuses();
+  globalThis.fetch = (input, init = {}) => new Promise((resolve, reject) => {
+    init.signal.addEventListener("abort", () => reject(init.signal.reason));
+  });
+  try {
+    const started = Date.now();
+    assert.equal(await guideDetailMissing("https://guide.test/api", "7567"), false);
+    assert.ok(Date.now() - started < 6000);
+  } finally {
+    globalThis.fetch = originalFetch;
+    forgetGuideStatuses();
+  }
+});
