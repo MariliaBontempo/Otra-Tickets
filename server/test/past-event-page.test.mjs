@@ -96,6 +96,9 @@ test("hasEnded uses the end date, or a day after the start when the end is missi
   assert.equal(hasEnded(iso(now - 3600e3), iso(now + 3600e3)), false);
   assert.equal(hasEnded(iso(now - 3600e3), ""), false, "started an hour ago with no end is still on");
   assert.equal(hasEnded(null, null), false);
+  assert.equal(eventEndTime(start, start), Date.parse(start) + ENDED_GRACE_MS, "an end equal to the start gets the grace day");
+  assert.equal(hasEnded(iso(now - 3600e3), iso(now - 3600e3)), false, "an event with end == start is still on an hour after it starts");
+  assert.equal(hasEnded(iso(now - 2 * ENDED_GRACE_MS), iso(now - 2 * ENDED_GRACE_MS)), true);
   assert.equal(hasEnded(start, "2026-09-27T02:00:00-04:00", Date.parse("2026-09-27T01:00:00-04:00")), false);
 });
 

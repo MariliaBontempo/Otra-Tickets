@@ -69,7 +69,7 @@ async function getBasePayload(context, id, url, project, publishedProject = null
 
   const api = apiBase(context.env);
   const cache = caches.default;
-  const cacheKey = new Request(new URL(`/api/event-base?id=${id}`, url));
+  const cacheKey = new Request(new URL(`/api/event-base-v2?id=${id}`, url));
   const cached = project ? null : await cache.match(cacheKey);
   if (cached) return cached.json();
 
@@ -120,7 +120,8 @@ async function getBasePayload(context, id, url, project, publishedProject = null
     endDate: detail.end_date || null,
     isTicketed: !!detail.is_ticketed,
     isPerennial: !!detail.is_perennial,
-    // A recurring series keeps selling later dates after its first ends.
+    // A series with mini events keeps selling later dates after its first ends.
+    // (is_recurring is read too in case the Guide detail starts sending it.)
     isRecurring: !!(detail.is_recurring || detail.has_mini_events),
     image: detail.full_web_image_url || detail.half_web_image_url || detail.card_image_url || "",
     socialLinks: Array.isArray(detail.social_links) ? detail.social_links : [],
