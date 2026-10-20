@@ -414,6 +414,7 @@ assert(calls.filter((c) => c.url.includes('/calendar/')).length === 1, 'after th
   const html = readFileSync(new URL('../admin/index.html', import.meta.url), 'utf8');
   assert(/id="pagesNote"/.test(html), 'the editor must have a note for upstreamError');
   assert(/pagesNote\.textContent = data\.upstreamError/.test(html) && !/pagesNote\.innerHTML/.test(html), 'the note must be set as text from data.upstreamError');
+  assert(html.includes('.topbar #pagesNote { grid-column: 1 / -1; grid-row: 2; white-space: normal; }'), 'the note must take its own toolbar row so the select and actions keep their columns');
 }
 
 clearInterval(keepAlive);

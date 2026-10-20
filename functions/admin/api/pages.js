@@ -418,7 +418,9 @@ async function readCalendar(env, token, io = {}) {
   const all = mapLimited(chunks, CHUNK_CONCURRENCY, async (chunk, i) => {
     settled[i] = await readChunk(env, token, chunk, io);
   });
-  const deadlineMs = Number(env && env.PAGES_COLD_DEADLINE_MS) || io.deadlineMs || Infinity;
+  // PAGES_COLD_DEADLINE_MS is a test hook; it never caps a background rebuild.
+  const coldDeadline = Number.isFinite(io.deadlineMs) ? io.deadlineMs : Infinity;
+  const deadlineMs = Number.isFinite(coldDeadline) ? Number(env && env.PAGES_COLD_DEADLINE_MS) || coldDeadline : Infinity;
   if (Number.isFinite(deadlineMs)) {
     let timer;
     const deadline = new Promise((resolve) => {
