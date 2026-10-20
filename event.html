@@ -708,6 +708,7 @@ main.detail { padding: 0; padding-top: var(--header-h); } /* hero starts below t
 .rnb-venue { margin-top: 12px; font-family: var(--font-display); font-weight: 900; font-size: clamp(36px, 6.6vw, 104px); line-height: 0.9; letter-spacing: -0.03em; text-transform: uppercase; color: var(--silver-text); }
 .ev-titleblock .ev-tag { margin-top: 22px; max-width: 680px; font-size: clamp(16px, 1.5vw, 21px); line-height: 1.55; color: var(--fog); text-wrap: pretty; }
 .ev-hero-actions { margin-top: 34px; display: flex; flex-wrap: wrap; gap: 16px; align-items: center; }
+.ev-ended { display: inline-flex; align-items: center; padding: 14px 22px; border: 1px solid var(--line); font-family: var(--font-body); font-weight: 600; font-size: 15px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--fog); }
 .ev-titleblock .ev-hero-meta { margin-top: 24px; }
 .ev-titleblock .ev-hero-meta .dot { color: var(--rnb); }
 
@@ -1312,11 +1313,16 @@ html[data-presidente-event="8088"] .btn-metal:hover { background: #4cba57; box-s
       renderMeta($("evMeta"), meta);
 
       const actions = $("evActions");
-      // The checkout embed is always mounted (it handles its own ticket state),
-      // so the "Get tickets" CTA always shows. hasTickets only drives the rate
-      // cards / "From $X", which need ticket data we may not have here.
+      // The checkout embed is mounted for every event that has not ended (it
+      // handles its own ticket state), so the "Get tickets" CTA shows for all
+      // of them. hasTickets only drives the rate cards / "From $X", which need
+      // ticket data we may not have here.
       const hasTickets = Array.isArray(ev.tickets) && ev.tickets.length > 0;
-      actions.innerHTML = '<a class="btn-metal" href="#book">Get tickets →</a>';
+      // A past event page stays up read only: no ticket CTA, no checkout.
+      const isPast = ev.isPast === true;
+      actions.innerHTML = isPast
+        ? '<span class="ev-ended" id="evEnded">This event has ended</span>'
+        : '<a class="btn-metal" href="#book">Get tickets →</a>';
 
       // ----- STORY (description) -----
       let paras = paragraphs(ev.description);
@@ -1511,16 +1517,25 @@ html[data-presidente-event="8088"] .btn-metal:hover { background: #4cba57; box-s
       }
 
       // ----- BOOKING (embedded checkout) -----
-      // Always mount the Otra Guide checkout embed for this event id — the
-      // embed renders its own date/time + ticket picker, so it must be present
+      // Mount the Otra Guide checkout embed for this event id: the embed
+      // renders its own date/time + ticket picker, so it must be present
       // regardless of what the event-detail endpoint reported about tickets.
-      $("book").hidden = false;
-      loadCheckout(
-        ev.checkoutEventId || ev.id,
-        ev.checkoutBaseUrl || "https://otraguide.com",
-        ev.accentIsOverride || ev.isPerennial ? ev.accent : "",
-        !!ev.isPerennial
-      );
+      // A past event never gets checkout; its rates stay as a record.
+      if (isPast) {
+        const foot = $("evRatesSection").querySelector(".ev-rates-foot");
+        foot.hidden = false;
+        foot.textContent = "This event has ended. Tickets are no longer on sale.";
+        $("evRatesSection").querySelectorAll(".ev-addons-foot").forEach((el) => el.remove());
+        if (!hasTickets) $("evRatesSection").hidden = true;
+      } else {
+        $("book").hidden = false;
+        loadCheckout(
+          ev.checkoutEventId || ev.id,
+          ev.checkoutBaseUrl || "https://otraguide.com",
+          ev.accentIsOverride || ev.isPerennial ? ev.accent : "",
+          !!ev.isPerennial
+        );
+      }
 
       // re-run the reveal observer for the now-visible sections
       revealAll();
