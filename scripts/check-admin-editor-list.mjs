@@ -32,7 +32,10 @@ const calendarRows = [
   { id: 713955501, title: '09:00 - Iguana Ride City Combo Tour', slug: 'iguana-ride-city-combo-tour', start_date: at(5, 13), is_ticketed: true, is_perennial: false },
   { id: 713955499, title: '09:00 - Iguana Ride City Combo Tour', slug: 'iguana-ride-city-combo-tour', start_date: at(1, 13), is_ticketed: true, is_perennial: false },
   { id: 713955500, title: '14:00 - Iguana Ride City Combo Tour', slug: 'iguana-ride-city-combo-tour', start_date: at(3, 18), is_ticketed: true, is_perennial: false },
-  // Recurring event the title search cannot match (translated title): detail fallback.
+  // Recurring ticketed flag but no ticket types: the title search comes back
+  // short without it, so no detail call (page view) is spent on it.
+  { id: 815501, title: '19:00 - Ticketless Weekly', slug: 'ticketless-weekly', start_date: at(6, 22), is_ticketed: true, is_perennial: false },
+  // Recurring event whose title search hits the 20 row cap without its slug: detail fallback.
   { id: 742011, title: '20:00 - Noche de Salsa', slug: 'salsa-night-weekly', start_date: at(4, 0), is_ticketed: true, is_perennial: false },
   // Staff only, far future, ticketed.
   { id: 8257, title: 'Cascada NYE 2027', slug: 'cascada-nye-2027', start_date: at(72, 1), is_ticketed: true, is_perennial: false },
@@ -118,6 +121,7 @@ globalThis.fetch = async (input, init = {}) => {
   if (m) {
     if (mode === 'search-down') return new Response('nope', { status: 500 });
     const q = decodeURIComponent(m[1]).toLowerCase();
+    if (q === 'noche de salsa') return Response.json({ events: Array.from({ length: 20 }, (_, i) => ({ id: 60000 + i, title: `Noche de Salsa ${i}`, slug: `noche-${i}`, isPast: false, tickets })) });
     return Response.json({ events: [...records.values()].filter((ev) => ev && ev.title.toLowerCase().includes(q)) });
   }
   return new Response('{}', { status: 404 });
@@ -194,9 +198,10 @@ assert(iguana[0] && iguana[0].id === '7139', 'folded entry must use the base eve
 assert(iguana[0] && iguana[0].title === 'Iguana Ride City Combo Tour', 'folded entry must drop the occurrence time prefix');
 assert(iguana[0] && iguana[0].startDate === at(1, 13), 'folded entry must keep the earliest start');
 assert(iguana[0] && iguana[0].type === 'Published tour', 'perennial tour must keep the tour label');
-assert(byId('7420') && byId('7420').title === 'Salsa Night Weekly', 'a recurring event the title search misses must resolve through the detail fallback');
+assert(byId('7420') && byId('7420').title === 'Salsa Night Weekly', 'a recurring event the capped title search misses must resolve through the detail fallback');
 const detailCalls = calls.filter((c) => c.url.includes('/events/details/'));
-assert(detailCalls.length === 1 && detailCalls[0].url.endsWith('/742011/'), 'the detail endpoint (which records page views) is only a fallback');
+assert(detailCalls.length === 1 && detailCalls[0].url.endsWith('/742011/'), 'the detail endpoint (which records page views) is only a fallback, never for a conclusive search');
+assert(!ids.includes('815501') && !payload.pages.some((p) => /ticketless/i.test(p.title)), 'a recurring event without ticket types stays out');
 assert(!ids.includes('8100'), 'an event without ticket types must stay out');
 assert(byId('8110'), 'an event whose ticket sale opens later must be editable');
 assert(byId('8201') && byId('8202'), 'same title events with different slugs must stay separate');

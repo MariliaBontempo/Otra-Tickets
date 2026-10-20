@@ -27,6 +27,7 @@ const LOOKUP_CONCURRENCY = 10;
 const FEED_HEAD_PAGES = 4;
 const FEED_HEAD_SIZE = 20;
 const MAX_FALLBACK_LOOKUPS = 25;
+const TITLE_SEARCH_LIMIT = 20; // Django AdminTicketedEventSearchAPIView returns at most 20 rows
 const CALENDAR_TIMEOUT_MS = 40000;
 const LOOKUP_TIMEOUT_MS = 10000;
 const CACHE_TTL_SECONDS = 300;
@@ -392,7 +393,12 @@ async function resolveGroups(env, token, lookup, groups) {
     const search = await lookup.byTitle(group.title);
     if (search.failed) failed = true;
     let match = group.slug ? search.events.find((ev) => ev && ev.slug === group.slug) : null;
-    if (!match) {
+    // Occurrence rows copy the parent title, and the search returns every
+    // ticketed event matching it (up to 20). So when it worked, came back short
+    // and the slug is not there, the event has no ticket types: skip the
+    // detail call, which records a page view for the staff user.
+    const searchConclusive = !search.failed && !!group.slug && search.events.length < TITLE_SEARCH_LIMIT;
+    if (!match && !searchConclusive) {
       const detail = await otraGet(env, token, `/events/details/${group.id}/`, { timeoutMs: LOOKUP_TIMEOUT_MS });
       if (detail.data && detail.data.id) match = { id: detail.data.id, title: detail.data.title, isPerennial: detail.data.is_perennial };
       else if (detail.status !== 404) failed = true;
