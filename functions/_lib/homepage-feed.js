@@ -11,6 +11,7 @@ import { eventSlug, legacyCuratedTitle, persistedFrozenSlug } from "./event-slug
 import { readHiddenPageIds } from "./hidden-pages.js";
 import { cardScheduleLabel, scheduleEdited, validDateValue } from "./schedule-line.js";
 import { isOtraGuideId, readOverrideDoc, resolvePageOverride } from "./page-override.js";
+import { isHiddenGuideEvent } from "./guide-event-hidden.js";
 
 const API = "https://otraguide.com/api";
 
@@ -110,6 +111,11 @@ export async function buildHomepageFeed(context, { includeAdminOnly = false, aut
   if (authToken && !upstreamEvents.length) {
     upstreamEvents = await getUpstreamEvents(context, now, false);
   }
+  // The public feed (homepage, search, slug pages, sitemap) never lists an
+  // event whose Otra Guide detail answers 404. Staff previews keep them.
+  if (!includeAdminOnly && !authToken) {
+    siteEvents = await dropHiddenGuideEvents(siteEvents, upstreamEvents, context.env);
+  }
   // Site events come first so a curated hero can win when the same published
   // Otra Guide event also appears in the upstream public feed. Titles refresh
   // from the live Django event unless the event page has a title override.
@@ -125,6 +131,20 @@ export async function buildHomepageFeed(context, { includeAdminOnly = false, aut
   assignUniqueSlugs(events);
   const rows = await buildRows(events, context.env);
   return { events, rows, hasSiteEvents: siteEvents.length > 0 };
+}
+
+// Published site events bound to an Otra Guide event that the public listing
+// doesn't carry are checked one by one, in parallel; a listed event is public.
+export async function dropHiddenGuideEvents(siteEvents, upstreamEvents, env) {
+  const listed = new Set((upstreamEvents || []).map((event) => String(event && event.id)));
+  const hidden = await Promise.all(
+    siteEvents.map((event) => {
+      const id = String((event && event.id) || "");
+      if (!isOtraGuideId(id) || listed.has(id)) return false;
+      return isHiddenGuideEvent(env, id, event[DRAFT_ID] || "");
+    })
+  );
+  return siteEvents.filter((_, i) => !hidden[i]);
 }
 
 // ── Fixed storefront rows ──

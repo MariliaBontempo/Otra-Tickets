@@ -692,6 +692,7 @@ main.detail { padding: 0; padding-top: var(--header-h); } /* hero starts below t
 .ev-photoband::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(7,8,10,0.45), transparent 14%, transparent 86%, rgba(7,8,10,0.6)); }
 /* title block (below hero image) */
 .ev-titleblock { padding-top: clamp(54px, 8vh, 92px); padding-bottom: clamp(36px, 5vh, 64px); }
+.ev-notfound { padding-top: clamp(140px, 22vh, 220px); min-height: 62vh; }
 .ev-titleblock h1 { font-family: var(--font-display); font-weight: 900; font-size: clamp(52px, 9vw, 150px); line-height: 0.86; letter-spacing: -0.03em; text-transform: uppercase; color: var(--silver-text); margin: 16px 0 0; }
 .ev-titleblock .ev-sub { font-family: var(--font-display); font-weight: 500; font-size: clamp(18px, 2.4vw, 30px); color: var(--silver-text); letter-spacing: 0.01em; margin-top: 10px; }
 .ev-titleblock .ev-venue { margin-top: 28px; font-size: clamp(21px, 2.3vw, 32px); font-weight: 700; letter-spacing: 0.18em; gap: 24px; }
@@ -1222,6 +1223,8 @@ html[data-presidente-event="8088"] .btn-metal:hover { background: #4cba57; box-s
           "/api/event?id=" + encodeURIComponent(id) + (previewStamp ? "&_preview=" + encodeURIComponent(previewStamp) : ""),
           adminToken ? { headers: { authorization: "Bearer " + adminToken } } : undefined
         );
+        // A 404 (the Otra Guide event is gone or hidden) shows nothing of it.
+        if (resp.status === 404) { showNotFound(); return; }
         if (!resp.ok) throw new Error("HTTP " + resp.status);
         ev = await resp.json();
         if (!ev || ev.error) throw new Error(ev && ev.error ? ev.error : "no data");
@@ -1598,6 +1601,30 @@ html[data-presidente-event="8088"] .btn-metal:hover { background: #4cba57; box-s
         $("evTag").textContent = "It may have ended, or the link may be out of date.";
         $("evTag").hidden = false;
         $("evActions").innerHTML = '<a class="btn-metal" href="/">Browse all events</a>';
+      }
+
+      // The not found state: no event content at all, only a way back.
+      function showNotFound() {
+        removeSkeletons();
+        const main = document.querySelector("main.detail");
+        main.querySelectorAll(":scope > section").forEach((el) => el.remove());
+        const block = document.createElement("section");
+        block.className = "ev-titleblock section-pad ev-notfound reveal in";
+        block.setAttribute("data-screen-label", "Not found");
+        block.innerHTML =
+          '<span class="ev-eyebrow">Otra Tickets</span>' +
+          "<h1>Event not found</h1>" +
+          '<p class="ev-tag">This event isn\u2019t available.</p>' +
+          '<div class="ev-hero-actions"><a class="btn-metal" href="/">Browse all events</a></div>';
+        main.insertBefore(block, main.querySelector(":scope > footer"));
+        document.title = "Event not found | Otra Tickets";
+        document.querySelectorAll(
+          'script[type="application/ld+json"], meta[property^="og:"], meta[name^="twitter:"], meta[name="description"], link[rel="canonical"]'
+        ).forEach((el) => el.remove());
+        const robots = document.createElement("meta");
+        robots.name = "robots";
+        robots.content = "noindex";
+        document.head.appendChild(robots);
       }
 
       function revealAll() {

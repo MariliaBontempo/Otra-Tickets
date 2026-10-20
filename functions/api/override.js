@@ -4,6 +4,9 @@
 // through /api/event. Admin writes stay behind /admin/api/overrides.
 
 import { resolvePageOverride } from "../_lib/page-override.js";
+import { checkStaff } from "../admin/api/_auth.js";
+import { requestToken } from "../_lib/session.js";
+import { guideApiBase, guideDetailMissing, isHiddenGuideEvent, keepsSellingWhileHidden } from "../_lib/guide-event-hidden.js";
 
 export async function onRequestGet(context) {
   const url = new URL(context.request.url);
@@ -13,8 +16,19 @@ export async function onRequestGet(context) {
   if (!context.env.OVERRIDES) return json({ override: null });
 
   try {
-    const { override } = await resolvePageOverride(context.env.OVERRIDES, id);
+    // A page whose Otra Guide event answers 404 shows nothing, edits included.
+    // The Guide check runs alongside the KV read so pages don't wait longer.
+    const api = guideApiBase(context.env);
+    const numeric = /^\d+$/.test(id);
+    const [{ override, draftId }, missing] = await Promise.all([
+      resolvePageOverride(context.env.OVERRIDES, id),
+      numeric ? guideDetailMissing(api, id) : false,
+    ]);
     if (!override || typeof override !== "object") return json({ override: null });
+    const hidden = numeric
+      ? missing && !(await keepsSellingWhileHidden(api, id, draftId))
+      : await draftFollowsHiddenEvent(context.env, id);
+    if (hidden && !(await isStaffRequest(context))) return json({ override: null });
     const rawAccent = typeof override.accentColor === "string" ? override.accentColor.trim() : "";
     return json({
       override: {
@@ -29,6 +43,23 @@ export async function onRequestGet(context) {
   } catch {
     return json({ error: "could not load override" }, 500);
   }
+}
+
+// Staff (the admin editor preview) keep seeing the edits of hidden events.
+async function isStaffRequest(context) {
+  const token = requestToken(context.request);
+  return token ? checkStaff(token, context.env) : false;
+}
+
+async function draftFollowsHiddenEvent(env, draftId) {
+  let guideId = "";
+  try {
+    const project = await env.OVERRIDES.get(`site-event:${draftId}`, "json");
+    guideId = project && typeof project === "object" ? String(project.otraGuideId || "") : "";
+  } catch {
+    guideId = "";
+  }
+  return /^\d+$/.test(guideId) ? isHiddenGuideEvent(env, guideId, draftId) : false;
 }
 
 function normalizeFields(raw) {
