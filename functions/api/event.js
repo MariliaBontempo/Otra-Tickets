@@ -8,10 +8,16 @@ import { eventSlug } from "../_lib/event-slug.js";
 import { checkStaff } from "../admin/api/_auth.js";
 import { requestToken } from "../_lib/session.js";
 import { findBoundProjects, resolvePageOverride } from "../_lib/page-override.js";
+import { hasEnded } from "../_lib/event-ended.js";
 
 const API = "https://otraguide.com/api";
 const UPSTREAM_TTL = 300;
 const EDGE_TTL = 600;
+
+// The site project's own dates, kept off the JSON (Symbol keys are not
+// serialized) so draft pages render exactly as before while isPast still
+// knows when the project's event is over.
+const PROJECT_DATES = Symbol("projectDates");
 
 const ACCENT_OVERRIDES = {
   "6113": "#1fa9a0", // Clearboat — turquoise from the original handoff design
@@ -26,7 +32,7 @@ export async function onRequestGet(context) {
   // newest published one feeds the page edits.
   const bound = /^\d+$/.test(id) ? await findBoundProjects(context.env && context.env.OVERRIDES, id) : null;
   const project = bound ? bound.latest : null;
-  const base = await getBasePayload(context, id, url, project);
+  const base = await getBasePayload(context, id, url, project, bound ? bound.published : null);
   if (!base) return json({ error: "not found" }, 404);
 
   // Admin-only events are hidden from the public; a valid staff Bearer token
@@ -52,10 +58,13 @@ export async function onRequestGet(context) {
   }
   payload.slug = project && project.frozenSlug ? project.frozenSlug : eventSlug(payload.title);
   if (staffPreview) payload.staffPreview = true;
+  // Worked out per response (the base payload is edge cached), so a page
+  // stops offering checkout as soon as its event is over.
+  payload.isPast = isPastPayload(payload);
   return json(payload, 200, staffPreview || override ? 0 : 60);
 }
 
-async function getBasePayload(context, id, url, project) {
+async function getBasePayload(context, id, url, project, publishedProject = null) {
   if (isDraftId(id)) return getDraftPayload(context.env, id);
 
   const api = apiBase(context.env);
@@ -98,21 +107,9 @@ async function getBasePayload(context, id, url, project) {
     ]);
     staffView = !!detail;
   }
-  if (!detail) return null;
+  if (!detail) return pastProjectPayload(context.env, id, publishedProject, ticketData);
 
-  const tickets = (ticketData && ticketData.results ? ticketData.results : []).map((t) => ({
-    name: t.name,
-    description: t.description || "",
-    price: t.price,
-    currency: (t.base_currency && t.base_currency.code) || "USD",
-  }));
-
-  const addons = (ticketData && Array.isArray(ticketData.addons) ? ticketData.addons : []).map((a) => ({
-    name: a.title,
-    description: a.description || "",
-    price: a.price,
-    currency: a.base_currency || "USD",
-  }));
+  const { tickets, addons } = ticketLists(ticketData);
 
   const base = {
     id: detail.id,
@@ -123,6 +120,8 @@ async function getBasePayload(context, id, url, project) {
     endDate: detail.end_date || null,
     isTicketed: !!detail.is_ticketed,
     isPerennial: !!detail.is_perennial,
+    // A recurring series keeps selling later dates after its first ends.
+    isRecurring: !!(detail.is_recurring || detail.has_mini_events),
     image: detail.full_web_image_url || detail.half_web_image_url || detail.card_image_url || "",
     socialLinks: Array.isArray(detail.social_links) ? detail.social_links : [],
     accent: accentOverride || calendarAccent,
@@ -134,6 +133,58 @@ async function getBasePayload(context, id, url, project) {
   if (staffView) return { ...base, staffView: true };
   if (!project) context.waitUntil(cache.put(cacheKey, json(base, 200, EDGE_TTL).clone()));
   return base;
+}
+
+function isPastPayload(payload) {
+  if (payload.isPerennial || payload.isRecurring) return false;
+  const dates = payload[PROJECT_DATES];
+  if (dates && dates.isPerennial) return false;
+  const startDate = payload.startDate || (dates && dates.startDate) || null;
+  const endDate = payload.endDate || (dates && dates.endDate) || null;
+  return hasEnded(startDate, endDate);
+}
+
+// Otra Guide stops serving the public detail of some events once they are
+// over (they are hidden from anonymous callers), but their Otra Tickets page
+// must stay visible, read only. Serve the published site project's own
+// content, which is already public under its draft id, only when its dates
+// show the event has ended. The page never mounts checkout for a past event
+// (isPast), and nothing here is cached at the edge.
+async function pastProjectPayload(env, id, project, ticketData) {
+  if (!project || project.status !== "published" || project.adminOnly === true || project.isPerennial === true) return null;
+  if (String(project.otraGuideId || "") !== String(id)) return null;
+  const startDate = typeof project.startDate === "string" && project.startDate ? project.startDate : null;
+  const endDate = typeof project.endDate === "string" && project.endDate ? project.endDate : null;
+  if (!hasEnded(startDate, endDate)) return null;
+  const draftPayload = await getDraftPayload(env, String(project.id || ""));
+  if (!draftPayload || draftPayload.adminOnly) return null;
+  // The page showed the Guide ticket types while the detail was public; keep
+  // them as the record when the feed still has them.
+  const { tickets, addons } = ticketLists(ticketData);
+  return {
+    ...draftPayload,
+    id: Number(id),
+    checkoutEventId: String(id),
+    startDate,
+    endDate,
+    ...(tickets.length ? { tickets, addons } : {}),
+  };
+}
+
+function ticketLists(ticketData) {
+  const tickets = (ticketData && Array.isArray(ticketData.results) ? ticketData.results : []).map((t) => ({
+    name: t.name,
+    description: t.description || "",
+    price: t.price,
+    currency: (t.base_currency && t.base_currency.code) || "USD",
+  }));
+  const addons = (ticketData && Array.isArray(ticketData.addons) ? ticketData.addons : []).map((a) => ({
+    name: a.title,
+    description: a.description || "",
+    price: a.price,
+    currency: a.base_currency || "USD",
+  }));
+  return { tickets, addons };
 }
 
 function apiBase(env) {
@@ -169,6 +220,11 @@ async function getDraftPayload(env, id) {
     status: draft.status === "published" ? "published" : "draft",
     design: draft.claudeDesign && typeof draft.claudeDesign === "object" ? draft.claudeDesign : null,
     adminOnly: draft.adminOnly === true,
+    [PROJECT_DATES]: {
+      startDate: typeof draft.startDate === "string" ? draft.startDate : "",
+      endDate: typeof draft.endDate === "string" ? draft.endDate : "",
+      isPerennial: draft.isPerennial === true,
+    },
   };
 }
 
