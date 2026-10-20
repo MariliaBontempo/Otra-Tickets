@@ -1,5 +1,7 @@
 (function () {
   const INFO_CELL_VALUE_PREFIX = "otra-info-cell:";
+  // Same separator as functions/_lib/hero-meta-text.js META_SEPARATOR.
+  const INLINE_DOT = " · ";
   // event.html renderMeta() calls this after it builds the hero line, and
   // this script runs it again after every pass of page edits.
   if (typeof window !== "undefined") window.otraTidyMetaLine = tidyMetaLine;
@@ -178,6 +180,7 @@
       const blank = !metaText(child).trim();
       setMetaHidden(child, blank);
       if (blank) continue;
+      markInlineDots(child);
       if (pendingDot) setMetaHidden(pendingDot, false);
       pendingDot = null;
       visibleItems += 1;
@@ -185,6 +188,29 @@
     const items = children.filter((child) => !isAdminControl(child));
     const blankLine = items.length ? !visibleItems : !metaText(host).trim();
     setMetaHidden(host, blankLine);
+  }
+
+  // An item can hold its own " · " (days · times, from hero-meta-text.js on
+  // the server). Wrap each one in a <span class="dot dot-inline"> so it gets
+  // the separator's colour and spacing (event.html CSS). The text stays the
+  // same, so saved edits still compare equal and the admin editor still
+  // reads the item as before. Only plain text items are touched.
+  function markInlineDots(item) {
+    if (!item || (item.children && item.children.length)) return;
+    if (typeof document === "undefined" || typeof document.createElement !== "function" || typeof document.createTextNode !== "function") return;
+    const text = item.textContent || "";
+    if (!text.includes(INLINE_DOT)) return;
+    const parts = text.split(INLINE_DOT);
+    item.textContent = "";
+    parts.forEach((part, i) => {
+      if (i) {
+        const dot = document.createElement("span");
+        dot.className = "dot dot-inline";
+        dot.textContent = INLINE_DOT;
+        item.appendChild(dot);
+      }
+      if (part) item.appendChild(document.createTextNode(part));
+    });
   }
 
   // Text of a hero line node without the admin editor's own buttons.

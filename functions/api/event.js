@@ -9,6 +9,7 @@ import { checkStaff } from "../admin/api/_auth.js";
 import { requestToken } from "../_lib/session.js";
 import { findBoundProjects, resolvePageOverride } from "../_lib/page-override.js";
 import { hasEnded } from "../_lib/event-ended.js";
+import { heroMetaItems } from "../_lib/hero-meta-text.js";
 
 const API = "https://otraguide.com/api";
 const UPSTREAM_TTL = 300;
@@ -57,6 +58,10 @@ export async function onRequestGet(context) {
       status: project.status === "published" ? "published" : "draft",
       design: project.claudeDesign || null,
     };
+  }
+  // Authored hero line items read like the card: "Days · times".
+  if (payload.design && typeof payload.design === "object" && Array.isArray(payload.design.meta)) {
+    payload.design = { ...payload.design, meta: heroMetaItems(payload.design.meta) };
   }
   payload.slug = project && project.frozenSlug ? project.frozenSlug : eventSlug(payload.title);
   if (staffPreview) payload.staffPreview = true;

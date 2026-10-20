@@ -6,6 +6,7 @@
 import fs from "node:fs";
 import vm from "node:vm";
 import { editedScheduleParts, metaItemSelector } from "../functions/_lib/schedule-line.js";
+import { heroMetaItemText, heroMetaItems } from "../functions/_lib/hero-meta-text.js";
 
 const SOURCE = fs.readFileSync(new URL("../site-overrides.js", import.meta.url), "utf8");
 const EVENT_HTML = fs.readFileSync(new URL("../event.html", import.meta.url), "utf8");
@@ -48,6 +49,7 @@ class El {
 let host = null;
 const document = {
   createElement: (tag) => new El(tag),
+  createTextNode: (text) => new Text(text),
   getElementById: (id) => (id === "evMeta" ? host : null),
   addEventListener() {},
   querySelector: () => null,
@@ -70,15 +72,17 @@ const renderSource = EVENT_HTML.match(/function renderMeta\(host, parts\) \{[\s\
 assert(renderSource, "event.html still defines renderMeta");
 const renderMeta = vm.runInNewContext(`(${renderSource[0]})`, { document, window });
 
-// Build the line like the page: render, then apply the per span text edits
-// the way site-overrides.js does (textContent on the selected span), then tidy.
+// Build the line like the page: render the items as /api/event serves them,
+// then apply the per span text edits as /api/override serves them, the way
+// site-overrides.js does (textContent on the selected span), then tidy. Both
+// endpoints show an item through heroMetaItemText ("Days · times").
 function page(items, edits = {}) {
   host = new El("div", "ev-hero-meta");
-  renderMeta(host, items);
+  renderMeta(host, heroMetaItems(items));
   const spans = host.children;
   for (const [index, value] of Object.entries(edits)) {
     const span = spans[Number(index) * 2];
-    if (span) span.textContent = value;
+    if (span) span.textContent = heroMetaItemText(value);
   }
   tidy(host);
   return host;
@@ -90,7 +94,17 @@ const fieldsFor = (edits) => ({
 });
 
 const cases = [
-  { name: "middle item emptied (the Water Bikes case)", items: ["Midday tours", "1 hour", "From $60"], edits: { 0: "Wednesday to Sunday: 12:00 PM & 1:00 PM", 1: "" }, want: "Wednesday to Sunday: 12:00 PM & 1:00 PM · From $60" },
+  { name: "middle item emptied (the Water Bikes case)", items: ["Midday tours", "1 hour", "From $60"], edits: { 0: "Wednesday to Sunday: 12:00 PM & 1:00 PM", 1: "" }, want: "Wednesday to Sunday · 12:00 PM & 1:00 PM · From $60" },
+  { name: "authored weekday range with times", items: ["Wednesday to Sunday: 12:00 PM & 1:00 PM", "1 hour", "From $60"], edits: {}, want: "Wednesday to Sunday · 12:00 PM & 1:00 PM · 1 hour · From $60" },
+  { name: "single day with a time", items: ["Saturday: 10:00 PM", "From $95"], edits: {}, want: "Saturday · 10:00 PM · From $95" },
+  { name: "dated one time event", items: ["Sat, Dec 13", "9:00 PM", "From $95"], edits: {}, want: "Sat, Dec 13 · 9:00 PM · From $95" },
+  { name: "dated colon stays", items: ["Dec 31: 9 PM", "From $40"], edits: {}, want: "Dec 31: 9 PM · From $40" },
+  { name: "multiple dates", items: ["Dec 13 & Dec 20", "8:00 PM"], edits: {}, want: "Dec 13 & Dec 20 · 8:00 PM" },
+  { name: "times only", items: ["12:00 PM & 1:00 PM", "1 hour"], edits: {}, want: "12:00 PM & 1:00 PM · 1 hour" },
+  { name: "days only", items: ["Wednesday to Sunday", "1 hour"], edits: {}, want: "Wednesday to Sunday · 1 hour" },
+  { name: "recurring every week", items: ["Flexible dates"], edits: { 0: "Every Friday: 6:00 PM" }, want: "Every Friday · 6:00 PM" },
+  { name: "label and title colons stay", items: ["Doors: 7 PM", "Saturday: The Party"], edits: {}, want: "Doors: 7 PM · Saturday: The Party" },
+  { name: "Papiamentu days", items: ["Djarason te djadumingu: 12:00", "From $60"], edits: {}, want: "Djarason te djadumingu · 12:00 · From $60" },
   { name: "whitespace only item", items: ["A", "B", "C"], edits: { 1: "   " }, want: "A · C" },
   { name: "first item empty", items: ["A", "B", "C"], edits: { 0: "" }, want: "B · C" },
   { name: "last item empty", items: ["A", "B", "C"], edits: { 2: " " }, want: "A · B" },
@@ -146,6 +160,32 @@ for (const c of cases) {
   tidy(withPencil);
   eq(shown(withPencil), "A · B", "an admin button on the line is ignored");
 }
+
+// A days · times item: its own dot is wrapped like a separator, the text and
+// the saved edit comparison stay the same, and re rendering is stable.
+{
+  const el = page(["Midday tours", "1 hour", "From $60"], { 0: "Wednesday to Sunday: 12:00 PM & 1:00 PM", 1: "" });
+  const first = el.children[0];
+  eq(first.textContent, "Wednesday to Sunday · 12:00 PM & 1:00 PM", "inline dot: the item text is unchanged");
+  eq(first.childNodes.map((n) => (n.nodeType === 1 ? `[${n.className}]` : n.textContent)), ["Wednesday to Sunday", "[dot dot-inline]", "12:00 PM & 1:00 PM"], "inline dot: wrapped as a separator span");
+  eq(first.children[0].textContent, " · ", "inline dot: the wrapped dot keeps its spaces for the editor text");
+  tidy(el);
+  tidy(el);
+  eq(first.children.length, 1, "inline dot: tidying again does not wrap twice");
+  eq(el.children.filter((c) => c.classList.contains("dot")).length, 2, "inline dot: line separators are still direct children only");
+  const two = page(["Mon to Fri: 9 AM · Sat: 10 AM"]);
+  eq(two.children[0].children.length, 3, "inline dot: every inner dot is wrapped");
+  eq(two.children[0].textContent, "Mon to Fri · 9 AM · Sat · 10 AM", "inline dot: several dots keep the text");
+  const plain = page(["Doors: 7 PM", "Sat, Dec 13"]);
+  eq(plain.children[0].children.length + plain.children[2].children.length, 0, "inline dot: items without an inner dot stay plain text");
+  const withPencil = page(["A", "B"]);
+  withPencil.children[0].textContent = "Daily · 9 AM";
+  withPencil.children[0].appendChild(new El("button", "otra-admin-edit-btn"));
+  tidy(withPencil);
+  eq(withPencil.children[0].children.length, 1, "inline dot: an item holding an admin button is left alone");
+}
+assert(/\.ev-hero-meta > span > \.dot-inline \{ display: inline-block; margin: 0 22px; \}/.test(EVENT_HTML), "event.html spaces an inner dot like the line gap");
+assert(/INLINE_DOT = " · "/.test(SOURCE), "site-overrides.js uses the same separator as hero-meta-text.js");
 
 // The whole line replaced with one text edit.
 {

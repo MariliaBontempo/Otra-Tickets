@@ -10,6 +10,8 @@
 // module replays the same edits over the same items, so the card says what
 // the page shows. The page itself still renders through event.html.
 
+import { heroMetaItemText } from "./hero-meta-text.js";
+
 export const META_HOST_SELECTOR = "#evMeta";
 
 // Selector the page editor uses for the i-th (0 based) hero line item when
@@ -36,6 +38,13 @@ function metaTarget(key) {
   if (!match) return null;
   // querySelector("#evMeta > span") returns the first span.
   return { span: match[1] ? Number(match[1]) : 1 };
+}
+
+// True when a page override field key is a text edit of the hero line (one
+// item or the whole line). /api/override shows those through
+// heroMetaItemText, the same as the card below.
+export function isHeroMetaTextKey(key) {
+  return metaTarget(key) !== null;
 }
 
 // Same rule as /api/override normalizeFields, which feeds site-overrides.js:
@@ -90,7 +99,9 @@ export function editedScheduleParts(items, override) {
     }
     parts = replaced !== null ? [replaced] : spans.filter((span) => !span.dot).map((span) => span.text);
   }
-  return parts.map((part) => part.trim()).filter(Boolean);
+  // Items read the way the page shows them (days · times, see
+  // hero-meta-text.js).
+  return parts.map((part) => heroMetaItemText(part).trim()).filter(Boolean);
 }
 
 const CARD_DATE_RE = /(?:(?:Sun|Mon|Tue|Wed|Thu|Fri|Sat)[a-z]*,?\s+)?(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s+\d{4})?/gi;
