@@ -18,6 +18,8 @@ const EDGE_TTL = 600;
 // serialized) so draft pages render exactly as before while isPast still
 // knows when the project's event is over.
 const PROJECT_DATES = Symbol("projectDates");
+// Marks the past project fallback below, which only exists for ended events.
+const PAST_PROJECT = Symbol("pastProject");
 
 const ACCENT_OVERRIDES = {
   "6113": "#1fa9a0", // Clearboat — turquoise from the original handoff design
@@ -60,7 +62,9 @@ export async function onRequestGet(context) {
   if (staffPreview) payload.staffPreview = true;
   // Worked out per response (the base payload is edge cached), so a page
   // stops offering checkout as soon as its event is over.
-  payload.isPast = isPastPayload(payload);
+  // An override can point checkout at another Guide event (a newer edition
+  // still on sale), so only the page's own checkout follows its dates.
+  payload.isPast = isPastPayload(payload, base.checkoutEventId);
   return json(payload, 200, staffPreview || override ? 0 : 60);
 }
 
@@ -136,7 +140,9 @@ async function getBasePayload(context, id, url, project, publishedProject = null
   return base;
 }
 
-function isPastPayload(payload) {
+function isPastPayload(payload, ownCheckoutId) {
+  if (payload[PAST_PROJECT] === true) return true;
+  if (String(payload.checkoutEventId || "") !== String(ownCheckoutId || "")) return false;
   if (payload.isPerennial || payload.isRecurring) return false;
   const dates = payload[PROJECT_DATES];
   if (dates && dates.isPerennial) return false;
@@ -169,6 +175,7 @@ async function pastProjectPayload(env, id, project, ticketData) {
     startDate,
     endDate,
     ...(tickets.length ? { tickets, addons } : {}),
+    [PAST_PROJECT]: true,
   };
 }
 

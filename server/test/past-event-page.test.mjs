@@ -29,8 +29,8 @@ function project(overrides) {
   return { ...kaya, ...overrides };
 }
 
-function kvWith(projects) {
-  const byKey = new Map(projects.map((p) => [`site-event:${p.id}`, p]));
+function kvWith(projects, docs = {}) {
+  const byKey = new Map([...projects.map((p) => [`site-event:${p.id}`, p]), ...Object.entries(docs)]);
   return {
     async list() { return { keys: [...byKey.keys()].map((name) => ({ name })), list_complete: true }; },
     async get(key) { return byKey.has(key) ? byKey.get(key) : null; },
@@ -77,8 +77,8 @@ async function withUpstream(fn) {
   }
 }
 
-async function get(id, projects = [], headers = {}) {
-  const env = { OVERRIDES: kvWith(projects), OTRA_API_URL: "https://guide.test/api" };
+async function get(id, projects = [], headers = {}, docs = {}) {
+  const env = { OVERRIDES: kvWith(projects, docs), OTRA_API_URL: "https://guide.test/api" };
   const response = await onRequestGet({ request: new Request(`https://tickets.test/api/event?id=${id}`, { headers }), env, waitUntil() {} });
   const text = await response.text();
   return { status: response.status, body: text ? JSON.parse(text) : null, text, cacheControl: response.headers.get("cache-control") };
@@ -171,6 +171,25 @@ test("an ended event with a public detail is marked past; current events are unc
     assert.equal(series.body.isPast, false, "a series keeps selling later dates");
     const tour = await get("6827");
     assert.equal(tour.body.isPast, false, "perennial tours never end");
+  });
+});
+
+test("an ended page whose checkout points at another event keeps its checkout", async () => {
+  await withUpstream(async () => {
+    // The admin "Checkout event ID" can send an old page to a newer edition
+    // that is still on sale.
+    const moved = await get("7522", [], {}, { "event:7522": { checkoutEventId: "7479" } });
+    assert.equal(moved.status, 200);
+    assert.equal(String(moved.body.checkoutEventId), "7479");
+    assert.equal(moved.body.isPast, false);
+    const same = await get("7522", [], {}, { "event:7522": { checkoutEventId: "7522" } });
+    assert.equal(same.body.isPast, true, "pointing at itself changes nothing");
+    const draft = await get("draft-kaya", [kaya], {}, { "event:draft-kaya": { checkoutEventId: "7479" } });
+    assert.equal(draft.body.isPast, false, "draft pages follow the same rule");
+    // The past project fallback only exists for ended events, so it stays past.
+    const fallback = await get("7567", [kaya], {}, { "event:7567": { checkoutEventId: "7479" } });
+    assert.equal(fallback.status, 200);
+    assert.equal(fallback.body.isPast, true);
   });
 });
 
