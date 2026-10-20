@@ -95,14 +95,19 @@ async function getBasePayload(context, id, url, project, publishedProject = null
       project.status === "published" && project.adminOnly !== true && ticketData?.results?.length
     ) {
       const draftPayload = await getDraftPayload(context.env, project.id);
+      if (!draftPayload) return null;
       // The draft key locates site content; the public event ID is the Guide ID.
-      return draftPayload ? { ...draftPayload, id: Number(id) } : null;
+      // 8088 is still on sale while its feed is live, so the project's own
+      // (single day) dates never mark it past.
+      const { [PROJECT_DATES]: _projectDates, ...payload } = draftPayload;
+      return { ...payload, id: Number(id) };
     }
   }
 
   // A staff-only Guide event is hidden from anonymous callers but served to a
   // staff JWT. That response is per-user: never cached, never shared.
   let staffView = false;
+  const publicTicketData = ticketData;
   if (!detail && (await isStaffRequest(context))) {
     const token = requestToken(context.request);
     [detail, ticketData] = await Promise.all([
@@ -111,7 +116,8 @@ async function getBasePayload(context, id, url, project, publishedProject = null
     ]);
     staffView = !!detail;
   }
-  if (!detail) return pastProjectPayload(context.env, id, publishedProject, ticketData);
+  // The fallback is a public response, so it only uses the anonymous ticket feed.
+  if (!detail) return pastProjectPayload(context.env, id, publishedProject, publicTicketData);
 
   const { tickets, addons } = ticketLists(ticketData);
 
@@ -125,7 +131,7 @@ async function getBasePayload(context, id, url, project, publishedProject = null
     isTicketed: !!detail.is_ticketed,
     isPerennial: !!detail.is_perennial,
     // A series with mini events keeps selling later dates after its first ends.
-    // (is_recurring is read too in case the Guide detail starts sending it.)
+    // (is_recurring comes with the staff detail; the public one sends has_mini_events.)
     isRecurring: !!(detail.is_recurring || detail.has_mini_events),
     image: detail.full_web_image_url || detail.half_web_image_url || detail.card_image_url || "",
     socialLinks: Array.isArray(detail.social_links) ? detail.social_links : [],

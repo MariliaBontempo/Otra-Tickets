@@ -193,6 +193,17 @@ test("an ended page whose checkout points at another event keeps its checkout", 
   });
 });
 
+test("the 8088 special case keeps checkout even when its project dates are past", async () => {
+  await withUpstream(async () => {
+    const p8088 = project({ id: "draft-1791253678425-26c548a5", otraGuideId: "8088", title: "8088", frozenSlug: "", startDate: "2026-10-12T18:00:00-04:00", endDate: "2026-10-12T23:00:00-04:00" });
+    const { status, body, text } = await get("8088", [p8088]);
+    assert.equal(status, 200);
+    assert.equal(body.id, 8088);
+    assert.equal(body.isPast, false);
+    assert.ok(!/projectDates/.test(text));
+  });
+});
+
 test("the draft id URL of a past project is read only too, and renders the same fields", async () => {
   await withUpstream(async (calls) => {
     const past = await get("draft-kaya", [kaya]);
