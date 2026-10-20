@@ -581,6 +581,7 @@
         <span>Overrides are stored on the site only.</span>
       </div>
       <select id="pageSelect" aria-label="Select page"></select>
+      <div class="top-status error hidden" id="pagesNote" role="status"></div>
       <div class="row split">
         <div class="top-status" id="status"></div>
         <label class="admin-only-toggle hidden" id="adminOnlyWrap" title="Even after publishing, this event stays hidden from the public site and is visible only to admins.">
@@ -2317,6 +2318,11 @@
     try {
       const data = await api("/admin/api/pages", { headers: authHeaders() });
       pages = data.pages || [];
+      // The list still loads when Otra Guide is slow or partly down; say what
+      // may be missing so staff know to reopen it.
+      const pagesNote = $("pagesNote");
+      pagesNote.textContent = data.upstreamError ? `Some events may be missing from this list: ${data.upstreamError}.` : "";
+      pagesNote.classList.toggle("hidden", !data.upstreamError);
       const initial = preferredId && pages.some((page) => page.id === preferredId) ? preferredId : pages[0] && pages[0].id;
       renderPageSelectOptions(initial);
       if (initial) await selectPage(initial);

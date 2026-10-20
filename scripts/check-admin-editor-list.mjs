@@ -1,15 +1,22 @@
 // Oracle: the admin Edit dropdown (/admin/api/pages) must list ticketed Otra
-// Guide events far ahead and staff only ones (Cascada NYE 8257) from one staff
-// calendar call plus the old 4 x 20 category window, skip happy hours, fold
+// Guide events far ahead and staff only ones (Cascada NYE 8257) from the staff
+// calendar read in half month chunks (each with its own timeout and an
+// anonymous retry, a cold request bounded by a deadline, finished chunks
+// cached) plus the old 4 x 20 category window, skip happy hours, fold
 // recurring occurrences into one entry, judge every event through the staff
 // ticketed search (ticket types count even before the sale opens), find
 // unpublished events known from KV, survive upstream outages, cache only good
-// builds, and answer 401 without a valid staff session.
+// builds (served stale while a background rebuild runs), and answer 401
+// without a valid staff session.
 // Run: node scripts/check-admin-editor-list.mjs
 
+import { readFileSync } from 'node:fs';
 import { onRequestGet } from '../functions/admin/api/pages.js';
 
 const failures = [];
+// AbortSignal.timeout timers do not hold the event loop open; keep it alive
+// while the timeout scenarios wait on them.
+const keepAlive = setInterval(() => {}, 50);
 const assert = (condition, message) => { if (!condition) failures.push(message); };
 
 const STAFF = 'Bearer staff-token';
@@ -78,6 +85,12 @@ const records = new Map([
 
 let calls = [];
 let mode = 'ok';
+function hangUntilAborted(signal) {
+  return new Promise((_, reject) => {
+    if (!signal) return;
+    signal.addEventListener('abort', () => reject(signal.reason || new Error('aborted')), { once: true });
+  });
+}
 globalThis.fetch = async (input, init = {}) => {
   const url = String(input);
   const auth = new Headers(init.headers || {}).get('authorization');
@@ -86,12 +99,21 @@ globalThis.fetch = async (input, init = {}) => {
     return auth === STAFF ? Response.json({ is_staff_or_admin: true }) : new Response('{}', { status: 401 });
   }
   if (url.includes('/events/nonperennial/calendar/')) {
+    const params = new URL(url).searchParams;
+    const start = params.get('start');
+    const end = params.get('end');
+    const inChunk = (row) => row.start_date.slice(0, 10) >= start && row.start_date.slice(0, 10) <= end;
+    const holdsCascada = inChunk({ start_date: at(72, 1) });
     if (mode === 'down') return new Response('upstream error', { status: 502 });
     if (mode === 'expired') return Response.json({ detail: 'token expired' }, { status: 401 });
+    // The Cascada chunk hangs until its timeout: for the staff call only
+    // (slow-staff) or for the anonymous retry too (hang).
+    if (holdsCascada && (mode === 'hang' || (mode === 'slow-staff' && auth === STAFF))) return hangUntilAborted(init.signal);
     if (mode === 'many') return Response.json(Array.from({ length: 305 }, (_, i) => ({
       id: 90000 + i, title: `Event ${i}`, slug: `event-${i}`, start_date: at(1 + i), is_ticketed: true, is_perennial: false,
-    })));
-    return Response.json(calendarRows);
+    })).filter(inChunk));
+    const visible = auth === STAFF ? calendarRows : calendarRows.filter((row) => row.id !== 8257);
+    return Response.json(visible.filter(inChunk));
   }
   if (url.includes('/events/nonperennial/?')) {
     if (mode === 'down') return new Response('upstream error', { status: 502 });
@@ -100,7 +122,8 @@ globalThis.fetch = async (input, init = {}) => {
     if (!url.includes('page=1&')) return Response.json({ count: 900, results: [] });
     return Response.json({ count: 900, results: [
       { id: 8088, title: 'Mike Gatta 50/50/50 Finish Line', start_date: at(-69), is_ticketed: true, is_perennial: false },
-      { id: 8257, title: 'Cascada NYE 2027', start_date: at(72, 1), is_ticketed: true, is_perennial: false },
+      // The chunk scenarios drop 8257 from the feed head so only the calendar can list it.
+      ...(mode === 'hang' || mode === 'slow-staff' ? [] : [{ id: 8257, title: 'Cascada NYE 2027', start_date: at(72, 1), is_ticketed: true, is_perennial: false }]),
       { id: 2902, title: 'HAPPY HOUR', start_date: at(0, 21), is_ticketed: false, is_perennial: false },
     ] });
   }
@@ -148,6 +171,10 @@ const kv = {
   async get(key) { return kvData.has(key) ? kvData.get(key) : null; },
 };
 const env = { OTRA_API_URL: base, OVERRIDES: kv };
+const LIST_KEY = 'https://tickets.test/admin/api/pages-upstream-cache';
+const listStored = () => store.has(LIST_KEY);
+const chunkKeys = () => [...store.keys()].filter((key) => key.includes('/admin/api/pages-calendar-chunk/'));
+const clearList = () => store.delete(LIST_KEY);
 const call = async (authorization) => {
   const pending = [];
   const response = await onRequestGet({
@@ -173,14 +200,24 @@ let response = await call(STAFF);
 let payload = await response.json();
 assert(response.status === 200, 'staff list must succeed');
 const calendarCalls = calls.filter((c) => c.url.includes('/events/nonperennial/calendar/'));
-assert(calendarCalls.length === 1, `exactly one calendar call expected (got ${calendarCalls.length})`);
-const cal = calendarCalls[0] ? new URL(calendarCalls[0].url) : null;
-assert(cal && cal.searchParams.get('category_id') === '339', 'calendar call must filter category 339');
-assert(cal && /^\d{4}-\d{2}-\d{2}$/.test(cal.searchParams.get('start') || '') && /^\d{4}-\d{2}-\d{2}$/.test(cal.searchParams.get('end') || ''), 'calendar call must send a start and end date');
-if (cal) {
-  const spanDays = (new Date(cal.searchParams.get('end')) - new Date(cal.searchParams.get('start'))) / 86400000;
-  assert(spanDays >= 360 && spanDays <= 400, `calendar window must cover about a month back and a year ahead (got ${spanDays} days)`);
+const ranges = calendarCalls.map((c) => new URL(c.url).searchParams);
+assert(calendarCalls.length >= 25 && calendarCalls.length <= 28, `the calendar must be read in half month chunks (got ${calendarCalls.length} calls)`);
+assert(ranges.every((r) => r.get('category_id') === '339'), 'every chunk must filter category 339');
+assert(ranges.every((r) => /^\d{4}-\d{2}-(01|16)$/.test(r.get('start') || '') && /^\d{4}-\d{2}-(15|28|29|30|31)$/.test(r.get('end') || '')), 'chunks must use stable half month boundaries');
+{
+  const starts = ranges.map((r) => r.get('start')).sort();
+  const ends = ranges.map((r) => r.get('end')).sort();
+  const spanDays = (new Date(ends[ends.length - 1]) - new Date(starts[0])) / 86400000;
+  assert(spanDays >= 390 && spanDays <= 430, `chunks must cover about a month back and a year ahead (got ${spanDays} days)`);
+  assert(new Set(starts).size === starts.length, 'each chunk is read once per build');
+  const sorted = ranges.map((r) => [r.get('start'), r.get('end')]).sort();
+  const gapless = sorted.slice(1).every(([s2], i) => {
+    const next = new Date(sorted[i][1]); next.setUTCDate(next.getUTCDate() + 1);
+    return next.toISOString().slice(0, 10) === s2;
+  });
+  assert(gapless, 'chunks must leave no gap between them');
 }
+assert(chunkKeys().length === calendarCalls.length, 'every staff chunk that loaded must be cached');
 assert(calls.filter((c) => !c.url.endsWith('/users/user-role/')).every((c) => c.auth === STAFF), 'every Otra Guide call must forward the staff Bearer token');
 const headCalls = calls.filter((c) => /\/events\/nonperennial\/\?/.test(c.url));
 assert(headCalls.length === 4 && headCalls.every((c) => /category_id=339&page=[1-4]&page_size=20$/.test(c.url)), 'the old 4 x 20 category window must still be read so nothing the old list showed disappears');
@@ -227,7 +264,8 @@ const dated = payload.pages.filter((p) => /^\d+$/.test(p.id) && p.type !== 'Manu
 const tourIndex = dated.findIndex((p) => p.type === 'Published tour');
 assert(tourIndex === -1 || dated.slice(tourIndex).every((p) => p.type === 'Published tour'), 'tours must sort after dated events');
 const totalUpstream = calls.filter((c) => !c.url.endsWith('/users/user-role/')).length;
-assert(totalUpstream <= 26, `whole build must stay small (got ${totalUpstream} upstream calls)`);
+assert(totalUpstream <= calendarCalls.length + 26, `whole build must stay small (got ${totalUpstream} upstream calls)`);
+assert(listStored(), 'a complete build is stored');
 
 // 3. A second request inside the TTL is served from cache.
 calls = [];
@@ -235,6 +273,46 @@ response = await call(STAFF);
 payload = await response.json();
 assert(response.status === 200 && payload.pages.some((p) => p.id === '8257'), 'cached list must still include 8257');
 assert(!calls.some((c) => c.url.includes('/calendar/')), 'second request must be served from the cache');
+
+// 3b. List gone but chunks cached: the rebuild needs no calendar call.
+clearList();
+calls = [];
+response = await call(STAFF);
+payload = await response.json();
+assert(payload.pages.some((p) => p.id === '8257'), 'a rebuild from cached chunks still lists 8257');
+assert(!calls.some((c) => c.url.includes('/calendar/')), 'cached chunks must not be fetched again');
+
+// 3c. Stale list: served at once from the stored copy, rebuilt in the background.
+{
+  const stored = JSON.parse(store.get(LIST_KEY));
+  stored.builtAt = Date.now() - 301 * 1000;
+  stored.pages = [...stored.pages, { id: '424242', title: 'Marker From Stale Copy', type: 'Published draft', startDate: '', url: '/event.html?id=424242' }];
+  store.set(LIST_KEY, JSON.stringify(stored));
+  calls = [];
+  const pending = [];
+  response = await onRequestGet({ request: new Request('https://tickets.test/admin/api/pages', { headers: { authorization: STAFF } }), env, waitUntil(p) { pending.push(p); } });
+  payload = await response.json();
+  assert(payload.pages.some((p) => p.id === '424242'), 'a stale list must be served at once');
+  assert(pending.length > 0, 'a stale list must start a background rebuild');
+  await Promise.all(pending);
+  const refreshed = JSON.parse(store.get(LIST_KEY));
+  assert(Date.now() - refreshed.builtAt < 5000 && !refreshed.pages.some((p) => p.id === '424242'), 'the background rebuild must replace the stale list');
+}
+
+// 3d. A failed background rebuild never replaces a complete list.
+{
+  const stored = JSON.parse(store.get(LIST_KEY));
+  stored.builtAt = Date.now() - 301 * 1000;
+  store.set(LIST_KEY, JSON.stringify(stored));
+  for (const key of chunkKeys()) store.delete(key);
+  mode = 'down';
+  response = await call(STAFF);
+  payload = await response.json();
+  assert(payload.pages.some((p) => p.id === '8257') && !payload.upstreamError, 'during an outage the stored complete list is served');
+  const after = JSON.parse(store.get(LIST_KEY));
+  assert(after.builtAt === stored.builtAt, 'a failed rebuild must not overwrite the complete list');
+  mode = 'ok';
+}
 
 // 4. Upstream outage: drafts, manual pages and fallback survive, flagged, not cached.
 store.clear();
@@ -247,7 +325,7 @@ assert(payload.pages.some((p) => p.id === '7275') && payload.pages.some((p) => p
 assert(payload.pages.some((p) => p.id === 'draft-unpub'), 'drafts must survive an outage');
 assert(payload.pages.some((p) => p.id === '8300'), 'fallback lookups still run during a calendar outage');
 assert(typeof payload.upstreamError === 'string' && payload.upstreamError, 'outage must be reported as upstreamError');
-assert(store.size === 0, 'a failed build must not be cached');
+assert(!listStored(), 'a failed build must not be cached');
 mode = 'ok';
 calls = [];
 await call(STAFF);
@@ -261,7 +339,7 @@ for (const failing of ['id-down', 'search-down', 'details-down']) {
   payload = await response.json();
   assert(response.status === 200, `${failing}: editor must still load`);
   assert(payload.upstreamError, `${failing}: must be reported as upstreamError`);
-  assert(store.size === 0, `${failing}: partial build must not be cached`);
+  assert(!listStored(), `${failing}: partial build must not be cached`);
   if (failing === 'id-down') assert(payload.pages.some((p) => p.id === '8201'), 'id-down: other events still listed');
 }
 
@@ -274,7 +352,7 @@ response = await call(STAFF);
 payload = await response.json();
 assert(response.status === 200 && /truncated/.test(payload.upstreamError || ''), 'a capped list must say it was truncated');
 assert(calls.filter((c) => /admin-ticketed-search\/\?id=\d+$/.test(c.url) && !/id=(8300|7567|8301|8302)$/.test(c.url)).length === 300, 'lookups must stop at the cap (KV fallback lookups aside)');
-assert(store.size === 1, 'a deterministic cut may be cached');
+assert(listStored(), 'a deterministic cut may be cached');
 response = await call(STAFF);
 payload = await response.json();
 assert(/truncated/.test(payload.upstreamError || ''), 'the truncation note must survive a cache hit');
@@ -284,11 +362,64 @@ store.clear();
 mode = 'expired';
 response = await call(STAFF);
 assert(response.status === 401, `calendar 401 must surface as 401 (got ${response.status})`);
-assert(store.size === 0, 'a rejected token must not be cached');
+assert(!listStored(), 'a rejected token must not be cached');
 
+// 8. Slow staff chunk: it times out, the anonymous retry fills its public
+// rows, and the list says staff only events may be missing. Not stored.
+store.clear();
+mode = 'slow-staff';
+env.PAGES_CHUNK_TIMEOUT_MS = '200';
+calls = [];
+response = await call(STAFF);
+payload = await response.json();
+assert(response.status === 200, 'a slow staff chunk must not break the editor');
+assert(payload.pages.some((p) => p.id === '8257'), 'slow-staff: 8257 is saved in KV, so the saved id lookup still lists it');
+assert(payload.pages.some((p) => p.id === '7139') && payload.pages.some((p) => p.id === '8110'), 'slow-staff: the other chunks and the public rows are still listed');
+assert(/staff only events may be missing for 1 of \d+ date ranges/.test(payload.upstreamError || ''), `slow-staff: must be reported (got ${payload.upstreamError})`);
+assert(calls.some((c) => c.url.includes('/calendar/') && !c.auth), 'slow-staff: the chunk is retried anonymously');
+assert(!listStored(), 'slow-staff: a partial list must not be stored');
+
+// 9. A chunk that hangs past the cold deadline: the request answers by the
+// deadline with a partial list and a note; the chunk keeps loading.
+store.clear();
+mode = 'hang';
+env.PAGES_COLD_DEADLINE_MS = '150';
+env.PAGES_CHUNK_TIMEOUT_MS = '600';
+calls = [];
+{
+  const pending = [];
+  const t0 = Date.now();
+  response = await onRequestGet({ request: new Request('https://tickets.test/admin/api/pages', { headers: { authorization: STAFF } }), env, waitUntil(p) { pending.push(p); } });
+  const elapsed = Date.now() - t0;
+  payload = await response.json();
+  assert(elapsed < 500, `the cold request must answer by its deadline (took ${elapsed} ms)`);
+  assert(/calendar incomplete: 1 of \d+ date ranges/.test(payload.upstreamError || ''), `hang: must be reported (got ${payload.upstreamError})`);
+  assert(payload.pages.some((p) => p.id === '7139'), 'hang: the chunks that loaded are listed');
+  assert(pending.length > 0, 'hang: the unfinished chunks must keep loading in the background');
+  await Promise.all(pending);
+  assert(!listStored(), 'hang: a partial list must not be stored');
+  assert(chunkKeys().length >= 24, 'hang: the chunks that loaded are cached for the next request');
+}
+delete env.PAGES_COLD_DEADLINE_MS;
+delete env.PAGES_CHUNK_TIMEOUT_MS;
+mode = 'ok';
+calls = [];
+response = await call(STAFF);
+payload = await response.json();
+assert(payload.pages.some((p) => p.id === '8257') && !payload.upstreamError, 'after the hang the next request completes the list');
+assert(calls.filter((c) => c.url.includes('/calendar/')).length === 1, 'after the hang only the missing chunk is fetched');
+
+// 10. The editor shows upstreamError to staff, as text.
+{
+  const html = readFileSync(new URL('../admin/index.html', import.meta.url), 'utf8');
+  assert(/id="pagesNote"/.test(html), 'the editor must have a note for upstreamError');
+  assert(/pagesNote\.textContent = data\.upstreamError/.test(html) && !/pagesNote\.innerHTML/.test(html), 'the note must be set as text from data.upstreamError');
+}
+
+clearInterval(keepAlive);
 if (failures.length) {
   console.error('check-admin-editor-list FAILED:');
   failures.forEach((failure) => console.error(' - ' + failure));
   process.exit(1);
 }
-console.log('check-admin-editor-list OK (staff calendar plus old window, ticketed only, recurring folded, KV fallback, outage safe, cached, 401)');
+console.log('check-admin-editor-list OK (chunked staff calendar plus old window, ticketed only, recurring folded, KV fallback, partial chunks reported, cold deadline, stale while revalidate, 401)');
