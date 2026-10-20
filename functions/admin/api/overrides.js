@@ -75,7 +75,7 @@ export async function onRequestPut(context) {
     }
   }
 
-  const { override: previous, draftId } = await readOverride(kv, id);
+  const { override: previous, draftId, fromDraft, coversThisDraft } = await readOverride(kv, id);
   const override = {
     id,
     description,
@@ -85,19 +85,22 @@ export async function onRequestPut(context) {
     fields,
     updatedAt: new Date().toISOString(),
   };
-  if (draftId) {
+  if (draftId && fromDraft) {
     // A client that did not load the merged view (an editor tab opened
     // before this change) sends only what it saw. Keep the draft edits
-    // under its changes instead of hiding them.
+    // under its changes instead of hiding them. When the page was served as
+    // is there is nothing to restore, so its removals stand.
     if (previous && body.draftEditsFrom !== draftId) {
       override.fields = { ...previous.fields, ...override.fields };
       for (const key of TOP_LEVEL_KEYS) {
         if (!override[key] && previous[key]) override[key] = previous[key];
       }
     }
-    // This document now holds every edit of the draft.
-    override.draftEditsFrom = draftId;
   }
+  // This document now holds every edit of the draft. A page served as is
+  // without a marker (saved before the merged view existed) stays unmarked,
+  // so the draft edits it hides are still there for a deliberate restore.
+  if (draftId && (fromDraft || coversThisDraft)) override.draftEditsFrom = draftId;
   await kv.put(KEY(id), JSON.stringify(override));
   await appendAudit(kv, {
     actor: await actorForAudit(session.token, session.role, context.env),
@@ -142,8 +145,9 @@ function photoSignature(override) {
 }
 
 async function readOverride(kv, id) {
-  const { override, draftId } = await resolvePageOverride(kv, id);
-  return { override: override ? normalizeOverride(override, id) : null, draftId };
+  const { override, draftId, fromDraft } = await resolvePageOverride(kv, id);
+  const coversThisDraft = Boolean(override && draftId && override.draftEditsFrom === draftId);
+  return { override: override ? normalizeOverride(override, id) : null, draftId, fromDraft, coversThisDraft };
 }
 
 function normalizeOverride(raw, id) {

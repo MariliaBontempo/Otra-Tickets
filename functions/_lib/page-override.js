@@ -48,7 +48,8 @@ export function isPublishedBound(project) {
 }
 
 // Site events bound to an Otra Guide id, archived ones skipped. Returns the
-// most recently created one and the most recently created published one.
+// most recently created one (the design an event page renders) and the most
+// recently created published one (whose draft edits feed the live page).
 export async function findBoundProjects(kv, id) {
   const found = { latest: null, published: null };
   if (!kv || typeof kv.list !== "function" || !isOtraGuideId(id)) return found;
@@ -67,12 +68,6 @@ export async function findBoundProjects(kv, id) {
     cursor = page.list_complete ? undefined : page.cursor;
   } while (cursor);
   return found;
-}
-
-// The site event a public event page renders for an Otra Guide id: the most
-// recently created bound project that is not archived.
-export async function findProjectByOtraGuideId(kv, id) {
-  return (await findBoundProjects(kv, id)).latest;
 }
 
 function stamp(doc) {
@@ -121,15 +116,18 @@ export function coversDraft(eventDoc, draftId, draftDoc) {
   return !eventDoc.draftEditsFrom;
 }
 
-// Returns { override, draftId } for a page id. draftId is the published
-// bound draft whose edits were considered ("" when none).
+// Returns { override, draftId, fromDraft } for a page id. draftId is the
+// published bound draft whose edits were considered ("" when none);
+// fromDraft is true when the override carries edits read from that draft
+// document (the draft alone, or merged under the event document).
 //
 // options.draftId: pass the bound draft id when the caller already knows it
 // (a string, "" meaning no bound draft), to skip the site event scan. Leave
 // it out to look the published bound draft up.
 export async function resolvePageOverride(kv, id, options = {}) {
   const eventDoc = await readOverrideDoc(kv, id);
-  if (!isOtraGuideId(id)) return { override: eventDoc, draftId: "" };
+  const asIs = (draftId) => ({ override: eventDoc, draftId, fromDraft: false });
+  if (!isOtraGuideId(id)) return asIs("");
   let draftId;
   if (typeof options.draftId === "string") {
     draftId = options.draftId;
@@ -137,9 +135,9 @@ export async function resolvePageOverride(kv, id, options = {}) {
     const { published } = await findBoundProjects(kv, id);
     draftId = published ? String(published.id || "") : "";
   }
-  if (!draftId) return { override: eventDoc, draftId: "" };
+  if (!draftId) return asIs("");
   const draftDoc = await readOverrideDoc(kv, draftId);
-  if (!draftDoc) return { override: eventDoc, draftId };
-  if (coversDraft(eventDoc, draftId, draftDoc)) return { override: eventDoc, draftId };
-  return { override: mergeOverrideDocs(draftDoc, eventDoc), draftId };
+  if (!draftDoc) return asIs(draftId);
+  if (coversDraft(eventDoc, draftId, draftDoc)) return asIs(draftId);
+  return { override: mergeOverrideDocs(draftDoc, eventDoc), draftId, fromDraft: true };
 }

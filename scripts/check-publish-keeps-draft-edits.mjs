@@ -160,11 +160,16 @@ const draftEdits = {
   eq(loaded.draftEditsFrom, DRAFT, '2: the editor still learns the bound draft');
   await adminSave(kv, '7175', editorBody(loaded, (next) => { next.fields['text:#evTitle'] = text('Edited again'); }));
   eq(Object.keys((await publicFields(kv, '7175')).fields).sort(), ['text:#evSub', 'text:#evTitle'], '2: saving it changes only the edited key');
+  assert(!('draftEditsFrom' in kv.json('event:7175')), '2: an editor save on a page served as is adds no marker');
   // An editor tab opened before the fix sends only what it saw and the
   // page stays the same.
   const stale = makeKv({ [`site-event:${DRAFT}`]: project(), [`event:${DRAFT}`]: draftEdits, 'event:7175': legacyDoc });
   await adminSave(stale, '7175', { fields: { 'text:#evTitle': text('Stale tab title'), 'text:#evSub': text('Later subtitle') } });
   eq(stale.json('event:7175').fields, { 'text:#evTitle': text('Stale tab title'), 'text:#evSub': text('Later subtitle') }, '2: stale tab save on an old page keeps the old page keys');
+  assert(!('draftEditsFrom' in stale.json('event:7175')), '2: a page served as is stays unmarked, so its hidden draft edits stay restorable');
+  await adminSave(stale, '7175', { fields: { 'text:#evTitle': text('Stale tab title') } });
+  eq(stale.json('event:7175').fields, { 'text:#evTitle': text('Stale tab title') }, '2: a stale tab removal on a page served as is sticks');
+  eq(Object.keys((await publicFields(stale, '7175')).fields), ['text:#evTitle'], '2: and the page shows the removal');
   // A stale tab on a freshly published page (no live document yet) keeps
   // the draft edits under its change.
   const fresh = makeKv({ [`site-event:${DRAFT}`]: project(), [`event:${DRAFT}`]: draftEdits });

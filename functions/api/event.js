@@ -7,7 +7,7 @@
 import { eventSlug } from "../_lib/event-slug.js";
 import { checkStaff } from "../admin/api/_auth.js";
 import { requestToken } from "../_lib/session.js";
-import { findProjectByOtraGuideId, isPublishedBound, resolvePageOverride } from "../_lib/page-override.js";
+import { findBoundProjects, resolvePageOverride } from "../_lib/page-override.js";
 
 const API = "https://otraguide.com/api";
 const UPSTREAM_TTL = 300;
@@ -22,7 +22,10 @@ export async function onRequestGet(context) {
   const id = (url.searchParams.get("id") || "").trim();
   if (!isEventId(id)) return json({ error: "invalid id" }, 400);
 
-  const project = /^\d+$/.test(id) ? await findProjectByOtraGuideId(context.env && context.env.OVERRIDES, id) : null;
+  // One site event scan: the newest bound project drives the design, the
+  // newest published one feeds the page edits.
+  const bound = /^\d+$/.test(id) ? await findBoundProjects(context.env && context.env.OVERRIDES, id) : null;
+  const project = bound ? bound.latest : null;
   const base = await getBasePayload(context, id, url, project);
   if (!base) return json({ error: "not found" }, 404);
 
@@ -37,7 +40,7 @@ export async function onRequestGet(context) {
   const staffPreview = adminOnly || base.staffView === true;
   delete base.staffView;
 
-  const override = await readOverride(context.env, id, project);
+  const override = await readOverride(context.env, id, bound && bound.published ? String(bound.published.id) : "");
   let payload = override ? { ...base, ...pickOverride(override) } : base;
   if (project) {
     payload = {
@@ -181,16 +184,13 @@ function isStaffRequest(context) {
   return staffChecks.get(request);
 }
 
-async function readOverride(env, id, project) {
+async function readOverride(env, id, draftId) {
   const kv = env && env.OVERRIDES;
   if (!kv) return null;
   try {
     // A published bound draft keeps its edits under its own id; the shared
     // resolver puts the edits saved under the Otra Guide id on top of them.
-    // No bound project means no draft edits; an unpublished newest project
-    // lets the resolver look up the published one.
-    const draftId = !project ? "" : isPublishedBound(project) ? String(project.id) : undefined;
-    const { override } = await resolvePageOverride(kv, id, draftId === undefined ? {} : { draftId });
+    const { override } = await resolvePageOverride(kv, id, { draftId: draftId || "" });
     return override;
   } catch {
     return null;
