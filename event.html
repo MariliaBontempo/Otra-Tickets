@@ -1737,7 +1737,11 @@ html[data-presidente-event="8088"] .btn-metal:hover { background: #4cba57; box-s
         function mount() {
           if (!window.OtraStripeCheckoutEmbed) { fail(); return; }
           try {
-            window.OtraStripeCheckoutEmbed.create({
+            // A retry drops the previous instance: the embed routes checkout
+            // messages to the first instance it stored, so a stale one would
+            // swallow them.
+            if (loadCheckout.instance && typeof loadCheckout.instance.destroy === "function") loadCheckout.instance.destroy();
+            loadCheckout.instance = window.OtraStripeCheckoutEmbed.create({
               eventId: eventId,
               containerId: "otra-checkout-container",
               baseUrl: checkoutBaseUrl,
@@ -1746,7 +1750,10 @@ html[data-presidente-event="8088"] .btn-metal:hover { background: #4cba57; box-s
               // also pass the event accent so the calendar can use the Otra theme.
               accent: accentOverride || "",
               theme: "otratickets",
-              onError: fail,
+              // Only a failure to load counts; other checkout errors are the checkout's own to show.
+              onError: (err) => {
+                if (err && (err.type === "iframe_load_error" || err.type === "url_build_error")) fail();
+              },
             });
           } catch (e) {
             console.error("Could not mount checkout embed.", e);

@@ -33,6 +33,7 @@ const feeds = {
     ticket(4, "Regular", 100, iso(now - DAY), iso(now + 20 * DAY)),
     ticket(5, "Door", 120, iso(now + 20 * DAY), iso(now + 21 * DAY)),
   ], addons: [] },
+  7700: { results: [ticket(10, "Night", 40, iso(now - 60 * DAY), iso(now - 30 * DAY))], addons: [] },
   // A series whose parent tier window closed while later dates still sell.
   7603: { results: [ticket(8, "Night", 40, iso(now - 60 * DAY), iso(now - 30 * DAY))], addons: [] },
   // Every tier closed while the event itself is still ahead.
@@ -40,7 +41,7 @@ const feeds = {
 };
 
 const detail = (id, title) => ({ id, title, start_date: iso(now + 50 * DAY), end_date: iso(now + 50 * DAY + 3 * 3600e3), is_ticketed: true, is_perennial: false });
-const details = { 7603: { ...detail(7603, "Weekly Series"), has_mini_events: true }, 7479: detail(7479, "Bingo Bengo"), 7600: detail(7600, "Not Yet"), 7601: detail(7601, "Mixed"), 7602: detail(7602, "Closed") };
+const details = { 7524: detail(7524, "Bingo Bengo December"), 7700: { ...detail(7700, "Series Edition"), is_recurring: true }, 7603: { ...detail(7603, "Weekly Series"), has_mini_events: true }, 7479: detail(7479, "Bingo Bengo"), 7600: detail(7600, "Not Yet"), 7601: detail(7601, "Mixed"), 7602: detail(7602, "Closed") };
 
 function kvWith(docs = {}) {
   const byKey = new Map(Object.entries(docs));
@@ -152,6 +153,15 @@ test("a recurring series never reads its parent tier windows as sales ended", as
   });
 });
 
+test("a page whose checkout sells a series judges windows on that series, not on the page", async () => {
+  await withUpstream(async () => {
+    const { body } = await get("7601", { "event:7601": { checkoutEventId: "7700" } });
+    assert.deepEqual(body.tickets.map((t) => t.name), ["Night"]);
+    assert.deepEqual(body.ticketSale, { state: "on_sale", opensAt: null });
+    assert.equal("sale" in body.tickets[0], false);
+  });
+});
+
 test("no ticket types at all stays the plain empty state", async () => {
   await withUpstream(async () => {
     const { body } = await get("7479");
@@ -219,7 +229,9 @@ test("event.html drops a late checkout loader, and shows an error with a retry w
   assert.match(fn, /addEventListener\("load", markReady\)/);
   assert.match(fn, /OTRA_IFRAME_RESIZE[\s\S]{0,200}markReady\(\)/);
   assert.match(fn, /setTimeout\(fail, CHECKOUT_SETTLE_MS\)/);
-  assert.match(fn, /onError: fail/);
+  assert.match(fn, /onError: \(err\) => \{\s*if \(err && \(err\.type === "iframe_load_error" \|\| err\.type === "url_build_error"\)\) fail\(\);/);
+  // A retry destroys the previous embed instance before creating the next.
+  assert.match(fn, /loadCheckout\.instance\.destroy\(\);\s*loadCheckout\.instance = window\.OtraStripeCheckoutEmbed\.create\(/);
   assert.match(fn, /s\.onerror = function \(\) \{[\s\S]{0,120}fail\(\);/);
   assert.match(fn, /Checkout couldn\\u2019t load\./);
   // A slow iframe is hidden behind the error, never destroyed, and comes back once ready.

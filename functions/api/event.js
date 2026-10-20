@@ -11,7 +11,7 @@ import { findBoundProjects, resolvePageOverride } from "../_lib/page-override.js
 import { hasEnded } from "../_lib/event-ended.js";
 import { heroMetaItems } from "../_lib/hero-meta-text.js";
 import { ticketSaleState, withSaleState } from "../_lib/ticket-sale-state.js";
-import { HIDDEN_DETAIL_EXCEPTIONS, guideApiBase, guideDetailMissing, guideTicketFeed, keepsSellingWhileHidden } from "../_lib/guide-event-hidden.js";
+import { HIDDEN_DETAIL_EXCEPTIONS, guideApiBase, guideDetailMissing, guideEventDetail, guideTicketFeed, keepsSellingWhileHidden } from "../_lib/guide-event-hidden.js";
 
 const API = "https://otraguide.com/api";
 const UPSTREAM_TTL = 300;
@@ -71,8 +71,14 @@ export async function onRequestGet(context) {
   // The rates on the page must be the ones that checkout sells, not the
   // page's own (often empty) feed.
   const checkoutId = String(payload.checkoutEventId || "");
+  // Whether the tiers' windows describe the sale: only for a single dated
+  // event, judged on the event checkout actually sells.
+  let windowed = !payload.isRecurring && !payload.isPerennial;
   if (!isDraftId(id) && /^\d+$/.test(checkoutId) && checkoutId !== String(base.checkoutEventId || "")) {
-    const checkoutTickets = await guideTicketFeed(apiBase(context.env), checkoutId);
+    const api = apiBase(context.env);
+    const [checkoutTickets, checkoutDetail] = await Promise.all([guideTicketFeed(api, checkoutId), guideEventDetail(api, checkoutId)]);
+    // Without the checkout event's detail its kind is unknown: claim no window.
+    windowed = !!checkoutDetail && !checkoutDetail.is_recurring && !checkoutDetail.has_mini_events && !checkoutDetail.is_perennial;
     if (checkoutTickets) {
       payload = { ...payload, ...ticketLists(checkoutTickets) };
     } else {
@@ -80,9 +86,7 @@ export async function onRequestGet(context) {
       payload = { ...payload, tickets: [], addons: [], ticketsUnknown: true };
     }
   }
-  // A series or a perennial sells dates the parent windows do not describe,
-  // so only a single dated event reads its tiers' windows.
-  const windowed = !payload.isRecurring && !payload.isPerennial;
+  // A series or a perennial sells dates the parent windows do not describe.
   if (windowed) payload.tickets = withSaleState(payload.tickets);
   payload.ticketSale = payload.ticketsUnknown
     ? { state: "unknown", opensAt: null }

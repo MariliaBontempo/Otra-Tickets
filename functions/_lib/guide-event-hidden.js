@@ -85,6 +85,24 @@ export async function isHiddenGuideEvent(env, guideId, projectId = "") {
   return !(await keepsSellingWhileHidden(api, guideId, projectId));
 }
 
+// A Guide event's public detail, or null when it is missing, fails or times out.
+export async function guideEventDetail(api, guideId) {
+  try {
+    const resp = await fetch(`${api}/events/details/${guideId}/`, {
+      headers: { Accept: "application/json" },
+      cf: { cacheTtl: UPSTREAM_TTL, cacheEverything: true },
+      signal: AbortSignal.timeout(CHECK_TIMEOUT_MS),
+    });
+    if (!resp.ok) {
+      await discardBody(resp);
+      return null;
+    }
+    return await resp.json();
+  } catch {
+    return null;
+  }
+}
+
 // A Guide event's public ticket feed, or null when it fails or takes longer
 // than the check timeout (a slow Guide never holds a page response).
 export async function guideTicketFeed(api, guideId) {
