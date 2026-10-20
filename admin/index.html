@@ -2214,6 +2214,8 @@
       checkoutEventId: currentOverride && currentOverride.checkoutEventId ? currentOverride.checkoutEventId : "",
       accentColor: currentOverride && currentOverride.accentColor ? currentOverride.accentColor : "",
       fields: Object.assign({}, currentOverride && currentOverride.fields ? currentOverride.fields : {}),
+      // Tells the server this save started from the merged draft view.
+      draftEditsFrom: currentOverride && currentOverride.draftEditsFrom ? currentOverride.draftEditsFrom : "",
     };
     mutate(next.fields);
     const data = await api("/admin/api/overrides?id=" + encodeURIComponent(overrideIdForPage(selected)), {
@@ -2233,6 +2235,8 @@
       checkoutEventId: currentOverride && currentOverride.checkoutEventId ? currentOverride.checkoutEventId : "",
       accentColor: currentOverride && currentOverride.accentColor ? currentOverride.accentColor : "",
       fields: Object.assign({}, currentOverride && currentOverride.fields ? currentOverride.fields : {}),
+      // Tells the server this save started from the merged draft view.
+      draftEditsFrom: currentOverride && currentOverride.draftEditsFrom ? currentOverride.draftEditsFrom : "",
     };
     if (activeField) {
       const storageKey = activeField.storageKey || activeField.key;

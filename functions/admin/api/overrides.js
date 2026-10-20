@@ -6,9 +6,9 @@
 import { requireStaff, staffSession, json } from "./_auth.js";
 import { actorForAudit, appendAudit, changedOverrideFields } from "./_audit.js";
 import { resyncPublishedProjectPhotos } from "./projects.js";
+import { resolvePageOverride } from "../../_lib/page-override.js";
 
 const KEY = (id) => `event:${id}`;
-const LEGACY_KEY = (id) => `override:${id}`;
 
 export async function onRequestGet(context) {
   const id = getId(context.request);
@@ -18,7 +18,10 @@ export async function onRequestGet(context) {
   const kv = context.env.OVERRIDES;
   if (!kv) return json({ error: "overrides store not configured" }, 503);
 
-  const override = await readOverride(kv, id);
+  // The editor starts from what the public page shows: for a published
+  // draft that is its draft edits with the later edits on top.
+  const { override, draftId } = await readOverride(kv, id);
+  if (override && draftId) override.draftEditsFrom = draftId;
   return json({ override });
 }
 
@@ -57,6 +60,7 @@ export async function onRequestPut(context) {
     }
   }
 
+  const { override: previous, draftId } = await readOverride(kv, id);
   const override = {
     id,
     description,
@@ -66,7 +70,19 @@ export async function onRequestPut(context) {
     fields,
     updatedAt: new Date().toISOString(),
   };
-  const previous = await readOverride(kv, id);
+  if (draftId) {
+    // A client that did not load the merged view (an editor tab opened
+    // before this change) sends only what it saw. Keep the draft edits
+    // under its changes instead of hiding them.
+    if (previous && body.draftEditsFrom !== draftId) {
+      override.fields = { ...previous.fields, ...override.fields };
+      for (const key of ["description", "image", "checkoutEventId", "accentColor"]) {
+        if (!override[key] && previous[key]) override[key] = previous[key];
+      }
+    }
+    // This document now holds every edit of the draft.
+    override.draftEditsFrom = draftId;
+  }
   await kv.put(KEY(id), JSON.stringify(override));
   await appendAudit(kv, {
     actor: await actorForAudit(session.token, session.role, context.env),
@@ -111,8 +127,8 @@ function photoSignature(override) {
 }
 
 async function readOverride(kv, id) {
-  const raw = (await kv.get(KEY(id))) || (await kv.get(LEGACY_KEY(id)));
-  return raw ? normalizeOverride(JSON.parse(raw), id) : null;
+  const { override, draftId } = await resolvePageOverride(kv, id);
+  return { override: override ? normalizeOverride(override, id) : null, draftId };
 }
 
 function normalizeOverride(raw, id) {

@@ -7,6 +7,7 @@
 import { eventSlug } from "../_lib/event-slug.js";
 import { checkStaff } from "../admin/api/_auth.js";
 import { requestToken } from "../_lib/session.js";
+import { findProjectByOtraGuideId as findBoundProject, resolvePageOverride } from "../_lib/page-override.js";
 
 const API = "https://otraguide.com/api";
 const UPSTREAM_TTL = 300;
@@ -133,20 +134,7 @@ async function getBasePayload(context, id, url, project) {
 }
 
 async function findProjectByOtraGuideId(env, id) {
-  const kv = env && env.OVERRIDES;
-  if (!kv) return null;
-  let latest = null;
-  let cursor;
-  do {
-    const page = await kv.list({ prefix: "site-event:", cursor });
-    for (const key of page.keys || []) {
-      const project = await kv.get(key.name, "json");
-      if (!project || project.archivedAt || String(project.otraGuideId || "") !== String(id)) continue;
-      if (!latest || String(project.createdAt || "") > String(latest.createdAt || "")) latest = project;
-    }
-    cursor = page.list_complete ? undefined : page.cursor;
-  } while (cursor);
-  return latest;
+  return findBoundProject(env && env.OVERRIDES, id);
 }
 
 function apiBase(env) {
@@ -197,16 +185,14 @@ function isStaffRequest(context) {
   return staffChecks.get(request);
 }
 
-async function readOverride(env, id, fallbackId = "") {
+async function readOverride(env, id, draftId = "") {
   const kv = env && env.OVERRIDES;
   if (!kv) return null;
   try {
-    const raw =
-      (await kv.get(`event:${id}`)) ||
-      (await kv.get(`override:${id}`)) ||
-      (fallbackId ? await kv.get(`event:${fallbackId}`) : null) ||
-      (fallbackId ? await kv.get(`override:${fallbackId}`) : null);
-    return raw ? JSON.parse(raw) : null;
+    // A bound draft's edits sit under its own id; the shared resolver puts
+    // the edits saved under the Otra Guide id on top of them.
+    const { override } = await resolvePageOverride(kv, id, { draftId: draftId || "" });
+    return override;
   } catch {
     return null;
   }

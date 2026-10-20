@@ -10,6 +10,7 @@
 import { eventSlug, legacyCuratedTitle, persistedFrozenSlug } from "./event-slug.js";
 import { readHiddenPageIds } from "./hidden-pages.js";
 import { cardScheduleLabel, scheduleEdited, validDateValue } from "./schedule-line.js";
+import { resolvePageOverride } from "./page-override.js";
 
 const API = "https://otraguide.com/api";
 
@@ -86,6 +87,9 @@ const FROZEN_SLUG = Symbol("frozenSlug");
 // Site event project behind a card, kept so applyOverrides can rebuild the
 // schedule line from the same page override the event page applies.
 const SCHEDULE_SOURCE = Symbol("scheduleSource");
+// Draft id of a published site event card, so applyOverrides can read the
+// page edits through the shared resolver without scanning site events.
+const DRAFT_ID = Symbol("draftId");
 
 // Build the full { events, rows } homepage payload.
 //   includeAdminOnly — include KV site events flagged adminOnly (staff preview)
@@ -616,6 +620,7 @@ export async function buildPublishedSiteEvents(env, { includeAdminOnly = false }
         ...(slugSource ? { [SLUG_SOURCE]: slugSource } : {}),
         ...(frozen ? { [FROZEN_SLUG]: frozen } : {}),
         [SCHEDULE_SOURCE]: { project: scheduleProject(project), localCard: localCard || null },
+        [DRAFT_ID]: draftId,
       });
     }
     cursor = page.list_complete ? undefined : page.cursor;
@@ -808,10 +813,12 @@ export async function applyOverrides(events, env) {
   const overrides = await Promise.all(
     events.map(async (ev) => {
       try {
-        return (
-          (await env.OVERRIDES.get(`event:${ev.id}`, "json")) ||
-          (await env.OVERRIDES.get(`override:${ev.id}`, "json"))
-        );
+        // Same edits the event page shows: draft edits with the edits saved
+        // after publishing on top.
+        const { override } = await resolvePageOverride(env.OVERRIDES, String(ev.id), {
+          draftId: ev[DRAFT_ID] || "",
+        });
+        return override;
       } catch {
         return null;
       }
