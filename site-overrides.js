@@ -12,7 +12,14 @@
   const id = inferOverrideId();
   if (!id) return;
 
-  fetch("/api/override?id=" + encodeURIComponent(id), { cache: "no-store" })
+  // Staff sessions (the admin editor preview) send the admin token so pages of
+  // events hidden on Otra Guide still show their edits there.
+  let adminToken = "";
+  try { adminToken = sessionStorage.getItem("otra_admin_token") || ""; } catch (e) { adminToken = ""; }
+  fetch(
+    "/api/override?id=" + encodeURIComponent(id),
+    adminToken ? { cache: "no-store", headers: { authorization: "Bearer " + adminToken } } : { cache: "no-store" }
+  )
     .then((resp) => (resp.ok ? resp.json() : null))
     .then((data) => {
       const override = data && data.override;

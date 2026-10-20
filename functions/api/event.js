@@ -10,6 +10,7 @@ import { requestToken } from "../_lib/session.js";
 import { findBoundProjects, resolvePageOverride } from "../_lib/page-override.js";
 import { hasEnded } from "../_lib/event-ended.js";
 import { heroMetaItems } from "../_lib/hero-meta-text.js";
+import { HIDDEN_DETAIL_EXCEPTIONS, guideApiBase, guideDetailMissing, keepsSellingWhileHidden } from "../_lib/guide-event-hidden.js";
 
 const API = "https://otraguide.com/api";
 const UPSTREAM_TTL = 300;
@@ -19,8 +20,9 @@ const EDGE_TTL = 600;
 // serialized) so draft pages render exactly as before while isPast still
 // knows when the project's event is over.
 const PROJECT_DATES = Symbol("projectDates");
-// Marks the past project fallback below, which only exists for ended events.
-const PAST_PROJECT = Symbol("pastProject");
+// Otra Guide failed (5xx, 429, timeout) rather than answering 404: the page
+// shows its error state, never "not found", and nothing is cached.
+const UPSTREAM_FAILED = Symbol("upstreamFailed");
 
 const ACCENT_OVERRIDES = {
   "6113": "#1fa9a0", // Clearboat — turquoise from the original handoff design
@@ -35,7 +37,8 @@ export async function onRequestGet(context) {
   // newest published one feeds the page edits.
   const bound = /^\d+$/.test(id) ? await findBoundProjects(context.env && context.env.OVERRIDES, id) : null;
   const project = bound ? bound.latest : null;
-  const base = await getBasePayload(context, id, url, project, bound ? bound.published : null);
+  const base = await getBasePayload(context, id, url, project);
+  if (base === UPSTREAM_FAILED) return json({ error: "upstream unavailable" }, 502);
   if (!base) return json({ error: "not found" }, 404);
 
   // Admin-only events are hidden from the public; a valid staff Bearer token
@@ -73,8 +76,8 @@ export async function onRequestGet(context) {
   return json(payload, 200, staffPreview || override ? 0 : 60);
 }
 
-async function getBasePayload(context, id, url, project, publishedProject = null) {
-  if (isDraftId(id)) return getDraftPayload(context.env, id);
+async function getBasePayload(context, id, url, project) {
+  if (isDraftId(id)) return getDraftPagePayload(context, id);
 
   const api = apiBase(context.env);
   const cache = caches.default;
@@ -84,8 +87,8 @@ async function getBasePayload(context, id, url, project, publishedProject = null
 
   const accentOverride = ACCENT_OVERRIDES[id] || null;
   const ticketsUrl = `${api}/ticket/purchase/tickets/${id}/?include_choice_addons=1`;
-  let [detail, ticketData, calendarAccent] = await Promise.all([
-    fetchJson(`${api}/events/details/${id}/`),
+  let [{ data: detail, status: detailStatus }, ticketData, calendarAccent] = await Promise.all([
+    fetchJsonWithStatus(`${api}/events/details/${id}/`),
     fetchJson(ticketsUrl),
     accentOverride ? Promise.resolve(null) : fetchCalendarPrimary(id, api),
   ]);
@@ -96,8 +99,9 @@ async function getBasePayload(context, id, url, project, publishedProject = null
     // It applies to every caller, staff included, so staff preview what the
     // public sees.
     if (
-      id === "8088" && project?.id === "draft-1791253678425-26c548a5" &&
-      project.status === "published" && project.adminOnly !== true && ticketData?.results?.length
+      HIDDEN_DETAIL_EXCEPTIONS[id] && project?.id === HIDDEN_DETAIL_EXCEPTIONS[id] &&
+      project.status === "published" && project.adminOnly !== true &&
+      (await keepsSellingWhileHidden(api, id, project.id, ticketData))
     ) {
       const draftPayload = await getDraftPayload(context.env, project.id);
       if (!draftPayload) return null;
@@ -112,7 +116,6 @@ async function getBasePayload(context, id, url, project, publishedProject = null
   // A staff-only Guide event is hidden from anonymous callers but served to a
   // staff JWT. That response is per-user: never cached, never shared.
   let staffView = false;
-  const publicTicketData = ticketData;
   if (!detail && (await isStaffRequest(context))) {
     const token = requestToken(context.request);
     [detail, ticketData] = await Promise.all([
@@ -121,8 +124,9 @@ async function getBasePayload(context, id, url, project, publishedProject = null
     ]);
     staffView = !!detail;
   }
-  // The fallback is a public response, so it only uses the anonymous ticket feed.
-  if (!detail) return pastProjectPayload(context.env, id, publishedProject, publicTicketData);
+  // Otherwise a Guide 404 means the storefront shows nothing; any other
+  // failure is an outage, not a missing event.
+  if (!detail) return detailStatus === 404 ? null : UPSTREAM_FAILED;
 
   const { tickets, addons } = ticketLists(ticketData);
 
@@ -152,7 +156,6 @@ async function getBasePayload(context, id, url, project, publishedProject = null
 }
 
 function isPastPayload(payload, ownCheckoutId) {
-  if (payload[PAST_PROJECT] === true) return true;
   if (String(payload.checkoutEventId || "") !== String(ownCheckoutId || "")) return false;
   if (payload.isPerennial || payload.isRecurring) return false;
   const dates = payload[PROJECT_DATES];
@@ -160,34 +163,6 @@ function isPastPayload(payload, ownCheckoutId) {
   const startDate = payload.startDate || (dates && dates.startDate) || null;
   const endDate = payload.endDate || (dates && dates.endDate) || null;
   return hasEnded(startDate, endDate);
-}
-
-// Otra Guide stops serving the public detail of some events once they are
-// over (they are hidden from anonymous callers), but their Otra Tickets page
-// must stay visible, read only. Serve the published site project's own
-// content, which is already public under its draft id, only when its dates
-// show the event has ended. The page never mounts checkout for a past event
-// (isPast), and nothing here is cached at the edge.
-async function pastProjectPayload(env, id, project, ticketData) {
-  if (!project || project.status !== "published" || project.adminOnly === true || project.isPerennial === true) return null;
-  if (String(project.otraGuideId || "") !== String(id)) return null;
-  const startDate = typeof project.startDate === "string" && project.startDate ? project.startDate : null;
-  const endDate = typeof project.endDate === "string" && project.endDate ? project.endDate : null;
-  if (!hasEnded(startDate, endDate)) return null;
-  const draftPayload = await getDraftPayload(env, String(project.id || ""));
-  if (!draftPayload || draftPayload.adminOnly) return null;
-  // The page showed the Guide ticket types while the detail was public; keep
-  // them as the record when the feed still has them.
-  const { tickets, addons } = ticketLists(ticketData);
-  return {
-    ...draftPayload,
-    id: Number(id),
-    checkoutEventId: String(id),
-    startDate,
-    endDate,
-    ...(tickets.length ? { tickets, addons } : {}),
-    [PAST_PROJECT]: true,
-  };
 }
 
 function ticketLists(ticketData) {
@@ -207,7 +182,21 @@ function ticketLists(ticketData) {
 }
 
 function apiBase(env) {
-  return String((env && env.OTRA_API_URL) || API).replace(/\/$/, "");
+  return guideApiBase(env);
+}
+
+// A draft bound to a Guide event follows that event: when the Guide detail is
+// a 404, the draft URL shows nothing either. Staff (the admin preview) still
+// see it, never cached. Unbound drafts have no Guide event to follow.
+async function getDraftPagePayload(context, id) {
+  const draft = await getDraftPayload(context.env, id);
+  if (!draft || !draft.checkoutEventId) return draft;
+  const api = apiBase(context.env);
+  if (!(await guideDetailMissing(api, draft.checkoutEventId))) return draft;
+  if (await isStaffRequest(context)) return { ...draft, staffView: true };
+  const exempt = draft.status === "published" && !draft.adminOnly &&
+    (await keepsSellingWhileHidden(api, draft.checkoutEventId, id));
+  return exempt ? draft : null;
 }
 
 async function getDraftPayload(env, id) {
@@ -302,6 +291,18 @@ function json(obj, status = 200, maxAge = 0) {
       "cache-control": maxAge ? `public, max-age=${maxAge}` : "no-store",
     },
   });
+}
+
+// The detail fetch also reports the status, so a 404 is told apart from an
+// outage (status 0 when the request itself failed).
+async function fetchJsonWithStatus(url) {
+  try {
+    const resp = await fetch(url, { headers: { Accept: "application/json" }, cf: { cacheTtl: UPSTREAM_TTL, cacheEverything: true } });
+    if (!resp.ok) return { data: null, status: resp.status };
+    return { data: await resp.json(), status: resp.status };
+  } catch {
+    return { data: null, status: 0 };
+  }
 }
 
 // With a token the call is per-user: authorised and never edge-cached.

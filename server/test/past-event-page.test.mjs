@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { onRequestGet } from "../../functions/api/event.js";
 import { eventEndTime, hasEnded, ENDED_GRACE_MS } from "../../functions/_lib/event-ended.js";
+import { forgetGuideStatuses } from "../../functions/_lib/guide-event-hidden.js";
 
 const DAY = 24 * 60 * 60 * 1000;
 const iso = (ms) => new Date(ms).toISOString();
@@ -52,6 +53,7 @@ const details = {
 };
 
 async function withUpstream(fn) {
+  forgetGuideStatuses();
   const originalFetch = globalThis.fetch;
   const originalCaches = globalThis.caches;
   const calls = [];
@@ -102,55 +104,20 @@ test("hasEnded uses the end date, or a day after the start when the end is missi
   assert.equal(hasEnded(start, "2026-09-27T02:00:00-04:00", Date.parse("2026-09-27T01:00:00-04:00")), false);
 });
 
-test("a past event whose Guide detail is hidden still loads its published page, read only", async () => {
+test("a Guide 404 shows nothing on /api/event, whatever project is bound to it", async () => {
   await withUpstream(async () => {
-    const { status, body, text, cacheControl } = await get("7567", [kaya]);
-    assert.equal(status, 200);
-    assert.equal(body.id, 7567);
-    assert.equal(body.title, "Kaya Kaya Festival 2026");
-    assert.equal(body.description, "THE FESTIVAL");
-    assert.equal(body.image, "/override-images/draft-kaya/hero.png");
-    assert.equal(body.slug, "kaya-kaya-festival-2026");
-    assert.equal(body.isPast, true, "the page must not offer checkout");
-    assert.equal(body.checkoutEventId, "7567");
-    assert.equal(body.startDate, kaya.startDate);
-    assert.equal(body.isDraft, false);
-    assert.deepEqual(body.design.meta, kaya.claudeDesign.meta);
-    assert.deepEqual(body.tickets, [{ name: "Early Rooster", description: "", price: 37.5, currency: "XCG" }], "the Guide ticket types stay the record");
-    assert.equal(/projectDates/.test(text), false, "internal project dates never reach the JSON");
-    assert.equal(cacheControl, "public, max-age=60");
-  });
-});
-
-test("a staff only Guide event that has not ended stays hidden", async () => {
-  await withUpstream(async () => {
-    const future = project({ startDate: iso(now + 10 * DAY), endDate: iso(now + 10 * DAY + 8 * 3600e3) });
-    assert.equal((await get("7567", [future])).status, 404, "future dates");
-    const running = project({ startDate: iso(now - 3600e3), endDate: iso(now + 3600e3) });
-    assert.equal((await get("7567", [running])).status, 404, "running now");
-    const undated = project({ startDate: "", endDate: "" });
-    assert.equal((await get("7567", [undated])).status, 404, "no dates");
-    assert.equal((await get("7567", [project({ adminOnly: true })])).status, 404, "admin only project");
-    assert.equal((await get("7567", [project({ status: "draft" })])).status, 404, "unpublished project");
-    assert.equal((await get("7567", [project({ isPerennial: true })])).status, 404, "perennial project");
-    assert.equal((await get("7567", [project({ archivedAt: "2026-10-01T00:00:00.000Z" })])).status, 404, "archived project");
-    assert.equal((await get("7567", [project({ otraGuideId: "7568" })])).status, 404, "project bound to another event");
-    assert.equal((await get("7567", [])).status, 404, "no project at all");
-  });
-});
-
-test("a past project page falls back to its own rates when the Guide ticket feed is empty", async () => {
-  await withUpstream(async () => {
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = async (input) => {
-      const path = new URL(typeof input === "string" ? input : input.url).pathname;
-      if (/^\/api\/ticket\/purchase\/tickets\/7567\/$/.test(path)) return Response.json({ results: [] });
-      return originalFetch(input);
-    };
-    const { status, body } = await get("7567", [kaya]);
-    assert.equal(status, 200);
-    assert.equal(body.isPast, true);
-    assert.deepEqual(body.tickets, kaya.claudeDesign.rates);
+    for (const [label, projects] of [
+      ["the published past project", [kaya]],
+      ["a future project", [project({ startDate: iso(now + 10 * DAY), endDate: iso(now + 10 * DAY + 8 * 3600e3) })]],
+      ["an undated project", [project({ startDate: "", endDate: "" })]],
+      ["an unpublished project", [project({ status: "draft" })]],
+      ["no project at all", []],
+    ]) {
+      const { status, body, text } = await get("7567", projects);
+      assert.equal(status, 404, label);
+      assert.deepEqual(body, { error: "not found" }, label);
+      assert.equal(/Kaya|Early Rooster|THE FESTIVAL/.test(text), false, `${label}: no content or rates`);
+    }
   });
 });
 
@@ -174,6 +141,9 @@ test("an ended event with a public detail is marked past; current events are unc
   });
 });
 
+// A draft bound to an ended Guide event whose detail is still public.
+const bingoDraft = project({ id: "draft-bingo", otraGuideId: "7522", title: "Bingo Bengo", frozenSlug: "bingo-bengo-sep-6", startDate: "2026-09-06T17:00:00-04:00", endDate: "2026-09-06T20:00:00-04:00" });
+
 test("an ended page whose checkout points at another event keeps its checkout", async () => {
   await withUpstream(async () => {
     // The admin "Checkout event ID" can send an old page to a newer edition
@@ -184,12 +154,8 @@ test("an ended page whose checkout points at another event keeps its checkout", 
     assert.equal(moved.body.isPast, false);
     const same = await get("7522", [], {}, { "event:7522": { checkoutEventId: "7522" } });
     assert.equal(same.body.isPast, true, "pointing at itself changes nothing");
-    const draft = await get("draft-kaya", [kaya], {}, { "event:draft-kaya": { checkoutEventId: "7479" } });
+    const draft = await get("draft-bingo", [bingoDraft], {}, { "event:draft-bingo": { checkoutEventId: "7479" } });
     assert.equal(draft.body.isPast, false, "draft pages follow the same rule");
-    // The past project fallback only exists for ended events, so it stays past.
-    const fallback = await get("7567", [kaya], {}, { "event:7567": { checkoutEventId: "7479" } });
-    assert.equal(fallback.status, 200);
-    assert.equal(fallback.body.isPast, true);
   });
 });
 
@@ -204,18 +170,18 @@ test("the 8088 special case keeps checkout even when its project dates are past"
   });
 });
 
-test("the draft id URL of a past project is read only too, and renders the same fields", async () => {
+test("the draft id URL of an ended event with a public detail is read only, and renders the same fields", async () => {
   await withUpstream(async (calls) => {
-    const past = await get("draft-kaya", [kaya]);
+    const past = await get("draft-bingo", [bingoDraft]);
     assert.equal(past.status, 200);
     assert.equal(past.body.isPast, true);
     assert.equal(past.body.startDate, null, "draft pages keep rendering without dates");
     assert.equal(past.body.endDate, null);
-    const future = await get("draft-kaya", [project({ startDate: iso(now + 5 * DAY), endDate: iso(now + 6 * DAY) })]);
+    const future = await get("draft-bingo", [project({ ...bingoDraft, startDate: iso(now + 5 * DAY), endDate: iso(now + 6 * DAY) })]);
     assert.equal(future.body.isPast, false);
-    const undated = await get("draft-kaya", [project({ startDate: "", endDate: "" })]);
+    const undated = await get("draft-bingo", [project({ ...bingoDraft, startDate: "", endDate: "" })]);
     assert.equal(undated.body.isPast, false);
-    assert.equal(calls.length, 0, "draft pages make no upstream calls");
+    assert.deepEqual(calls, ["/api/events/details/7522/"], "a bound draft only checks its Guide detail, once");
   });
 });
 
