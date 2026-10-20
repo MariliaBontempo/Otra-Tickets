@@ -31,11 +31,17 @@ const calendarRows = [
   { id: 8100, title: 'No Tickets Yet', slug: 'no-tickets-yet', start_date: '2026-11-15T20:00:00-04:00', is_ticketed: true, is_perennial: false },
   // Featured manual page id must not be duplicated.
   { id: 6113, title: 'Clearboat', slug: 'clearboat', start_date: '2026-10-22T09:00:00-04:00', is_ticketed: true, is_perennial: true },
+  // Two different events with the same title (different unique slugs) and two
+  // ticketed rows without a slug must never be merged.
+  { id: 8201, title: 'Sunday Social Club', slug: 'sunday-social-club', start_date: '2026-11-01T12:00:00-04:00', is_ticketed: true, is_perennial: false },
+  { id: 8202, title: 'Sunday Social Club', slug: 'sunday-social-club-2', start_date: '2026-11-08T12:00:00-04:00', is_ticketed: true, is_perennial: false },
+  { id: 8211, title: 'No Slug A', slug: null, start_date: '2026-11-02T12:00:00-04:00', is_ticketed: true, is_perennial: false },
+  { id: 8212, title: 'No Slug B', slug: null, start_date: '2026-11-03T12:00:00-04:00', is_ticketed: true, is_perennial: false },
   // Hidden (archived) event stays hidden.
   { id: 8150, title: 'Archived Party', slug: 'archived-party', start_date: '2026-11-20T20:00:00-04:00', is_ticketed: true, is_perennial: false },
 ];
 
-const ticketCounts = { 7139: 2, 8088: 3, 8257: 1, 8100: 0, 8150: 1, 8300: 1 };
+const ticketCounts = { 7139: 2, 8088: 3, 8201: 1, 8202: 1, 8211: 1, 8212: 1, 8257: 1, 8100: 0, 8150: 1, 8300: 1 };
 const adminSearch = {
   8300: { id: 8300, title: 'Unpublished Gala', startDate: '2027-02-14T20:00:00-04:00', isPast: false, isPerennial: false, published: false, tickets: [{ id: 1 }] },
   7567: { id: 7567, title: 'Kaya Kaya Festival', startDate: '2026-09-26T16:00:00-04:00', isPast: true, isPerennial: false, published: true, tickets: [{ id: 2 }] },
@@ -59,6 +65,8 @@ globalThis.fetch = async (input, init = {}) => {
   if (url.includes('/events/nonperennial/?')) {
     if (mode === 'down') return new Response('upstream error', { status: 502 });
     // Feed head: promoted and still running events (base ids) plus daily rows.
+    // Django answers 404 for a page past the end of a short feed.
+    if (url.includes('page=4&')) return Response.json({ detail: 'Invalid page.' }, { status: 404 });
     if (!url.includes('page=1&')) return Response.json({ count: 900, results: [] });
     return Response.json({ count: 900, results: [
       { id: 8088, title: 'Mike Gatta 50/50/50 Finish Line', start_date: '2026-08-12T18:00:00-04:00', is_ticketed: true, is_perennial: false },
@@ -159,7 +167,9 @@ assert(ids.includes('draft-unpub'), 'an unpublished draft keeps its own draft en
 assert(!ids.includes('7567'), 'past events known from overrides must not be listed');
 assert(!ids.includes('8301'), 'override events without tickets must not be listed');
 assert(!calls.some((c) => c.url.includes('admin-ticketed-search/?id=8257')), 'events already in the calendar must not be looked up again');
-assert(!payload.upstreamError, 'healthy build must not report an upstream error');
+assert(!payload.upstreamError, 'healthy build (a 404 past the end of the category feed included) must not report an upstream error');
+assert(byId('8201') && byId('8202'), 'same title events with different slugs must stay separate');
+assert(byId('8211') && byId('8212'), 'rows without a slug must stay separate');
 const headCalls = calls.filter((c) => /\/events\/nonperennial\/\?/.test(c.url));
 assert(headCalls.length === 4 && headCalls.every((c) => /category_id=339&page=[1-4]&page_size=20$/.test(c.url)), 'the old 4 x 20 category feed window must still be read so nothing the old list showed disappears');
 assert(byId('8088'), 'still running promoted event from the feed head must be listed even though it started before the calendar window');
@@ -168,7 +178,7 @@ const nonPerennial = payload.pages.filter((p) => /^\d+$/.test(p.id) && p.type !=
 const tourIndex = nonPerennial.findIndex((p) => p.type === 'Published tour');
 assert(tourIndex === -1 || nonPerennial.slice(tourIndex).every((p) => p.type === 'Published tour'), 'tours must sort after dated events');
 const totalUpstream = calls.filter((c) => !c.url.endsWith('/users/user-role/')).length;
-assert(totalUpstream <= 18, `whole build must stay small (got ${totalUpstream} upstream calls)`);
+assert(totalUpstream <= 22, `whole build must stay small (got ${totalUpstream} upstream calls)`);
 
 // 3. A second request inside the TTL is served from cache.
 calls = [];
