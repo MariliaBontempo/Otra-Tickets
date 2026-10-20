@@ -36,14 +36,14 @@ async function fetchStaffRole(accessToken, env) {
   }
 }
 
-// Staff GET against Otra Guide with the caller's Bearer token. Never throws:
-// a network error or timeout reports status 0, and data is null unless the
-// response was ok and valid JSON. Shared by the admin data endpoints so they
-// all forward the staff session the same way.
+// GET against Otra Guide with the caller's Bearer token (or anonymously when
+// the token is empty). Never throws: a network error or timeout reports status
+// 0, and data is null unless the response was ok and valid JSON. Shared by the
+// admin data endpoints so they all forward the staff session the same way.
 export async function otraGet(env, accessToken, path, { timeoutMs = 0 } = {}) {
-  const init = {
-    headers: { accept: "application/json", authorization: `Bearer ${accessToken}` },
-  };
+  const headers = { accept: "application/json" };
+  if (accessToken) headers.authorization = `Bearer ${accessToken}`;
+  const init = { headers };
   if (Number(timeoutMs) > 0) init.signal = AbortSignal.timeout(Number(timeoutMs));
   try {
     const response = await fetch(`${apiBase(env)}${path}`, init);
