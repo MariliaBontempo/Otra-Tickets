@@ -248,7 +248,11 @@ async function buildTemplatePages(env, token, knownIds = []) {
 
   const checks = await mapLimited(candidates, LOOKUP_CONCURRENCY, (ev) => lookup.byId(ev.id));
   if (checks.some((check) => check.failed) && !error) error = "some ticket checks failed";
-  const listed = candidates.filter((_, i) => isEditable(checks[i].event));
+  // Feed candidates already passed a still running rule (calendar groups with a
+  // row ending at or after now, the old window's own filter), so Django's
+  // isPast, which reads only the parent dates, is not applied to them: an open
+  // ended recurring series started in the past would wrongly read as past.
+  const listed = candidates.filter((_, i) => hasTickets(checks[i].event));
 
   const seen = new Set(groups.map((ev) => ev.id));
   const fallbackIds = knownIds
@@ -258,7 +262,7 @@ async function buildTemplatePages(env, token, knownIds = []) {
   if (fallbackChecks.some((check) => check.failed) && !error) error = "some saved events could not be checked";
   const fallback = fallbackChecks
     .map((check) => check.event)
-    .filter(isEditable)
+    .filter(isEditableSaved)
     .map((ev) => ({
       id: Number(ev.id),
       title: ev.title || `Event ${ev.id}`,
@@ -282,9 +286,15 @@ async function buildTemplatePages(env, token, knownIds = []) {
 }
 
 // An event belongs in the editor when it has ticket types (on sale, not yet
-// on sale or sold out) and has not ended.
-function isEditable(ev) {
-  return !!ev && !ev.isPast && Array.isArray(ev.tickets) && ev.tickets.length > 0;
+// on sale or sold out).
+function hasTickets(ev) {
+  return !!ev && Array.isArray(ev.tickets) && ev.tickets.length > 0;
+}
+
+// Saved ids no feed returned also need to not have ended. Perennials never
+// count as past, matching isPastPayload in functions/api/event.js.
+function isEditableSaved(ev) {
+  return hasTickets(ev) && (!ev.isPast || !!ev.isPerennial);
 }
 
 // Staff ticketed search, memoized per build. It reads the event records rather
@@ -292,6 +302,7 @@ function isEditable(ev) {
 // { event } (event null when the id has no ticket types) or { failed: true }.
 function ticketedLookup(env, token) {
   const memo = new Map();
+  const titles = new Map();
   const remember = (ev) => {
     if (ev && ev.id && !memo.has(Number(ev.id))) memo.set(Number(ev.id), Promise.resolve({ event: ev }));
   };
@@ -309,15 +320,19 @@ function ticketedLookup(env, token) {
       }
       return memo.get(id);
     },
-    async byTitle(title) {
-      const result = await otraGet(env, token, `/events/admin-ticketed-search/?q=${encodeURIComponent(title)}`, {
-        timeoutMs: LOOKUP_TIMEOUT_MS,
-      });
-      if (!result.data || !Array.isArray(result.data.events)) return { failed: true, events: [] };
-      result.data.events.forEach(remember);
-      return { events: result.data.events };
+    byTitle(title) {
+      if (!titles.has(title)) titles.set(title, searchTitle(title));
+      return titles.get(title);
     },
   };
+  async function searchTitle(title) {
+    const result = await otraGet(env, token, `/events/admin-ticketed-search/?q=${encodeURIComponent(title)}`, {
+      timeoutMs: LOOKUP_TIMEOUT_MS,
+    });
+    if (!result.data || !Array.isArray(result.data.events)) return { failed: true, events: [] };
+    result.data.events.forEach(remember);
+    return { events: result.data.events };
+  }
 }
 
 function calendarWindow(now) {

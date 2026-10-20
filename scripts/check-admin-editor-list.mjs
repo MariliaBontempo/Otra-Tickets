@@ -55,8 +55,8 @@ const calendarRows = [
 
 const tickets = [{ id: 1, name: 'GA', isActive: true }];
 const records = new Map([
-  [7139, { id: 7139, title: 'Iguana Ride City Combo Tour', slug: 'iguana-ride-city-combo-tour', startDate: at(-200), isPast: false, isPerennial: true, tickets }],
-  [7420, { id: 7420, title: 'Salsa Night Weekly', slug: 'salsa-night-weekly', startDate: at(-100), isPast: false, isPerennial: false, tickets }],
+  [7139, { id: 7139, title: 'Iguana Ride City Combo Tour', slug: 'iguana-ride-city-combo-tour', startDate: at(-200), isPast: true, isPerennial: true, tickets }], // Django isPast reads parent dates only
+  [7420, { id: 7420, title: 'Salsa Night Weekly', slug: 'salsa-night-weekly', startDate: at(-100), isPast: true, isPerennial: false, tickets }], // open ended weekly series, no end_date
   [8257, { id: 8257, title: 'Cascada NYE 2027', slug: 'cascada-nye-2027', startDate: at(72, 1), isPast: false, isPerennial: false, tickets }],
   [8100, null],
   [8110, { id: 8110, title: 'Sale Opens Later', slug: 'sale-opens-later', startDate: at(90), isPast: false, isPerennial: false, tickets: [{ id: 3, saleStartDate: at(60) }] }],
@@ -70,6 +70,7 @@ const records = new Map([
   [8300, { id: 8300, title: 'Unpublished Gala', startDate: at(117), isPast: false, isPerennial: false, published: false, tickets }],
   [7567, { id: 7567, title: 'Kaya Kaya Festival', startDate: at(-24), isPast: true, isPerennial: false, published: true, tickets }],
   [8301, null],
+  [8302, { id: 8302, title: 'Saved Perennial Tour', startDate: at(-300), isPast: true, isPerennial: true, tickets }],
 ]);
 
 let calls = [];
@@ -136,6 +137,7 @@ const kvData = new Map([
   ['event:7567', { fields: {} }],
   ['event:8257', { fields: {} }],
   ['override:8301', { fields: {} }],
+  ['override:8302', { fields: {} }],
 ]);
 const kv = {
   async list({ prefix }) { return { keys: [...kvData.keys()].filter((k) => k.startsWith(prefix)).map((name) => ({ name })), list_complete: true }; },
@@ -207,6 +209,12 @@ assert(byId('8300') && byId('8300').title === 'Unpublished Gala', 'unpublished e
 assert(ids.includes('draft-unpub'), 'an unpublished draft keeps its own draft entry');
 assert(!ids.includes('7567'), 'past events known from overrides must not be listed');
 assert(!ids.includes('8301'), 'override events without tickets must not be listed');
+assert(ids.includes('8302'), 'a saved perennial never counts as past (matches isPastPayload)');
+assert(ids.includes('7420') && ids.includes('7139'), 'open ended recurring series and perennials started in the past stay listed even when Django isPast reads true');
+{
+  const q = calls.filter((c) => /admin-ticketed-search\/\?q=/.test(c.url)).map((c) => c.url);
+  assert(q.length === new Set(q).size, 'each title is searched once per build');
+}
 assert(calls.filter((c) => c.url.endsWith('?id=8257')).length === 1, 'each event is looked up once per build');
 assert(!calls.some((c) => c.url.endsWith('?id=7139')), 'an event found by the title search is not looked up again');
 assert(!payload.upstreamError, `healthy build must not report an upstream error (got ${payload.upstreamError})`);
@@ -260,7 +268,7 @@ calls = [];
 response = await call(STAFF);
 payload = await response.json();
 assert(response.status === 200 && /truncated/.test(payload.upstreamError || ''), 'a capped list must say it was truncated');
-assert(calls.filter((c) => /admin-ticketed-search\/\?id=\d+$/.test(c.url) && !/id=(8300|7567|8301)$/.test(c.url)).length === 300, 'lookups must stop at the cap (KV fallback lookups aside)');
+assert(calls.filter((c) => /admin-ticketed-search\/\?id=\d+$/.test(c.url) && !/id=(8300|7567|8301|8302)$/.test(c.url)).length === 300, 'lookups must stop at the cap (KV fallback lookups aside)');
 assert(store.size === 1, 'a deterministic cut may be cached');
 response = await call(STAFF);
 payload = await response.json();
