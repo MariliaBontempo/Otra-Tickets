@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { onRequestGet } from "../../functions/api/event.js";
 import { eventEndTime, hasEnded, ENDED_GRACE_MS } from "../../functions/_lib/event-ended.js";
+import { forgetGuideStatuses } from "../../functions/_lib/guide-event-hidden.js";
 
 const DAY = 24 * 60 * 60 * 1000;
 const iso = (ms) => new Date(ms).toISOString();
@@ -52,6 +53,7 @@ const details = {
 };
 
 async function withUpstream(fn) {
+  forgetGuideStatuses();
   const originalFetch = globalThis.fetch;
   const originalCaches = globalThis.caches;
   const calls = [];
@@ -179,7 +181,7 @@ test("the draft id URL of an ended event with a public detail is read only, and 
     assert.equal(future.body.isPast, false);
     const undated = await get("draft-bingo", [project({ ...bingoDraft, startDate: "", endDate: "" })]);
     assert.equal(undated.body.isPast, false);
-    assert.deepEqual(calls, Array(3).fill("/api/events/details/7522/"), "a bound draft only checks its Guide detail");
+    assert.deepEqual(calls, ["/api/events/details/7522/"], "a bound draft only checks its Guide detail, once");
   });
 });
 

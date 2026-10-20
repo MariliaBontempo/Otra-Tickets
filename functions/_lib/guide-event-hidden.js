@@ -20,13 +20,29 @@ export function isGuideId(value) {
   return /^\d+$/.test(String(value || ""));
 }
 
+// Every page load asks (the event and its page edits), so a definite answer
+// (found or 404) is remembered briefly per process. Errors are never kept.
+const STATUS_TTL_MS = 60 * 1000;
+const statusMemo = new Map();
+
+export function forgetGuideStatuses() {
+  statusMemo.clear();
+}
+
 export async function guideDetailMissing(api, guideId) {
   if (!isGuideId(guideId)) return false;
+  const key = `${api}|${guideId}`;
+  const memo = statusMemo.get(key);
+  if (memo && memo.expires > Date.now()) return memo.missing;
   try {
     const resp = await fetch(`${api}/events/details/${guideId}/`, {
       headers: { Accept: "application/json" },
       cf: { cacheTtl: UPSTREAM_TTL, cacheEverything: true },
     });
+    if (resp.status === 404 || resp.ok) {
+      if (statusMemo.size > 500) statusMemo.clear();
+      statusMemo.set(key, { missing: resp.status === 404, expires: Date.now() + STATUS_TTL_MS });
+    }
     return resp.status === 404;
   } catch {
     return false;

@@ -1224,7 +1224,7 @@ html[data-presidente-event="8088"] .btn-metal:hover { background: #4cba57; box-s
           adminToken ? { headers: { authorization: "Bearer " + adminToken } } : undefined
         );
         // A 404 (the Otra Guide event is gone or hidden) shows nothing of it.
-        if (resp.status === 404) { showNotFound(); return; }
+        if (resp.status === 404) { resp.text().catch(() => ""); showNotFound(); return; }
         if (!resp.ok) throw new Error("HTTP " + resp.status);
         ev = await resp.json();
         if (!ev || ev.error) throw new Error(ev && ev.error ? ev.error : "no data");

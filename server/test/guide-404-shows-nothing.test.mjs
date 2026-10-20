@@ -5,6 +5,7 @@ import { onRequestGet as getEvent } from "../../functions/api/event.js";
 import { onRequestGet as getOverride } from "../../functions/api/override.js";
 import { onRequestGet as getSlug } from "../../functions/[slug].js";
 import { buildHomepageFeed, dropHiddenGuideEvents } from "../../functions/_lib/homepage-feed.js";
+import { forgetGuideStatuses, guideDetailMissing } from "../../functions/_lib/guide-event-hidden.js";
 
 // When Otra Guide answers 404 for an event detail, the storefront shows
 // nothing for it: no event JSON, no draft page, no page edits, no card.
@@ -59,6 +60,7 @@ const details = {
 };
 
 async function withUpstream(fn, { guideDown = false, staffToken = "" } = {}) {
+  forgetGuideStatuses();
   const originalFetch = globalThis.fetch;
   const originalCaches = globalThis.caches;
   const calls = [];
@@ -218,7 +220,7 @@ test("the slug page of a hidden Guide event is the site's not found response", a
 
 test("event.html renders an empty not found state on a 404, with no event content", () => {
   const html = readFileSync(new URL("../../event.html", import.meta.url), "utf8");
-  assert.match(html, /if \(resp\.status === 404\) \{ showNotFound\(\); return; \}/);
+  assert.match(html, /if \(resp\.status === 404\) \{ resp\.text\(\)\.catch\(\(\) => ""\); showNotFound\(\); return; \}/);
   const start = html.indexOf("function showNotFound()");
   const body = html.slice(start, html.indexOf("function revealAll()", start));
   assert.ok(start > 0);
@@ -226,4 +228,19 @@ test("event.html renders an empty not found state on a 404, with no event conten
   assert.match(body, /<h1>Event not found<\/h1>/);
   assert.equal(/id="ev/.test(body), false, "no element the page edits can target");
   assert.match(body, /robots\.content = "noindex"/);
+});
+
+test("a found or 404 answer is remembered briefly; an error is asked again", async () => {
+  await withUpstream(async (calls) => {
+    assert.equal(await guideDetailMissing("https://guide.test/api", "7567"), true);
+    assert.equal(await guideDetailMissing("https://guide.test/api", "7567"), true);
+    assert.equal(await guideDetailMissing("https://guide.test/api", "7479"), false);
+    assert.equal(await guideDetailMissing("https://guide.test/api", "7479"), false);
+    assert.equal(calls.length, 2);
+  });
+  await withUpstream(async (calls) => {
+    assert.equal(await guideDetailMissing("https://guide.test/api", "7567"), false);
+    assert.equal(await guideDetailMissing("https://guide.test/api", "7567"), false);
+    assert.equal(calls.length, 2, "a 502 is not remembered");
+  }, { guideDown: true });
 });
