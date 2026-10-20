@@ -21,12 +21,12 @@ const FEATURED_IDS = new Set([7275, 6113]);
 const EXCLUDED_IDS = new Set([7012]);
 const LOOKBACK_DAYS = 30;
 const LOOKAHEAD_MONTHS = 12;
-const MAX_TICKET_CHECKS = 100;
+const MAX_TICKET_CHECKS = 300;
 const LOOKUP_CONCURRENCY = 10;
 const FEED_HEAD_PAGES = 4;
 const FEED_HEAD_SIZE = 20;
 const MAX_FALLBACK_LOOKUPS = 25;
-const CALENDAR_TIMEOUT_MS = 25000;
+const CALENDAR_TIMEOUT_MS = 40000;
 const LOOKUP_TIMEOUT_MS = 10000;
 const CACHE_TTL_SECONDS = 300;
 // Server side only cache entry (never routed). Staff-visible content, so it
@@ -83,7 +83,7 @@ export async function onRequestGet(context) {
       (page) => !hiddenIds.has(String(page.id))
     ),
   };
-  if (upstream.error) body.upstreamError = upstream.error;
+  if (upstream.error || upstream.note) body.upstreamError = upstream.error || upstream.note;
   return json(body);
 }
 
@@ -235,16 +235,22 @@ async function buildTemplatePages(env, token, knownIds = []) {
     else if (page.status !== 404 && !error) error = `category feed unavailable (${page.status || "network"})`;
   }
 
-  const groups = mergeFeedHead(await resolveGroups(env, token, groupBySlug(rows || [])), headRows);
-  const candidates = groups
-    .filter((ev) => !FEATURED_IDS.has(ev.id) && !EXCLUDED_IDS.has(ev.id))
-    .sort(byStart)
-    .slice(0, MAX_TICKET_CHECKS);
+  const resolved = await resolveGroups(env, token, groupBySlug(rows || [], Date.now()));
+  if (resolved.failed && !error) error = "some recurring events could not be resolved";
+  const groups = mergeFeedHead(resolved.groups, headRows);
+  const eligible = groups.filter((ev) => !FEATURED_IDS.has(ev.id) && !EXCLUDED_IDS.has(ev.id)).sort(byStart);
+  const candidates = eligible.slice(0, MAX_TICKET_CHECKS);
+  // A cut is deterministic (rebuilding would cut the same events), so it is
+  // reported but does not block caching.
+  const note = eligible.length > candidates.length ? `list truncated to ${MAX_TICKET_CHECKS} events` : "";
 
+  let ticketCheckFailed = false;
   const ticketCounts = await mapLimited(candidates, LOOKUP_CONCURRENCY, async (ev) => {
     const tickets = await otraGet(env, token, `/ticket/purchase/tickets/${ev.id}/`, { timeoutMs: LOOKUP_TIMEOUT_MS });
+    if (!tickets.data && tickets.status !== 404) ticketCheckFailed = true;
     return tickets.data ? Number(tickets.data.count) || 0 : 0;
   });
+  if (ticketCheckFailed && !error) error = "some ticket checks failed";
   const listed = candidates.filter((_, i) => ticketCounts[i] > 0);
 
   const seen = new Set(groups.map((ev) => ev.id));
@@ -263,7 +269,7 @@ async function buildTemplatePages(env, token, knownIds = []) {
       startDate: ev.startDate,
       url: `/event.html?id=${encodeURIComponent(ev.id)}`,
     }));
-  return { status: 200, pages, error };
+  return { status: 200, pages, error, note };
 }
 
 function calendarWindow(now) {
@@ -274,13 +280,17 @@ function calendarWindow(now) {
 }
 
 // Keep only ticketed or perennial rows, then fold the per occurrence rows of a
-// recurring event into one entry (earliest start wins).
-function groupBySlug(rows) {
+// recurring event into one entry (earliest start wins). Event.slug is unique
+// in Otra Guide; rows without one are keyed by id. Groups whose last row ended
+// before now are dropped (the window looks back a month), matching the past
+// rule of the ticketed search fallback.
+function groupBySlug(rows, nowMs) {
   const groups = new Map();
   for (const row of rows) {
     if (!row || !row.id || !(row.is_ticketed || row.is_perennial)) continue;
     const key = row.slug ? `slug:${row.slug}` : `id:${row.id}`;
     const startDate = typeof row.start_date === "string" ? row.start_date : "";
+    const endMs = Date.parse(row.end_date || row.start_date || "");
     const occurrence = OCCURRENCE_TITLE.test(String(row.title || ""));
     const group = groups.get(key);
     if (!group) {
@@ -290,17 +300,19 @@ function groupBySlug(rows) {
         isPerennial: !!row.is_perennial,
         startDate,
         needsResolve: occurrence,
+        lastEndMs: Number.isFinite(endMs) ? endMs : Infinity,
         rows: 1,
       });
       continue;
     }
     group.rows += 1;
+    group.lastEndMs = Math.max(group.lastEndMs, Number.isFinite(endMs) ? endMs : Infinity);
     group.needsResolve = group.needsResolve || occurrence;
     group.isPerennial = group.isPerennial || !!row.is_perennial;
     if (!occurrence && !group.plainId) group.plainId = Number(row.id);
     if (startDate && (!group.startDate || new Date(startDate) < new Date(group.startDate))) group.startDate = startDate;
   }
-  return [...groups.values()];
+  return [...groups.values()].filter((group) => group.lastEndMs >= nowMs);
 }
 
 // Occurrence rows carry combined ids (event id + occurrence id). The detail
@@ -308,28 +320,31 @@ function groupBySlug(rows) {
 // and perennial flag. A group that cannot be resolved is left out rather than
 // listed under an id the editor cannot open.
 async function resolveGroups(env, token, groups) {
-  const resolved = await Promise.all(
-    groups.map(async (group) => {
-      if (!group.needsResolve) return group;
-      const probeId = group.plainId || group.id;
-      const detail = await otraGet(env, token, `/events/details/${probeId}/`, { timeoutMs: LOOKUP_TIMEOUT_MS });
-      const data = detail.data;
-      if (!data || !data.id) return null;
-      return {
-        ...group,
-        id: Number(data.id),
-        title: typeof data.title === "string" && data.title.trim() ? data.title.trim() : group.title,
-        isPerennial: !!data.is_perennial,
-      };
-    })
-  );
+  let failed = false;
+  const resolved = await mapLimited(groups, LOOKUP_CONCURRENCY, async (group) => {
+    if (!group.needsResolve) return group;
+    const probeId = group.plainId || group.id;
+    const detail = await otraGet(env, token, `/events/details/${probeId}/`, { timeoutMs: LOOKUP_TIMEOUT_MS });
+    const data = detail.data;
+    if (!data || !data.id) {
+      // 404 means the event is gone or hidden; anything else is an outage.
+      if (detail.status !== 404) failed = true;
+      return null;
+    }
+    return {
+      ...group,
+      id: Number(data.id),
+      title: typeof data.title === "string" && data.title.trim() ? data.title.trim() : group.title,
+      isPerennial: !!data.is_perennial,
+    };
+  });
   const byId = new Map();
   for (const ev of resolved) {
     if (!ev) continue;
     const prior = byId.get(ev.id);
     if (!prior || byStart(ev, prior) < 0) byId.set(ev.id, ev);
   }
-  return [...byId.values()];
+  return { groups: [...byId.values()], failed };
 }
 
 // Feed rows already carry base event ids (no occurrence copies), so they

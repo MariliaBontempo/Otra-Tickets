@@ -12,40 +12,48 @@ const failures = [];
 const assert = (condition, message) => { if (!condition) failures.push(message); };
 
 const STAFF = 'Bearer staff-token';
+// Fixture dates are relative to now so the check never ages out.
+const at = (days, hour = 12) => {
+  const d = new Date(Date.now() + days * 86400000);
+  d.setUTCHours(hour, 0, 0, 0);
+  return d.toISOString();
+};
 const base = 'https://backend.test/api';
 
 const calendarRows = [
   // Happy hours: one row per day, never ticketed.
   ...Array.from({ length: 50 }, (_, i) => ({
     id: Number(`2902${100 + i}`), title: '17:00 - HAPPY HOUR', slug: 'happy-hour-cascada',
-    start_date: `2026-11-${String((i % 28) + 1).padStart(2, '0')}T17:00:00-04:00`, is_ticketed: false, is_perennial: false,
+    start_date: at(1 + (i % 28), 21), is_ticketed: false, is_perennial: false,
   })),
-  { id: 6845, title: 'Karaoke Night', slug: 'karaoke-night', start_date: '2026-10-21T21:00:00-04:00', is_ticketed: false, is_perennial: false },
+  { id: 6845, title: 'Karaoke Night', slug: 'karaoke-night', start_date: at(2, 1), is_ticketed: false, is_perennial: false },
   // Recurring ticketed tour: occurrence rows with combined ids and time prefixes.
-  { id: 713955501, title: '09:00 - Iguana Ride City Combo Tour', slug: 'iguana-ride-city-combo-tour', start_date: '2026-10-25T09:00:00-04:00', is_ticketed: true, is_perennial: false },
-  { id: 713955499, title: '09:00 - Iguana Ride City Combo Tour', slug: 'iguana-ride-city-combo-tour', start_date: '2026-10-21T09:00:00-04:00', is_ticketed: true, is_perennial: false },
-  { id: 713955500, title: '14:00 - Iguana Ride City Combo Tour', slug: 'iguana-ride-city-combo-tour', start_date: '2026-10-23T14:00:00-04:00', is_ticketed: true, is_perennial: false },
+  { id: 713955501, title: '09:00 - Iguana Ride City Combo Tour', slug: 'iguana-ride-city-combo-tour', start_date: at(5, 13), is_ticketed: true, is_perennial: false },
+  { id: 713955499, title: '09:00 - Iguana Ride City Combo Tour', slug: 'iguana-ride-city-combo-tour', start_date: at(1, 13), is_ticketed: true, is_perennial: false },
+  { id: 713955500, title: '14:00 - Iguana Ride City Combo Tour', slug: 'iguana-ride-city-combo-tour', start_date: at(3, 18), is_ticketed: true, is_perennial: false },
   // Staff only, far future, ticketed.
-  { id: 8257, title: 'Cascada NYE 2027', slug: 'cascada-nye-2027', start_date: '2026-12-31T21:00:00-04:00', is_ticketed: true, is_perennial: false },
+  { id: 8257, title: 'Cascada NYE 2027', slug: 'cascada-nye-2027', start_date: at(72, 1), is_ticketed: true, is_perennial: false },
   // Ticketed flag but no ticket types on sale: stays out.
-  { id: 8100, title: 'No Tickets Yet', slug: 'no-tickets-yet', start_date: '2026-11-15T20:00:00-04:00', is_ticketed: true, is_perennial: false },
+  { id: 8100, title: 'No Tickets Yet', slug: 'no-tickets-yet', start_date: at(26), is_ticketed: true, is_perennial: false },
   // Featured manual page id must not be duplicated.
-  { id: 6113, title: 'Clearboat', slug: 'clearboat', start_date: '2026-10-22T09:00:00-04:00', is_ticketed: true, is_perennial: true },
+  { id: 6113, title: 'Clearboat', slug: 'clearboat', start_date: at(2), is_ticketed: true, is_perennial: true },
   // Two different events with the same title (different unique slugs) and two
   // ticketed rows without a slug must never be merged.
-  { id: 8201, title: 'Sunday Social Club', slug: 'sunday-social-club', start_date: '2026-11-01T12:00:00-04:00', is_ticketed: true, is_perennial: false },
-  { id: 8202, title: 'Sunday Social Club', slug: 'sunday-social-club-2', start_date: '2026-11-08T12:00:00-04:00', is_ticketed: true, is_perennial: false },
-  { id: 8211, title: 'No Slug A', slug: null, start_date: '2026-11-02T12:00:00-04:00', is_ticketed: true, is_perennial: false },
-  { id: 8212, title: 'No Slug B', slug: null, start_date: '2026-11-03T12:00:00-04:00', is_ticketed: true, is_perennial: false },
+  { id: 8201, title: 'Sunday Social Club', slug: 'sunday-social-club', start_date: at(12), is_ticketed: true, is_perennial: false },
+  { id: 8202, title: 'Sunday Social Club', slug: 'sunday-social-club-2', start_date: at(19), is_ticketed: true, is_perennial: false },
+  { id: 8211, title: 'No Slug A', slug: null, start_date: at(13), is_ticketed: true, is_perennial: false },
+  { id: 8212, title: 'No Slug B', slug: null, start_date: at(14), is_ticketed: true, is_perennial: false },
+  // Ended inside the one month lookback: not editable any more, no ticket check.
+  { id: 8050, title: 'Ended Party', slug: 'ended-party', start_date: at(-10, 0), end_date: at(-10, 5), is_ticketed: true, is_perennial: false },
   // Hidden (archived) event stays hidden.
-  { id: 8150, title: 'Archived Party', slug: 'archived-party', start_date: '2026-11-20T20:00:00-04:00', is_ticketed: true, is_perennial: false },
+  { id: 8150, title: 'Archived Party', slug: 'archived-party', start_date: at(31), is_ticketed: true, is_perennial: false },
 ];
 
-const ticketCounts = { 7139: 2, 8088: 3, 8201: 1, 8202: 1, 8211: 1, 8212: 1, 8257: 1, 8100: 0, 8150: 1, 8300: 1 };
+const ticketCounts = { 8050: 1, 7139: 2, 8088: 3, 8201: 1, 8202: 1, 8211: 1, 8212: 1, 8257: 1, 8100: 0, 8150: 1, 8300: 1 };
 const adminSearch = {
-  8300: { id: 8300, title: 'Unpublished Gala', startDate: '2027-02-14T20:00:00-04:00', isPast: false, isPerennial: false, published: false, tickets: [{ id: 1 }] },
-  7567: { id: 7567, title: 'Kaya Kaya Festival', startDate: '2026-09-26T16:00:00-04:00', isPast: true, isPerennial: false, published: true, tickets: [{ id: 2 }] },
-  8301: { id: 8301, title: 'Override Without Tickets', startDate: '2027-03-01T20:00:00-04:00', isPast: false, isPerennial: false, published: true, tickets: [] },
+  8300: { id: 8300, title: 'Unpublished Gala', startDate: at(117), isPast: false, isPerennial: false, published: false, tickets: [{ id: 1 }] },
+  7567: { id: 7567, title: 'Kaya Kaya Festival', startDate: at(-24), isPast: true, isPerennial: false, published: true, tickets: [{ id: 2 }] },
+  8301: { id: 8301, title: 'Override Without Tickets', startDate: at(132), isPast: false, isPerennial: false, published: true, tickets: [] },
 };
 
 let calls = [];
@@ -60,6 +68,9 @@ globalThis.fetch = async (input, init = {}) => {
   if (url.includes('/events/nonperennial/calendar/')) {
     if (mode === 'down') return new Response('upstream error', { status: 502 });
     if (mode === 'expired') return Response.json({ detail: 'token expired' }, { status: 401 });
+    if (mode === 'many') return Response.json(Array.from({ length: 305 }, (_, i) => ({
+      id: 90000 + i, title: `Event ${i}`, slug: `event-${i}`, start_date: at(1 + i), is_ticketed: true, is_perennial: false,
+    })));
     return Response.json(calendarRows);
   }
   if (url.includes('/events/nonperennial/?')) {
@@ -69,18 +80,20 @@ globalThis.fetch = async (input, init = {}) => {
     if (url.includes('page=4&')) return Response.json({ detail: 'Invalid page.' }, { status: 404 });
     if (!url.includes('page=1&')) return Response.json({ count: 900, results: [] });
     return Response.json({ count: 900, results: [
-      { id: 8088, title: 'Mike Gatta 50/50/50 Finish Line', start_date: '2026-08-12T18:00:00-04:00', is_ticketed: true, is_perennial: false },
-      { id: 8257, title: 'Cascada NYE 2027', start_date: '2026-12-31T21:00:00-04:00', is_ticketed: true, is_perennial: false },
-      { id: 2902, title: 'HAPPY HOUR', start_date: '2026-10-20T17:00:00-04:00', is_ticketed: false, is_perennial: false },
+      { id: 8088, title: 'Mike Gatta 50/50/50 Finish Line', start_date: at(-69), is_ticketed: true, is_perennial: false },
+      { id: 8257, title: 'Cascada NYE 2027', start_date: at(72, 1), is_ticketed: true, is_perennial: false },
+      { id: 2902, title: 'HAPPY HOUR', start_date: at(0, 21), is_ticketed: false, is_perennial: false },
     ] });
   }
   let m = url.match(/\/events\/details\/(\d+)\/$/);
+  if (m && mode === 'details-down') return new Response('bad gateway', { status: 502 });
   if (m) {
     const id = String(m[1]);
     if (id.startsWith('7139')) return Response.json({ id: 7139, title: 'Iguana Ride City Combo Tour', is_perennial: true });
     return new Response('{}', { status: 404 });
   }
   m = url.match(/\/ticket\/purchase\/tickets\/(\d+)\/$/);
+  if (m && mode === 'tickets-down' && m[1] === '8257') return new Response('bad gateway', { status: 502 });
   if (m) return Response.json({ count: ticketCounts[m[1]] || 0 });
   m = url.match(/\/events\/admin-ticketed-search\/\?id=(\d+)$/);
   if (m) {
@@ -101,7 +114,7 @@ globalThis.caches = {
 
 const kvData = new Map([
   ['admin:hidden-pages', ['8150']],
-  ['site-event:draft-unpub', { title: 'Unpublished Gala design', status: 'draft', otraGuideId: '8300', startDate: '2027-02-14T20:00:00-04:00' }],
+  ['site-event:draft-unpub', { title: 'Unpublished Gala design', status: 'draft', otraGuideId: '8300', startDate: at(117) }],
   ['event:7567', { fields: {} }],
   ['event:8257', { fields: {} }],
   ['override:8301', { fields: {} }],
@@ -156,7 +169,7 @@ const iguana = payload.pages.filter((p) => /iguana/i.test(p.title));
 assert(iguana.length === 1, `recurring occurrences must fold into one entry (got ${iguana.length})`);
 assert(iguana[0] && iguana[0].id === '7139', 'folded entry must use the base event id');
 assert(iguana[0] && iguana[0].title === 'Iguana Ride City Combo Tour', 'folded entry must drop the occurrence time prefix');
-assert(iguana[0] && iguana[0].startDate === '2026-10-21T09:00:00-04:00', 'folded entry must keep the earliest start');
+assert(iguana[0] && iguana[0].startDate === at(1, 13), 'folded entry must keep the earliest start');
 assert(iguana[0] && iguana[0].type === 'Published tour', 'perennial tour must keep the tour label');
 assert(calls.filter((c) => c.url.includes('/events/details/')).length === 1, 'one detail lookup per folded recurring event');
 assert(!ids.includes('8100'), 'ticketed flag without ticket types must stay out');
@@ -170,6 +183,7 @@ assert(!calls.some((c) => c.url.includes('admin-ticketed-search/?id=8257')), 'ev
 assert(!payload.upstreamError, 'healthy build (a 404 past the end of the category feed included) must not report an upstream error');
 assert(byId('8201') && byId('8202'), 'same title events with different slugs must stay separate');
 assert(byId('8211') && byId('8212'), 'rows without a slug must stay separate');
+assert(!ids.includes('8050') && !calls.some((c) => c.url.endsWith('/ticket/purchase/tickets/8050/')), 'an event that already ended must not be listed or ticket checked');
 const headCalls = calls.filter((c) => /\/events\/nonperennial\/\?/.test(c.url));
 assert(headCalls.length === 4 && headCalls.every((c) => /category_id=339&page=[1-4]&page_size=20$/.test(c.url)), 'the old 4 x 20 category feed window must still be read so nothing the old list showed disappears');
 assert(byId('8088'), 'still running promoted event from the feed head must be listed even though it started before the calendar window');
@@ -213,7 +227,29 @@ assert(response.status === 200 && payload.pages.some((p) => p.id === '8257'), 'c
 assert(payload.upstreamError, 'ticketed search failure must be reported');
 assert(store.size === 0, 'partial build must not be cached');
 
-// 6. Token rejected by the calendar feed mid flight: 401 like other admin endpoints.
+// 6. A failed ticket check or recurring lookup is an outage, not "no tickets": reported, never cached.
+for (const failing of ['tickets-down', 'details-down']) {
+  store.clear();
+  mode = failing;
+  response = await call(STAFF);
+  payload = await response.json();
+  assert(response.status === 200, `${failing}: editor must still load`);
+  assert(payload.upstreamError, `${failing}: must be reported as upstreamError`);
+  assert(store.size === 0, `${failing}: partial build must not be cached`);
+}
+
+// 7. More eligible events than the cap: the cut is reported, and since a rebuild
+// would cut the same events the build is still cached.
+store.clear();
+mode = 'many';
+calls = [];
+response = await call(STAFF);
+payload = await response.json();
+assert(response.status === 200 && /truncated/.test(payload.upstreamError || ''), 'a capped list must say it was truncated');
+assert(calls.filter((c) => c.url.includes('/ticket/purchase/tickets/')).length === 300, 'ticket checks must stop at the cap');
+assert(store.size === 1, 'a deterministic cut may be cached');
+
+// 8. Token rejected by the calendar feed mid flight: 401 like other admin endpoints.
 store.clear();
 mode = 'expired';
 response = await call(STAFF);
