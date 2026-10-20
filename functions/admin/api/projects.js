@@ -10,7 +10,7 @@ import { mintFrozenSlug, liveSlugBase } from "../../_lib/event-slug.js";
 import { normalizeCloneSaleWindows, shiftCloneEventDay, toDay } from "../../_lib/clone-sale-windows.js";
 import { rewriteProjectDate } from "./events.js";
 import { contentSnapshot, validateContentPatch } from "./_draft-content.js";
-import { readOverrideDoc, resolvePageOverride } from "../../_lib/page-override.js";
+import { isOtraGuideId, readOverrideDoc, resolvePageOverride } from "../../_lib/page-override.js";
 
 const MAX_BYTES = 50 * 1024 * 1024;
 const DRAFT_PREFIX = "site-event:";
@@ -186,11 +186,11 @@ export async function onRequestPost(context) {
 
     // Bring the page overrides along so the clone starts looking identical.
     try {
-      // A live page shows its draft edits with the later edits on top, so
-      // the clone copies that same merged view.
-      const override = /^\d+$/.test(sourcePageId)
-        ? (await resolvePageOverride(kv, sourcePageId, { draftId: source.id })).override
-        : await readOverrideDoc(kv, source.id);
+      // A live page shows its published draft edits with the later edits
+      // on top, so the clone copies that same view.
+      const override =
+        (isOtraGuideId(sourcePageId) ? (await resolvePageOverride(kv, sourcePageId)).override : null) ||
+        (await readOverrideDoc(kv, source.id));
       if (override && typeof override === "object") {
         const { draftEditsFrom: _merged, ...copy } = override;
         await kv.put(`event:${cloneId}`, JSON.stringify({ ...copy, id: cloneId }));
@@ -537,7 +537,7 @@ async function syncEventPhotos(context, accessToken, project, overrideDoc = null
   const kv = context.env.OVERRIDES;
   // Once bound, the page edits live under the Otra Guide id on top of the
   // draft edits; a republish must not sync an older photo set.
-  const boundId = /^\d+$/.test(String(project.otraGuideId || "")) ? String(project.otraGuideId) : "";
+  const boundId = isOtraGuideId(project.otraGuideId) ? String(project.otraGuideId) : "";
   const override =
     overrideDoc ||
     (kv

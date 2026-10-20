@@ -143,31 +143,47 @@ const draftEdits = {
   eq(kv.json(`event:${DRAFT}`), draftEdits, '1: the draft document itself is untouched');
 }
 
-// 2. A page already broken by the bug (event doc holding only the later
-//    edit) shows the draft edits again, later edits winning per key.
+// 2. Event documents saved before this change keep rendering exactly as
+//    they do today, so shipping the merge changes no live page.
 {
-  const kv = makeKv({
-    [`site-event:${DRAFT}`]: project(),
-    [`event:${DRAFT}`]: draftEdits,
-    'event:7175': {
-      id: '7175', description: '', image: '', checkoutEventId: '', accentColor: '',
-      fields: { 'text:#evTitle': text('Later title'), 'text:#evSub': text('Later subtitle') },
-      updatedAt: '2026-10-12T12:00:00.000Z',
-    },
-  });
+  const legacyDoc = {
+    id: '7175', description: '', image: '', checkoutEventId: '', accentColor: '',
+    fields: { 'text:#evTitle': text('Later title'), 'text:#evSub': text('Later subtitle') },
+    updatedAt: '2026-10-12T12:00:00.000Z',
+  };
+  const kv = makeKv({ [`site-event:${DRAFT}`]: project(), [`event:${DRAFT}`]: draftEdits, 'event:7175': legacyDoc });
   const page = await publicFields(kv, '7175');
-  eq(page.fields['text:#evMeta'], text('Every Saturday · 90 min'), '2: hidden draft hero line is back');
-  eq(page.fields['text:#evTitle'], text('Later title'), '2: later edit wins the shared key');
-  eq(page.fields['text:#evSub'], text('Later subtitle'), '2: later only key kept');
-  eq(page.description, 'Draft description', '2: empty later description does not erase the draft one');
-  // An editor tab opened before the fix sends only what it saw; the server
-  // keeps the draft edits under it.
-  await adminSave(kv, '7175', { fields: { 'text:#evTitle': text('Stale tab title') } });
-  const stored = kv.json('event:7175');
+  eq(page.fields, legacyDoc.fields, '2: an older live document without a marker is served as is');
+  eq(page.description, '', '2: and its top level values too');
+  const loaded = await adminLoad(kv, '7175');
+  eq(loaded.fields, legacyDoc.fields, '2: the editor opens what the page shows');
+  eq(loaded.draftEditsFrom, DRAFT, '2: the editor still learns the bound draft');
+  await adminSave(kv, '7175', editorBody(loaded, (next) => { next.fields['text:#evTitle'] = text('Edited again'); }));
+  eq(Object.keys((await publicFields(kv, '7175')).fields).sort(), ['text:#evSub', 'text:#evTitle'], '2: saving it changes only the edited key');
+  // An editor tab opened before the fix sends only what it saw and the
+  // page stays the same.
+  const stale = makeKv({ [`site-event:${DRAFT}`]: project(), [`event:${DRAFT}`]: draftEdits, 'event:7175': legacyDoc });
+  await adminSave(stale, '7175', { fields: { 'text:#evTitle': text('Stale tab title'), 'text:#evSub': text('Later subtitle') } });
+  eq(stale.json('event:7175').fields, { 'text:#evTitle': text('Stale tab title'), 'text:#evSub': text('Later subtitle') }, '2: stale tab save on an old page keeps the old page keys');
+  // A stale tab on a freshly published page (no live document yet) keeps
+  // the draft edits under its change.
+  const fresh = makeKv({ [`site-event:${DRAFT}`]: project(), [`event:${DRAFT}`]: draftEdits });
+  await adminSave(fresh, '7175', { fields: { 'text:#evTitle': text('Stale tab title') } });
+  const stored = fresh.json('event:7175');
   eq(stored.fields['text:#evMeta'], text('Every Saturday · 90 min'), '2: stale client save keeps the draft hero line');
-  eq(stored.fields['text:#evSub'], text('Later subtitle'), '2: stale client save keeps earlier later edits');
   eq(stored.fields['text:#evTitle'], text('Stale tab title'), '2: stale client edit wins its key');
   eq(stored.description, 'Draft description', '2: stale client save keeps the description');
+  // A draft newer than an old live document (a new draft bound to an event
+  // that already had page edits) is merged, its edits winning shared keys.
+  const rebound = makeKv({
+    [`site-event:${DRAFT}`]: project(),
+    [`event:${DRAFT}`]: draftEdits,
+    'event:7175': { ...legacyDoc, updatedAt: '2026-01-01T00:00:00.000Z' },
+  });
+  const merged = await publicFields(rebound, '7175');
+  eq(merged.fields['text:#evTitle'], text('Water Bikes Curaçao'), '2: the newer draft wins the shared key');
+  eq(merged.fields['text:#evSub'], text('Later subtitle'), '2: old live only keys stay');
+  eq(merged.fields['text:#evMeta'], text('Every Saturday · 90 min'), '2: newer draft only keys show');
 }
 
 // 3. Later edits win per key, in both directions, by document time.
@@ -267,17 +283,127 @@ const draftEdits = {
   assert(!('text:#evMeta' in override.fields), '6: removal survives a republish of the same draft');
 }
 
-// 7. The homepage card reads the same merged view.
+// 7. The homepage card reads the same merged view, removals included.
+{
+  const hero = { type: 'image', value: '/override-images/draft-hero.jpg' };
+  const draftDoc = { ...draftEdits, fields: { ...draftEdits.fields, 'image:#evHeroImg': hero } };
+  const legacy = makeKv({
+    [`site-event:${DRAFT}`]: project(),
+    [`event:${DRAFT}`]: draftDoc,
+    'event:7175': { fields: { 'text:#evSub': text('Older live only') }, updatedAt: '2026-01-01T00:00:00.000Z' },
+  });
+  let cards = await applyOverrides(await buildPublishedSiteEvents({ OVERRIDES: legacy }), { OVERRIDES: legacy });
+  let card = cards.find((item) => String(item.id) === '7175');
+  eq(card && card.title, 'Water Bikes Curaçao', '7: card shows the draft title merged over an older live document');
+  eq(card && card.img, '/override-images/draft-hero.jpg', '7: card shows the draft hero merged over an older live document');
+  // The editor removes the title and hero edits on the live page.
+  const kv = makeKv({ [`site-event:${DRAFT}`]: project({ image: '/stock.jpg' }), [`event:${DRAFT}`]: draftDoc });
+  const loaded = await adminLoad(kv, '7175');
+  await adminSave(kv, '7175', editorBody(loaded, (next) => { delete next.fields['text:#evTitle']; delete next.fields['image:#evHeroImg']; }));
+  cards = await applyOverrides(await buildPublishedSiteEvents({ OVERRIDES: kv }), { OVERRIDES: kv });
+  card = cards.find((item) => String(item.id) === '7175');
+  eq(card && card.title, 'Water Bikes', '7: a title edit removed on the live page leaves the card');
+  eq(card && card.img, '/stock.jpg', '7: a hero edit removed on the live page leaves the card');
+}
+
+// 7b. A save on the draft id of a published bound draft is refused, so a
+//     stale tab cannot change edits merged under the live page.
+{
+  const kv = makeKv({ [`site-event:${DRAFT}`]: project(), [`event:${DRAFT}`]: draftEdits });
+  const loaded = await adminLoad(kv, '7175');
+  await adminSave(kv, '7175', editorBody(loaded, (next) => { next.fields['text:#evTitle'] = text('LIVE title'); delete next.fields['text:#evMeta']; }));
+  const refused = await adminSave(kv, DRAFT, { fields: { 'text:#evTitle': text('stale draft title'), 'text:#evMeta': text('stale meta') } });
+  eq(refused.status, 409, '7b: draft id save on a published bound draft is refused');
+  eq(refused.body.liveId, '7175', '7b: the refusal names the live page');
+  eq(kv.json(`event:${DRAFT}`), draftEdits, '7b: the draft document is unchanged');
+  const page = await publicFields(kv, '7175');
+  eq(page.fields['text:#evTitle'], text('LIVE title'), '7b: the live edit stays');
+  assert(!('text:#evMeta' in page.fields), '7b: the live removal stays');
+  // Unpublished drafts (bound or not) still save on their own id.
+  const wip = makeKv({ [`site-event:${DRAFT}`]: project({ status: 'draft', publishedAt: '' }) });
+  eq((await adminSave(wip, DRAFT, { fields: { 'text:#evTitle': text('WIP') } })).status, 200, '7b: an unpublished bound draft still saves');
+  const archived = makeKv({ [`site-event:${DRAFT}`]: project({ archivedAt: '2026-10-11T00:00:00.000Z' }) });
+  eq((await adminSave(archived, DRAFT, { fields: { 'text:#evTitle': text('x') } })).status, 200, '7b: an archived draft id still saves on its own page');
+  // If a draft document does change after the stamped save, its edits are
+  // merged again by time instead of being silently ignored.
+  const doc = kv.json('event:7175');
+  kv.store.set(`event:${DRAFT}`, JSON.stringify({ ...draftEdits, fields: { 'text:#evNew': text('newer draft') }, updatedAt: '2099-01-01T00:00:00.000Z' }));
+  const { override } = await resolvePageOverride(kv, '7175');
+  eq(override.fields['text:#evNew'], text('newer draft'), '7b: a draft document newer than the stamped save is merged');
+  eq(override.fields['text:#evTitle'], doc.fields['text:#evTitle'], '7b: keys the newer draft does not set keep the live value');
+}
+
+// 7c. Several bound drafts: only the published one feeds the live page.
+{
+  const WIP = 'draft-1900000000000-cccccccc';
+  const kv = makeKv({
+    [`site-event:${DRAFT}`]: project(),
+    [`event:${DRAFT}`]: draftEdits,
+    [`site-event:${WIP}`]: project({ id: WIP, status: 'draft', publishedAt: '', createdAt: '2026-10-15T00:00:00.000Z' }),
+    [`event:${WIP}`]: { fields: { 'text:#evTitle': text('WIP title') }, updatedAt: '2026-10-16T00:00:00.000Z' },
+  });
+  const page = await publicFields(kv, '7175');
+  eq(page.fields['text:#evTitle'], text('Water Bikes Curaçao'), '7c: an unpublished bound draft does not leak into the live page');
+  eq((await adminLoad(kv, '7175')).draftEditsFrom, DRAFT, '7c: the editor merges the published draft');
+}
+
+// 7d. Legacy override:<id> keys, missing dates and malformed records.
 {
   const kv = makeKv({
     [`site-event:${DRAFT}`]: project(),
-    [`event:${DRAFT}`]: { ...draftEdits, fields: { ...draftEdits.fields, 'image:#evHeroImg': { type: 'image', value: '/override-images/draft-hero.jpg' } } },
-    'event:7175': { fields: { 'text:#evSub': text('Later only') }, updatedAt: '2026-10-12T00:00:00.000Z' },
+    [`override:${DRAFT}`]: { fields: { a: text('draft a'), b: text('draft b') } },
+    'override:7175': { fields: { b: text('live b') } },
+    'site-event:draft-broken': 'not json',
   });
-  const cards = await applyOverrides(await buildPublishedSiteEvents({ OVERRIDES: kv }), { OVERRIDES: kv });
-  const card = cards.find((item) => String(item.id) === '7175');
-  eq(card && card.title, 'Water Bikes Curaçao', '7: card keeps the draft title after a later edit');
-  eq(card && card.img, '/override-images/draft-hero.jpg', '7: card keeps the draft hero after a later edit');
+  kv.store.set('site-event:draft-broken', '{oops');
+  const page = await publicFields(kv, '7175');
+  eq(page.fields, { b: text('live b') }, '7d: a legacy live document without dates is served as is');
+  const kv2 = makeKv({
+    [`site-event:${DRAFT}`]: project(),
+    [`override:${DRAFT}`]: { fields: { a: text('draft a'), b: text('draft b') }, updatedAt: '2026-10-09T00:00:00.000Z' },
+    'override:7175': { fields: { b: text('live b') } },
+  });
+  eq((await publicFields(kv2, '7175')).fields, { b: text('draft b'), a: text('draft a') }, '7d: legacy keys merge when the draft is newer');
+}
+
+// 7e. /api/event takes description, image and accent from the merged view.
+{
+  const { onRequestGet: eventGet } = await import('../functions/api/event.js');
+  const kv = makeKv({
+    [`site-event:${DRAFT}`]: project(),
+    [`event:${DRAFT}`]: draftEdits,
+    'event:7175': { description: '', image: '/override-images/live.jpg', fields: { 'text:#evTitle': text('Older') }, updatedAt: '2026-01-01T00:00:00.000Z' },
+  });
+  const savedCaches = globalThis.caches;
+  globalThis.caches = { default: { async match() { return null; }, async put() {} } };
+  const stubFetch = globalThis.fetch;
+  globalThis.fetch = async (input) => {
+    const url = String(input);
+    if (url.includes('/events/details/7175/')) return new Response(JSON.stringify({ id: 7175, title: 'Water Bikes', description: 'Upstream', start_date: '2026-06-01T09:00:00-04:00' }), { headers: { 'content-type': 'application/json' } });
+    if (url.includes('/ticket/purchase/tickets/7175/')) return new Response(JSON.stringify({ count: 0, results: [] }), { headers: { 'content-type': 'application/json' } });
+    return new Response('{}', { status: 404 });
+  };
+  try {
+    const response = await eventGet({ request: new Request('https://otratickets.com/api/event?id=7175'), env: env(kv), waitUntil() {} });
+    const payload = await response.json();
+    eq(payload.description, 'Draft description', '7e: /api/event keeps the draft description');
+    eq(payload.image, '/override-images/live.jpg', '7e: /api/event keeps the live image the draft does not set');
+    eq(payload.accent, '#112233', '7e: /api/event keeps the draft accent');
+  } finally {
+    globalThis.fetch = stubFetch;
+    globalThis.caches = savedCaches;
+  }
+}
+
+// 7f. The audit entry of the first save after publish lists only real changes.
+{
+  const kv = makeKv({ [`site-event:${DRAFT}`]: project(), [`event:${DRAFT}`]: draftEdits });
+  const loaded = await adminLoad(kv, '7175');
+  await adminSave(kv, '7175', editorBody(loaded, (next) => { next.fields['text:#evTitle'] = text('Changed'); }));
+  const audit = kv.json('audit:event:7175');
+  const entries = Array.isArray(audit) ? audit : (audit && audit.entries) || [];
+  const last = entries[entries.length - 1] || entries[0] || {};
+  eq(last.changedFields, ['fields.text:#evTitle'], '7f: audit lists only the edited key');
 }
 
 // 8. Cloning a live page copies the merged view.
@@ -286,7 +412,7 @@ const draftEdits = {
   const kv = makeKv({
     [`site-event:${DRAFT}`]: project(),
     [`event:${DRAFT}`]: draftEdits,
-    'event:7175': { fields: { 'text:#evTitle': text('Later title') }, updatedAt: '2026-10-12T00:00:00.000Z' },
+    'event:7175': { fields: { 'text:#evSub': text('Older sub') }, updatedAt: '2026-01-01T00:00:00.000Z' },
   });
   const response = await onRequestPost({
     request: new Request('https://otratickets.com/admin/api/projects?action=clone&id=7175', {
@@ -300,7 +426,7 @@ const draftEdits = {
   assert(response.status === 201 || response.status === 202, `8: clone succeeds (got ${response.status} ${JSON.stringify(body)})`);
   const cloneDoc = body.project ? kv.json(`event:${body.project.id}`) : null;
   eq(cloneDoc && cloneDoc.fields['text:#evMeta'], text('Every Saturday · 90 min'), '8: clone keeps the draft hero line');
-  eq(cloneDoc && cloneDoc.fields['text:#evTitle'], text('Later title'), '8: clone keeps the later title');
+  eq(cloneDoc && cloneDoc.fields['text:#evSub'], text('Older sub'), '8: clone keeps the live only key');
   assert(cloneDoc && !('draftEditsFrom' in cloneDoc), '8: clone document carries no marker');
 }
 

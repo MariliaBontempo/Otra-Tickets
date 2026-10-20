@@ -6,7 +6,7 @@
 import { requireStaff, staffSession, json } from "./_auth.js";
 import { actorForAudit, appendAudit, changedOverrideFields } from "./_audit.js";
 import { resyncPublishedProjectPhotos } from "./projects.js";
-import { resolvePageOverride } from "../../_lib/page-override.js";
+import { TOP_LEVEL_KEYS, isPublishedBound, resolvePageOverride } from "../../_lib/page-override.js";
 
 const KEY = (id) => `event:${id}`;
 
@@ -33,6 +33,21 @@ export async function onRequestPut(context) {
 
   const kv = context.env.OVERRIDES;
   if (!kv) return json({ error: "overrides store not configured" }, 503);
+
+  // A published bound draft lives under its Otra Guide id. A save on the
+  // draft id (an editor tab left open from before publish) would change the
+  // edits merged under the live page, so send the editor to the live page.
+  if (id.startsWith("draft-")) {
+    let project = null;
+    try {
+      project = await kv.get(`site-event:${id}`, "json");
+    } catch {
+      project = null;
+    }
+    if (isPublishedBound(project)) {
+      return json({ error: "this draft is published; edit the live page instead", liveId: String(project.otraGuideId) }, 409);
+    }
+  }
 
   let body;
   try {
@@ -76,7 +91,7 @@ export async function onRequestPut(context) {
     // under its changes instead of hiding them.
     if (previous && body.draftEditsFrom !== draftId) {
       override.fields = { ...previous.fields, ...override.fields };
-      for (const key of ["description", "image", "checkoutEventId", "accentColor"]) {
+      for (const key of TOP_LEVEL_KEYS) {
         if (!override[key] && previous[key]) override[key] = previous[key];
       }
     }

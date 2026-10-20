@@ -7,7 +7,7 @@
 import { eventSlug } from "../_lib/event-slug.js";
 import { checkStaff } from "../admin/api/_auth.js";
 import { requestToken } from "../_lib/session.js";
-import { findProjectByOtraGuideId as findBoundProject, resolvePageOverride } from "../_lib/page-override.js";
+import { findProjectByOtraGuideId, isPublishedBound, resolvePageOverride } from "../_lib/page-override.js";
 
 const API = "https://otraguide.com/api";
 const UPSTREAM_TTL = 300;
@@ -22,7 +22,7 @@ export async function onRequestGet(context) {
   const id = (url.searchParams.get("id") || "").trim();
   if (!isEventId(id)) return json({ error: "invalid id" }, 400);
 
-  const project = /^\d+$/.test(id) ? await findProjectByOtraGuideId(context.env, id) : null;
+  const project = /^\d+$/.test(id) ? await findProjectByOtraGuideId(context.env && context.env.OVERRIDES, id) : null;
   const base = await getBasePayload(context, id, url, project);
   if (!base) return json({ error: "not found" }, 404);
 
@@ -37,7 +37,7 @@ export async function onRequestGet(context) {
   const staffPreview = adminOnly || base.staffView === true;
   delete base.staffView;
 
-  const override = await readOverride(context.env, id, project && project.id);
+  const override = await readOverride(context.env, id, project);
   let payload = override ? { ...base, ...pickOverride(override) } : base;
   if (project) {
     payload = {
@@ -133,10 +133,6 @@ async function getBasePayload(context, id, url, project) {
   return base;
 }
 
-async function findProjectByOtraGuideId(env, id) {
-  return findBoundProject(env && env.OVERRIDES, id);
-}
-
 function apiBase(env) {
   return String((env && env.OTRA_API_URL) || API).replace(/\/$/, "");
 }
@@ -185,13 +181,16 @@ function isStaffRequest(context) {
   return staffChecks.get(request);
 }
 
-async function readOverride(env, id, draftId = "") {
+async function readOverride(env, id, project) {
   const kv = env && env.OVERRIDES;
   if (!kv) return null;
   try {
-    // A bound draft's edits sit under its own id; the shared resolver puts
-    // the edits saved under the Otra Guide id on top of them.
-    const { override } = await resolvePageOverride(kv, id, { draftId: draftId || "" });
+    // A published bound draft keeps its edits under its own id; the shared
+    // resolver puts the edits saved under the Otra Guide id on top of them.
+    // No bound project means no draft edits; an unpublished newest project
+    // lets the resolver look up the published one.
+    const draftId = !project ? "" : isPublishedBound(project) ? String(project.id) : undefined;
+    const { override } = await resolvePageOverride(kv, id, draftId === undefined ? {} : { draftId });
     return override;
   } catch {
     return null;
