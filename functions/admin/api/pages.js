@@ -4,11 +4,13 @@
 // then ticketed Otra Guide events that open through event.html?id=<id>.
 //
 // Ticketed events come from one staff call to the Otra Guide calendar feed
-// (category 339, about a month back to a year ahead). The staff Bearer token is
-// forwarded so staff-only events such as Cascada NYE appear, and happy hours
-// and other unticketed rows are dropped before any ticket check. Events known
-// only from KV drafts or overrides (for example unpublished ones) are looked up
-// one by one through the staff ticketed search.
+// (category 339, about a month back to a year ahead) plus the first page of the
+// category feed, which carries promoted, pinned and still running events the
+// calendar window can miss. The staff Bearer token is forwarded so staff-only
+// events such as Cascada NYE appear, and happy hours and other unticketed rows
+// are dropped before any ticket check. Events known only from KV drafts or
+// overrides (for example unpublished ones) are looked up one by one through
+// the staff ticketed search.
 
 import { json, otraGet, requireStaff } from "./_auth.js";
 import { HIDDEN_PAGES_KEY, readHiddenPageIds } from "../../_lib/hidden-pages.js";
@@ -18,7 +20,9 @@ const FEATURED_IDS = new Set([7275, 6113]);
 const EXCLUDED_IDS = new Set([7012]);
 const LOOKBACK_DAYS = 30;
 const LOOKAHEAD_MONTHS = 12;
-const MAX_TICKET_CHECKS = 40;
+const MAX_TICKET_CHECKS = 100;
+const LOOKUP_CONCURRENCY = 10;
+const FEED_HEAD_SIZE = 20;
 const MAX_FALLBACK_LOOKUPS = 25;
 const CALENDAR_TIMEOUT_MS = 25000;
 const LOOKUP_TIMEOUT_MS = 10000;
@@ -209,28 +213,30 @@ async function getTemplatePages(context, token, knownIds) {
 
 async function buildTemplatePages(env, token, knownIds = []) {
   const { start, end } = calendarWindow(new Date());
-  const calendar = await otraGet(
-    env,
-    token,
-    `/events/nonperennial/calendar/?category_id=${CATEGORY_ID}&start=${start}&end=${end}`,
-    { timeoutMs: CALENDAR_TIMEOUT_MS }
-  );
-  if (calendar.status === 401) return { status: 401, pages: [] };
+  const [calendar, feedHead] = await Promise.all([
+    otraGet(env, token, `/events/nonperennial/calendar/?category_id=${CATEGORY_ID}&start=${start}&end=${end}`, {
+      timeoutMs: CALENDAR_TIMEOUT_MS,
+    }),
+    otraGet(env, token, `/events/nonperennial/?category_id=${CATEGORY_ID}&page=1&page_size=${FEED_HEAD_SIZE}`, {
+      timeoutMs: LOOKUP_TIMEOUT_MS,
+    }),
+  ]);
+  if (calendar.status === 401 || feedHead.status === 401) return { status: 401, pages: [] };
   const rows = Array.isArray(calendar.data) ? calendar.data : null;
+  const headRows = feedHead.data && Array.isArray(feedHead.data.results) ? feedHead.data.results : null;
   let error = rows ? "" : `calendar feed unavailable (${calendar.status || "network"})`;
+  if (!headRows && !error) error = `category feed unavailable (${feedHead.status || "network"})`;
 
-  const groups = await resolveGroups(env, token, groupBySlug(rows || []));
+  const groups = mergeFeedHead(await resolveGroups(env, token, groupBySlug(rows || [])), headRows || []);
   const candidates = groups
     .filter((ev) => !FEATURED_IDS.has(ev.id) && !EXCLUDED_IDS.has(ev.id))
     .sort(byStart)
     .slice(0, MAX_TICKET_CHECKS);
 
-  const ticketCounts = await Promise.all(
-    candidates.map(async (ev) => {
-      const tickets = await otraGet(env, token, `/ticket/purchase/tickets/${ev.id}/`, { timeoutMs: LOOKUP_TIMEOUT_MS });
-      return tickets.data ? Number(tickets.data.count) || 0 : 0;
-    })
-  );
+  const ticketCounts = await mapLimited(candidates, LOOKUP_CONCURRENCY, async (ev) => {
+    const tickets = await otraGet(env, token, `/ticket/purchase/tickets/${ev.id}/`, { timeoutMs: LOOKUP_TIMEOUT_MS });
+    return tickets.data ? Number(tickets.data.count) || 0 : 0;
+  });
   const listed = candidates.filter((_, i) => ticketCounts[i] > 0);
 
   const seen = new Set(groups.map((ev) => ev.id));
@@ -318,28 +324,56 @@ async function resolveGroups(env, token, groups) {
   return [...byId.values()];
 }
 
+// Feed head rows already carry base event ids (no occurrence copies), so they
+// only add events the calendar did not return.
+function mergeFeedHead(groups, headRows) {
+  const byId = new Map(groups.map((ev) => [ev.id, ev]));
+  for (const row of headRows) {
+    const id = Number(row && row.id);
+    if (!id || byId.has(id) || !(row.is_ticketed || row.is_perennial)) continue;
+    byId.set(id, {
+      id,
+      title: String(row.title || ""),
+      isPerennial: !!row.is_perennial,
+      startDate: typeof row.start_date === "string" ? row.start_date : "",
+    });
+  }
+  return [...byId.values()];
+}
+
+async function mapLimited(items, limit, fn) {
+  const results = new Array(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const index = next++;
+      results[index] = await fn(items[index], index);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
 // Staff ticketed search by id: finds unpublished events and keeps the same
 // rules as the calendar path (has tickets, not past).
 async function lookupKnownEvents(env, token, ids) {
   let failed = false;
-  const found = await Promise.all(
-    ids.slice(0, MAX_FALLBACK_LOOKUPS).map(async (id) => {
-      const result = await otraGet(env, token, `/events/admin-ticketed-search/?id=${id}`, { timeoutMs: LOOKUP_TIMEOUT_MS });
-      if (!result.data) {
-        failed = true;
-        return null;
-      }
-      const ev = Array.isArray(result.data.events) ? result.data.events.find((item) => Number(item && item.id) === id) : null;
-      if (!ev || ev.isPast || !Array.isArray(ev.tickets) || !ev.tickets.length) return null;
-      if (FEATURED_IDS.has(id) || EXCLUDED_IDS.has(id)) return null;
-      return {
-        id,
-        title: ev.title || `Event ${id}`,
-        isPerennial: !!ev.isPerennial,
-        startDate: typeof ev.startDate === "string" ? ev.startDate : "",
-      };
-    })
-  );
+  const found = await mapLimited(ids.slice(0, MAX_FALLBACK_LOOKUPS), LOOKUP_CONCURRENCY, async (id) => {
+    const result = await otraGet(env, token, `/events/admin-ticketed-search/?id=${id}`, { timeoutMs: LOOKUP_TIMEOUT_MS });
+    if (!result.data) {
+      failed = true;
+      return null;
+    }
+    const ev = Array.isArray(result.data.events) ? result.data.events.find((item) => Number(item && item.id) === id) : null;
+    if (!ev || ev.isPast || !Array.isArray(ev.tickets) || !ev.tickets.length) return null;
+    if (FEATURED_IDS.has(id) || EXCLUDED_IDS.has(id)) return null;
+    return {
+      id,
+      title: ev.title || `Event ${id}`,
+      isPerennial: !!ev.isPerennial,
+      startDate: typeof ev.startDate === "string" ? ev.startDate : "",
+    };
+  });
   return { events: found.filter(Boolean), failed };
 }
 
