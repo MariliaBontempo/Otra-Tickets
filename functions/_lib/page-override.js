@@ -15,6 +15,14 @@
 
 export const TOP_LEVEL_KEYS = ["description", "image", "checkoutEventId", "accentColor"];
 
+// Written on every live page document saved by this version of the admin.
+// A document without it was saved before the merged view existed.
+export const PAGE_EDITS_VERSION = 2;
+
+export function isLegacyDoc(doc) {
+  return Boolean(doc && !(Number(doc.pageEditsVersion) >= PAGE_EDITS_VERSION) && !doc.draftEditsFrom);
+}
+
 export function isOtraGuideId(id) {
   return /^\d+$/.test(String(id || ""));
 }
@@ -102,18 +110,19 @@ export function mergeOverrideDocs(draftDoc, eventDoc) {
 // True when the event document is served as is, without the draft edits:
 // - it was saved from a view that already held every edit of this draft
 //   (draftEditsFrom), and the draft has not changed since; or
-// - it carries no draftEditsFrom at all (saved before the merged view
-//   existed) and is at least as new as the draft document. Those pages keep
-//   rendering exactly as they did, so shipping the merge changes no live
-//   page; restoring draft edits such a page hid is a deliberate, separate
-//   step.
-// A draft document newer than the event document (for example a new draft
-// bound to an event that already had page edits) is always merged.
+// - it is a legacy document (saved before the merged view existed, so no
+//   pageEditsVersion and no draftEditsFrom) at least as new as the draft
+//   document. Those pages keep rendering exactly as they did, so shipping
+//   the merge changes no live page; restoring draft edits such a page hid is
+//   a deliberate, separate step.
+// Anything else is merged: a draft document newer than the event document,
+// or a current document saved without this draft (for example an edit on
+// the live page before a draft bound to that event was published).
 export function coversDraft(eventDoc, draftId, draftDoc) {
   if (!eventDoc || !draftId) return false;
   if (draftDoc && stamp(draftDoc) > stamp(eventDoc)) return false;
   if (eventDoc.draftEditsFrom === draftId) return true;
-  return !eventDoc.draftEditsFrom;
+  return isLegacyDoc(eventDoc);
 }
 
 // Returns { override, draftId, fromDraft } for a page id. draftId is the

@@ -10,7 +10,7 @@ import { mintFrozenSlug, liveSlugBase } from "../../_lib/event-slug.js";
 import { normalizeCloneSaleWindows, shiftCloneEventDay, toDay } from "../../_lib/clone-sale-windows.js";
 import { rewriteProjectDate } from "./events.js";
 import { contentSnapshot, validateContentPatch } from "./_draft-content.js";
-import { isOtraGuideId, readOverrideDoc, resolvePageOverride } from "../../_lib/page-override.js";
+import { isOtraGuideId, isPublishedBound, readOverrideDoc, resolvePageOverride } from "../../_lib/page-override.js";
 
 const MAX_BYTES = 50 * 1024 * 1024;
 const DRAFT_PREFIX = "site-event:";
@@ -188,11 +188,16 @@ export async function onRequestPost(context) {
     try {
       // A live page shows its published draft edits with the later edits
       // on top, so the clone copies that same view.
+      const livePageId = isOtraGuideId(sourcePageId)
+        ? sourcePageId
+        : isPublishedBound(source)
+          ? String(source.otraGuideId)
+          : "";
       const override =
-        (isOtraGuideId(sourcePageId) ? (await resolvePageOverride(kv, sourcePageId)).override : null) ||
+        (livePageId ? (await resolvePageOverride(kv, livePageId)).override : null) ||
         (await readOverrideDoc(kv, source.id));
       if (override && typeof override === "object") {
-        const { draftEditsFrom: _merged, ...copy } = override;
+        const { draftEditsFrom: _merged, pageEditsVersion: _version, ...copy } = override;
         await kv.put(`event:${cloneId}`, JSON.stringify({ ...copy, id: cloneId }));
         await appendAudit(kv, {
           actor: await actorForAudit(session.token, session.role, context.env),

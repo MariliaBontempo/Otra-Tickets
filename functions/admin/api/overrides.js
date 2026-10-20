@@ -6,7 +6,7 @@
 import { requireStaff, staffSession, json } from "./_auth.js";
 import { actorForAudit, appendAudit, changedOverrideFields } from "./_audit.js";
 import { resyncPublishedProjectPhotos } from "./projects.js";
-import { TOP_LEVEL_KEYS, isPublishedBound, resolvePageOverride } from "../../_lib/page-override.js";
+import { PAGE_EDITS_VERSION, TOP_LEVEL_KEYS, isLegacyDoc, isPublishedBound, isOtraGuideId, resolvePageOverride } from "../../_lib/page-override.js";
 
 const KEY = (id) => `event:${id}`;
 
@@ -75,7 +75,7 @@ export async function onRequestPut(context) {
     }
   }
 
-  const { override: previous, draftId, fromDraft, coversThisDraft } = await readOverride(kv, id);
+  const { override: previous, draftId, fromDraft, coversThisDraft, legacyAsIs } = await readOverride(kv, id);
   const override = {
     id,
     description,
@@ -97,10 +97,11 @@ export async function onRequestPut(context) {
       }
     }
   }
-  // This document now holds every edit of the draft. A page served as is
-  // without a marker (saved before the merged view existed) stays unmarked,
-  // so the draft edits it hides are still there for a deliberate restore.
+  // This document now holds every edit of the draft. A legacy page served
+  // as is (saved before the merged view existed) stays unmarked, so the
+  // draft edits it hides are still there for a deliberate restore.
   if (draftId && (fromDraft || coversThisDraft)) override.draftEditsFrom = draftId;
+  if (isOtraGuideId(id) && !legacyAsIs) override.pageEditsVersion = PAGE_EDITS_VERSION;
   await kv.put(KEY(id), JSON.stringify(override));
   await appendAudit(kv, {
     actor: await actorForAudit(session.token, session.role, context.env),
@@ -147,7 +148,8 @@ function photoSignature(override) {
 async function readOverride(kv, id) {
   const { override, draftId, fromDraft } = await resolvePageOverride(kv, id);
   const coversThisDraft = Boolean(override && draftId && override.draftEditsFrom === draftId);
-  return { override: override ? normalizeOverride(override, id) : null, draftId, fromDraft, coversThisDraft };
+  const legacyAsIs = Boolean(draftId && !fromDraft && isLegacyDoc(override));
+  return { override: override ? normalizeOverride(override, id) : null, draftId, fromDraft, coversThisDraft, legacyAsIs };
 }
 
 function normalizeOverride(raw, id) {

@@ -161,6 +161,7 @@ const draftEdits = {
   await adminSave(kv, '7175', editorBody(loaded, (next) => { next.fields['text:#evTitle'] = text('Edited again'); }));
   eq(Object.keys((await publicFields(kv, '7175')).fields).sort(), ['text:#evSub', 'text:#evTitle'], '2: saving it changes only the edited key');
   assert(!('draftEditsFrom' in kv.json('event:7175')), '2: an editor save on a page served as is adds no marker');
+  assert(!('pageEditsVersion' in kv.json('event:7175')), '2: and no format marker, so it stays recognisably legacy');
   // An editor tab opened before the fix sends only what it saw and the
   // page stays the same.
   const stale = makeKv({ [`site-event:${DRAFT}`]: project(), [`event:${DRAFT}`]: draftEdits, 'event:7175': legacyDoc });
@@ -189,6 +190,28 @@ const draftEdits = {
   eq(merged.fields['text:#evTitle'], text('Water Bikes Curaçao'), '2: the newer draft wins the shared key');
   eq(merged.fields['text:#evSub'], text('Later subtitle'), '2: old live only keys stay');
   eq(merged.fields['text:#evMeta'], text('Every Saturday · 90 min'), '2: newer draft only keys show');
+}
+
+// 2b. A live page edit saved after this change, before a draft bound to
+//     that event is published, does not hide the draft edits.
+{
+  const EXISTING = 'draft-1795000000000-dddddddd';
+  const kv = makeKv({
+    [`site-event:${EXISTING}`]: project({ id: EXISTING, status: 'draft', publishedAt: '', usesExistingOtraGuideEvent: true }),
+    [`event:${EXISTING}`]: { fields: { 'text:#evTitle': text('Draft title'), 'text:#evMeta': text('Draft meta') }, updatedAt: '2026-10-05T00:00:00.000Z' },
+  });
+  await adminSave(kv, '7175', { fields: { 'text:#evTitle': text('Live edit') } });
+  const saved = kv.json('event:7175');
+  eq(saved.pageEditsVersion, 2, '2b: a live save after this change writes the format marker');
+  assert(!('draftEditsFrom' in saved), '2b: no draft marker while the draft is unpublished');
+  eq((await publicFields(kv, '7175')).fields, { 'text:#evTitle': text('Live edit') }, '2b: an unpublished draft does not feed the live page');
+  // Publish the (older) draft.
+  kv.store.set(`site-event:${EXISTING}`, JSON.stringify(project({ id: EXISTING, usesExistingOtraGuideEvent: true })));
+  const page = await publicFields(kv, '7175');
+  eq(page.fields['text:#evMeta'], text('Draft meta'), '2b: after publish the draft edits show');
+  eq(page.fields['text:#evTitle'], text('Live edit'), '2b: the later live edit wins its key');
+  const loaded = await adminLoad(kv, '7175');
+  eq(loaded.draftEditsFrom, EXISTING, '2b: the editor merges the published draft');
 }
 
 // 3. Later edits win per key, in both directions, by document time.
@@ -226,7 +249,8 @@ const draftEdits = {
   assert(!loaded.draftEditsFrom, '4: no draft marker for an unbound page');
   await adminSave(kv, '6113', editorBody(loaded, (next) => { delete next.fields['text:#evTitle']; }));
   eq(kv.json('event:6113').fields, {}, '4: removal on an unbound page sticks');
-  assert(!('draftEditsFrom' in kv.json('event:6113')), '4: unbound save adds no marker');
+  assert(!('draftEditsFrom' in kv.json('event:6113')), '4: unbound save adds no draft marker');
+  eq(kv.json('event:6113').pageEditsVersion, 2, '4: unbound save writes the format marker');
   // Bound but the draft had no edits.
   const kv2 = makeKv({ [`site-event:${DRAFT}`]: project() });
   const loaded2 = await adminLoad(kv2, '7175');
@@ -432,7 +456,7 @@ const draftEdits = {
   const cloneDoc = body.project ? kv.json(`event:${body.project.id}`) : null;
   eq(cloneDoc && cloneDoc.fields['text:#evMeta'], text('Every Saturday · 90 min'), '8: clone keeps the draft hero line');
   eq(cloneDoc && cloneDoc.fields['text:#evSub'], text('Older sub'), '8: clone keeps the live only key');
-  assert(cloneDoc && !('draftEditsFrom' in cloneDoc), '8: clone document carries no marker');
+  assert(cloneDoc && !('draftEditsFrom' in cloneDoc) && !('pageEditsVersion' in cloneDoc), '8: clone document carries no markers');
 }
 
 globalThis.fetch = realFetch;
