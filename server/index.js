@@ -9,6 +9,7 @@ import { createKv } from "./kv.js";
 import { createBucket } from "./r2.js";
 import { createAssets } from "./assets.js";
 import { createApp } from "./app.js";
+import { initializeSchema } from "./schema-init.js";
 
 const ROOT = new URL("..", import.meta.url).pathname;
 const FUNCTIONS_DIR = join(ROOT, "functions");
@@ -51,7 +52,7 @@ const env = {
 const app = createApp(env, buildRouteTable(listFunctionFiles(FUNCTIONS_DIR)), FUNCTIONS_DIR);
 
 // Ensure schema exists before serving.
-await pool.query(readFileSync(join(ROOT, "server", "schema.sql"), "utf8"));
+await initializeSchema(pool, process.env.RUN_SCHEMA_INIT);
 
 http.createServer(async (req, res) => {
   try {
