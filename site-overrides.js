@@ -165,6 +165,12 @@
     }
   }
 
+  // Same keys as functions/_lib/draft-only-sections.js DRAFT_ONLY_REMOVE_KEYS.
+  function isDraftOnlySelector(selector) {
+    const value = String(selector || "").trim();
+    return value === "#evInfoSection" || value === "main > #evInfoSection";
+  }
+
   // A removed page section is hidden, never taken out of the DOM. event.html
   // renders into its sections by id ($("evRatesSection").querySelector(...))
   // and the edits load in parallel with the event, so a section deleted
@@ -174,12 +180,6 @@
   // applied again after a render, and lets the editor restore it.
   // Small inner items (a price card) are rebuilt by the render, so they are
   // still removed outright.
-  // Same keys as functions/_lib/draft-only-sections.js DRAFT_ONLY_REMOVE_KEYS.
-  function isDraftOnlySelector(selector) {
-    const value = String(selector || "").trim();
-    return value === "#evInfoSection" || value === "main > #evInfoSection";
-  }
-
   function applyRemoval(el) {
     const tag = String(el.tagName || "").toUpperCase();
     const isSection = !!el.id || tag === "SECTION" || tag === "FOOTER";
