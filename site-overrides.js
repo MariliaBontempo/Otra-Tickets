@@ -124,6 +124,7 @@
           el.textContent = value;
           if (value.includes("\n")) el.style.whiteSpace = "pre-line";
         }
+        revealBandText(el, value);
         const infoCell = el.closest && el.closest(".ev-info-cell");
         if (infoCell) syncInfoCellDecorativeState(infoCell);
         applied.add(key);
@@ -360,6 +361,17 @@
     if (isImage && section.classList.contains("ev-video") && !section.classList.contains("is-live")) {
       section.classList.add("is-image");
     }
+  }
+
+  // Band heading or text saved from the editor on a draft whose design had
+  // no band must make the band (and the hidden text block) show.
+  function revealBandText(el, value) {
+    if (!el || !el.closest || !String(value || "").trim()) return;
+    if (el.id !== "evBandTitle" && el.id !== "evBandText") return;
+    const band = el.closest("#evBandSection");
+    if (!band) return;
+    el.hidden = false;
+    band.hidden = false;
   }
 
   function isVideoUrl(value) {
