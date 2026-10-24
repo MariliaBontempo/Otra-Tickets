@@ -44,7 +44,8 @@ assert(/text-transform:\s*none/.test(textRule), 'band text must keep its typed c
 assert(/white-space:\s*pre-line/.test(textRule), 'band text must keep its line breaks');
 assert(/font-weight:\s*400/.test(textRule), 'band text must not be bold like the heading');
 assert(/\.ev-band:has\(#evBandText:not\(\[hidden\]\)\)[^{]*\{[^}]*aspect-ratio:\s*auto/.test(eventHtml), 'a band with text must grow instead of clipping in the 16:9 box');
-assert(/\.ev-band:not\(:has\(\.ev-like\)\)[^{]*\{[^}]*align-items:\s*flex-start/.test(eventHtml), 'a band with no perk items must place its heading at the top');
+assert(/\.ev-band:has\(#evBandText:not\(\[hidden\]\)\)\s*\{[^}]*align-items:\s*flex-start/.test(eventHtml), 'a band with section text must read from the top');
+assert(!/\.ev-band:not\(:has\(\.ev-like\)\)/.test(eventHtml), 'a band without section text must keep its centered heading (no change on published pages)');
 assert(/\.ev-band \{[^}]*align-items: center/.test(eventHtml), 'bands with perk items keep the centred layout');
 assert(eventHtml.includes('design.bandImage || design.bandTitle || design.bandText ||'), 'band text alone must show the band');
 assert(eventHtml.includes('$("evBandText").textContent = design.bandText || "";') && eventHtml.includes('$("evBandText").hidden = !design.bandText;'), 'band text must render as text and hide when empty');
