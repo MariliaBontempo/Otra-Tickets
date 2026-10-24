@@ -342,12 +342,20 @@
       });
   }
 
-  // The template hides the feature photo/video and photo band sections when
-  // the design has no image for them. A photo or video saved from the editor
-  // for one of those empty slots must make its section show.
+  // The template hides the story photo, feature photo/video, appreciation
+  // band and photo band when the design has no image for them. A photo or
+  // video saved from the editor for one of those empty slots must make it
+  // show.
   function revealSlotSection(el, isImage) {
-    const section = el && el.closest && el.closest("#evVideoSection, #evPhotoBandSection");
+    if (!el || !el.closest) return;
+    const section = el.closest("#story, #evVideoSection, #evBandSection, #evPhotoBandSection");
     if (!section) return;
+    if (section.id === "story" && el.id === "evStoryImg") {
+      el.hidden = false;
+      if (section.style) section.style.gridTemplateColumns = "";
+    } else if (section.id === "story") {
+      return;
+    }
     section.hidden = false;
     if (isImage && section.classList.contains("ev-video") && !section.classList.contains("is-live")) {
       section.classList.add("is-image");

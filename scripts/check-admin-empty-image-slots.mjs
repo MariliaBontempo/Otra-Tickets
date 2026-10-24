@@ -1,5 +1,6 @@
 // Oracle: a page created without photos must still give the editor an upload
-// pencil on the hero image, the feature photo/video and the photo band. The
+// pencil on all five image slots: hero image, story image, feature
+// photo/video, appreciation band background and photo band. The
 // editor reveals those empty slots as placeholders (never as removable
 // sections), and a photo or video saved for one of them makes the hidden
 // section show on the page.
@@ -38,12 +39,14 @@ function extractConst(name, source = html) {
   return match ? match[0] : '';
 }
 
-for (const id of ['evHeroImg', 'evVideoImg', 'evPhotoBandImg', 'evVideoSection', 'evPhotoBandSection']) {
+for (const id of ['evHeroImg', 'evStoryImg', 'story', 'evVideoImg', 'evVideoSection', 'evBandBg', 'evBandSection', 'evPhotoBandImg', 'evPhotoBandSection']) {
   assert(eventHtml.includes(`id="${id}"`), `event.html must still have #${id}`);
 }
 
 const slotsSource = extractConst('EMPTY_IMAGE_SLOTS');
 const revealSource = extractFunction('revealEmptyImageSlots');
+const hasMediaSource = extractFunction('slotHasMedia');
+assert(hasMediaSource, 'slotHasMedia must exist');
 const editableSource = extractFunction('isEditableImage');
 const removableSource = extractFunction('isRemovableSection');
 const injectSource = extractFunction('injectEditControls');
@@ -56,7 +59,7 @@ assert(
     injectSource.indexOf('revealEmptyImageSlots(doc)') < injectSource.indexOf('const fields = candidateElements(doc)'),
   'injectEditControls must reveal empty slots before collecting pencils'
 );
-for (const id of ['#evHeroImg', '#evVideoImg', '#evPhotoBandImg']) {
+for (const id of ['#evHeroImg', '#evStoryImg', '#evVideoImg', '#evBandBg', '#evPhotoBandImg']) {
   assert(slotsSource.includes(`"${id}"`), `EMPTY_IMAGE_SLOTS must cover ${id}`);
 }
 assert(/revealSlotSection\(el, !isVideoUrl\(field\.value\)\)/.test(overrides), 'image overrides must reveal their slot section');
@@ -79,7 +82,7 @@ class FakeEl {
     this.dataset = {};
     this.parentElement = null;
     this.currentSrc = '';
-    this.style = { backgroundImage: '' };
+    this.style = { backgroundImage: '', gridTemplateColumns: '' };
   }
   append(child) { child.parentElement = this; return child; }
   getAttribute(name) { return name in this.attrs ? this.attrs[name] : null; }
@@ -103,29 +106,37 @@ class FakeEl {
   getBoundingClientRect() { return { width: 100, height: 100 }; }
 }
 
-function makeDoc({ heroSrc = '', videoSrc = '', videoOverride = '' } = {}) {
+function makeDoc({ heroSrc = '', videoSrc = '', videoOverride = '', storyText = false, bandBg = '', bandText = false } = {}) {
   const main = new FakeEl('MAIN');
   const hero = main.append(new FakeEl('SECTION', { classes: ['ev-hero'] }));
   const heroImg = hero.append(new FakeEl('IMG', { id: 'evHeroImg', classes: ['ev-hero-img'], attrs: heroSrc ? { src: heroSrc } : {} }));
+  // event.html: story is shown only with a description; without a photo the
+  // image stays hidden and the text spans the full width.
+  const story = main.append(new FakeEl('SECTION', { id: 'story', classes: ['ev-story', 'reveal'], hidden: !storyText }));
+  if (storyText) story.style.gridTemplateColumns = '1fr';
+  const storyImg = story.append(new FakeEl('IMG', { id: 'evStoryImg', classes: ['ev-story-img'], hidden: true }));
+  const band = main.append(new FakeEl('SECTION', { id: 'evBandSection', classes: ['ev-band', 'reveal'], hidden: !(bandBg || bandText) }));
+  const bandBgEl = band.append(new FakeEl('DIV', { id: 'evBandBg', classes: ['ev-band-bg'] }));
+  if (bandBg) bandBgEl.style.backgroundImage = `url("${bandBg}")`;
   const video = main.append(new FakeEl('SECTION', { id: 'evVideoSection', classes: ['ev-video', 'reveal'], hidden: !videoSrc }));
   const videoImg = video.append(new FakeEl('IMG', { id: 'evVideoImg', attrs: videoSrc ? { src: videoSrc } : {} }));
   if (videoOverride) videoImg.dataset.otraVideo = videoOverride;
-  const band = main.append(new FakeEl('SECTION', { id: 'evPhotoBandSection', classes: ['ev-photoband', 'reveal'], hidden: true }));
-  const bandImg = band.append(new FakeEl('IMG', { id: 'evPhotoBandImg' }));
-  const all = [main, hero, heroImg, video, videoImg, band, bandImg];
+  const photoBand = main.append(new FakeEl('SECTION', { id: 'evPhotoBandSection', classes: ['ev-photoband', 'reveal'], hidden: true }));
+  const bandImg = photoBand.append(new FakeEl('IMG', { id: 'evPhotoBandImg' }));
+  const all = [main, hero, heroImg, story, storyImg, band, bandBgEl, video, videoImg, photoBand, bandImg];
   const doc = {
     querySelector: (selector) => all.find((el) => el.matches(selector)) || null,
-    defaultView: { getComputedStyle: (el) => ({ display: el.hidden ? 'none' : 'block', visibility: 'visible', backgroundImage: 'none' }) },
+    defaultView: { getComputedStyle: (el) => ({ display: el.hidden ? 'none' : 'block', visibility: 'visible', backgroundImage: el.style.backgroundImage || 'none' }) },
   };
   for (const el of all) el.ownerDocument = doc;
-  return { doc, hero, heroImg, video, videoImg, band, bandImg };
+  return { doc, hero, heroImg, story, storyImg, band, bandBg: bandBgEl, video, videoImg, photoBand, bandImg };
 }
 
 const context = {
   getComputedStyle: () => ({ backgroundImage: 'none' }),
 };
 vm.createContext(context);
-vm.runInContext(`${slotsSource}\n${revealSource}\n${editableSource}\n${removableSource}\n${revealSectionSource}\nthis.api = { revealEmptyImageSlots, isEditableImage, isRemovableSection, revealSlotSection };`, context);
+vm.runInContext(`${slotsSource}\n${hasMediaSource}\n${revealSource}\n${editableSource}\n${removableSource}\n${revealSectionSource}\nthis.api = { revealEmptyImageSlots, isEditableImage, isRemovableSection, revealSlotSection };`, context);
 const { revealEmptyImageSlots, isEditableImage, isRemovableSection, revealSlotSection } = context.api;
 
 // 1) Strange Bird style draft: no photos anywhere.
@@ -133,17 +144,23 @@ const { revealEmptyImageSlots, isEditableImage, isRemovableSection, revealSlotSe
   const d = makeDoc();
   assert(!isEditableImage(d.heroImg), 'precondition: an empty hero is not editable before reveal');
   const revealed = revealEmptyImageSlots(d.doc);
-  assert(revealed.length === 3, `all three empty slots must be revealed, got ${revealed.length}`);
-  for (const [name, img] of [['hero', d.heroImg], ['feature', d.videoImg], ['photo band', d.bandImg]]) {
+  assert(revealed.length === 5, `all five empty slots must be revealed, got ${revealed.length}`);
+  for (const [name, img] of [['hero', d.heroImg], ['story', d.storyImg], ['feature', d.videoImg], ['band background', d.bandBg], ['photo band', d.bandImg]]) {
     assert(isEditableImage(img), `empty ${name} image must get an upload pencil`);
   }
   assert(!d.video.hidden, 'empty feature photo/video section must be shown in the editor');
-  assert(!d.band.hidden, 'empty photo band section must be shown in the editor');
+  assert(!d.photoBand.hidden, 'empty photo band section must be shown in the editor');
+  assert(!d.story.hidden && !d.storyImg.hidden, 'empty story image and its section must be shown in the editor');
+  assert(!d.band.hidden, 'empty appreciation band must be shown in the editor so its background gets a pencil');
+  assert(/Click the pencil to upload/.test(d.band.getAttribute('data-otra-empty-slot-label') || ''), 'empty band background must say how to upload');
+  assert(d.band.hasAttribute('data-otra-empty-slot-top'), 'band label must sit at the top so it does not cover band text');
+  assert(!isRemovableSection(d.story), 'a story revealed only for its empty photo must not get a Remove section button');
   assert(d.video.classList.contains('is-image'), 'empty feature slot must hide the decorative play overlay');
   assert(/Click the pencil to upload/.test(d.video.getAttribute('data-otra-empty-slot-label') || ''), 'empty feature slot must say how to upload');
   assert(/Click the pencil to upload/.test(d.hero.getAttribute('data-otra-empty-slot-label') || ''), 'empty hero must say how to upload');
   assert(!isRemovableSection(d.video), 'a revealed empty slot must not get a Remove section button');
-  assert(!isRemovableSection(d.band), 'a revealed empty photo band must not get a Remove section button');
+  assert(!isRemovableSection(d.photoBand), 'a revealed empty photo band must not get a Remove section button');
+  assert(!isRemovableSection(d.band), 'a band revealed only for its empty background must not get a Remove section button');
   // Running again (the editor re-injects every 250 ms) stays stable.
   revealEmptyImageSlots(d.doc);
   assert(isEditableImage(d.videoImg) && !d.video.hidden, 'reveal must be idempotent');
@@ -156,6 +173,25 @@ const { revealEmptyImageSlots, isEditableImage, isRemovableSection, revealSlotSe
   assert(!revealed.includes('#evHeroImg') && !revealed.includes('#evVideoImg'), 'filled slots must not be marked empty');
   assert(!d.heroImg.hasAttribute('data-otra-empty-slot'), 'a filled hero keeps no placeholder');
   assert(isRemovableSection(d.video), 'a real filled feature section keeps its Remove button');
+}
+
+// 2b) Story with text but no photo: the photo column comes back in the editor.
+{
+  const d = makeDoc({ storyText: true, bandText: true });
+  revealEmptyImageSlots(d.doc);
+  assert(!d.storyImg.hidden && isEditableImage(d.storyImg), 'story with text and no photo must get a photo pencil');
+  assert(d.story.style.gridTemplateColumns === '', 'story must get its photo column back for the empty slot');
+  assert(!d.story.hasAttribute('data-otra-empty-revealed'), 'a story that already had text is a real section');
+  assert(isRemovableSection(d.story), 'a story that already had text keeps its Remove button');
+  assert(isEditableImage(d.bandBg), 'band with text and no background must get a background pencil');
+  assert(!d.band.hasAttribute('data-otra-empty-revealed'), 'a band that already had text is a real section');
+}
+
+// 2c) A band background that already has an image is left alone.
+{
+  const d = makeDoc({ bandBg: '/photos/band.jpg' });
+  const revealed = revealEmptyImageSlots(d.doc);
+  assert(!revealed.includes('#evBandBg') && !d.bandBg.hasAttribute('data-otra-empty-slot'), 'a filled band background must not be marked empty');
 }
 
 // 3) A video override counts as media.
@@ -181,7 +217,16 @@ const { revealEmptyImageSlots, isEditableImage, isRemovableSection, revealSlotSe
   revealSlotSection(d.videoImg, true);
   assert(!d.video.hidden && d.video.classList.contains('is-image'), 'saved feature photo must show the section as an image');
   revealSlotSection(d.bandImg, true);
-  assert(!d.band.hidden, 'saved photo band image must show its section');
+  assert(!d.photoBand.hidden, 'saved photo band image must show its section');
+  revealSlotSection(d.storyImg, true);
+  assert(!d.story.hidden && !d.storyImg.hidden, 'saved story photo must show the story image');
+  revealSlotSection(d.bandBg, true);
+  assert(!d.band.hidden, 'saved band background must show the band');
+  const t = makeDoc({ storyText: true });
+  revealSlotSection(t.storyImg, true);
+  assert(t.story.style.gridTemplateColumns === '', 'saved story photo must restore the two column story layout');
+  const u = makeDoc();
+  assert(u.band.hidden && u.story.hidden, 'precondition: without overrides band and story stay hidden on the public page');
   const v = makeDoc();
   revealSlotSection(v.videoImg, false);
   assert(!v.video.hidden && !v.video.classList.contains('is-image'), 'saved feature video must show the section without forcing image mode');

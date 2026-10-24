@@ -3658,6 +3658,10 @@
         min-height: 220px;
         background: repeating-linear-gradient(135deg, #1b2630 0 18px, #141c24 18px 36px);
       }
+      .ev-band-bg[data-otra-empty-slot] {
+        background: repeating-linear-gradient(135deg, #1b2630 0 18px, #141c24 18px 36px) !important;
+        filter: none;
+      }
       section[data-otra-empty-revealed].reveal { opacity: 1 !important; transform: none !important; }
       section[data-otra-empty-slot-label]::before {
         content: attr(data-otra-empty-slot-label);
@@ -3678,6 +3682,7 @@
         border-radius: 8px;
         pointer-events: none;
       }
+      section[data-otra-empty-slot-top]::before { top: 16px; transform: translateX(-50%); }
     `;
     doc.head.appendChild(style);
   }
@@ -4018,34 +4023,61 @@
   }
 
   // A page created without photos (e.g. from a text only design ZIP) leaves
-  // the hero, feature photo/video and photo band with no image, and the
-  // public template hides empty sections. In the editor preview every such
-  // slot is shown as a labelled placeholder so it always has an upload
-  // pencil. The live page is unchanged until an image is saved for the slot.
+  // the hero, story image, feature photo/video, appreciation band background
+  // and photo band with no image, and the public template hides empty
+  // sections. In the editor preview every such slot is shown as a striped
+  // placeholder so it always has an upload pencil. The live page is
+  // unchanged until an image is saved for the slot.
   const EMPTY_IMAGE_SLOTS = [
     { image: "#evHeroImg", section: "", label: "Hero image" },
+    { image: "#evStoryImg", section: "#story", label: "" },
     { image: "#evVideoImg", section: "#evVideoSection", label: "Feature photo or video" },
+    { image: "#evBandBg", section: "#evBandSection", label: "Band background image", labelAtTop: true },
     { image: "#evPhotoBandImg", section: "#evPhotoBandSection", label: "Photo band" },
   ];
+
+  function slotHasMedia(el, doc) {
+    if (el.tagName === "IMG") {
+      return !!(el.getAttribute("src") || el.currentSrc || (el.dataset && el.dataset.otraVideo));
+    }
+    const view = doc.defaultView;
+    const bg = (el.style && el.style.backgroundImage) || (view ? view.getComputedStyle(el).backgroundImage : "") || "";
+    return /url\(/.test(bg);
+  }
 
   function revealEmptyImageSlots(doc) {
     const revealed = [];
     EMPTY_IMAGE_SLOTS.forEach((slot) => {
-      const img = doc.querySelector(slot.image);
-      if (!img || img.tagName !== "IMG") return;
-      const section = slot.section ? doc.querySelector(slot.section) : img.closest("section");
-      const hasMedia = !!(img.getAttribute("src") || img.currentSrc || (img.dataset && img.dataset.otraVideo));
-      if (hasMedia) {
-        img.removeAttribute("data-otra-empty-slot");
-        if (section) section.removeAttribute("data-otra-empty-slot-label");
+      const el = doc.querySelector(slot.image);
+      if (!el) return;
+      const section = slot.section ? doc.querySelector(slot.section) : el.closest("section");
+      if (slotHasMedia(el, doc)) {
+        el.removeAttribute("data-otra-empty-slot");
+        if (section) {
+          section.removeAttribute("data-otra-empty-slot-label");
+          section.removeAttribute("data-otra-empty-slot-top");
+        }
         return;
       }
-      img.setAttribute("data-otra-empty-slot", "1");
+      el.setAttribute("data-otra-empty-slot", "1");
+      if (el.tagName === "IMG" && el.hidden) {
+        // The story image is hidden by the template when there is no photo.
+        el.hidden = false;
+        el.setAttribute("data-otra-empty-unhid", "1");
+      }
       if (section) {
-        section.setAttribute("data-otra-empty-slot-label", slot.label + " is empty. Click the pencil to upload.");
+        if (slot.label) {
+          section.setAttribute("data-otra-empty-slot-label", slot.label + " is empty. Click the pencil to upload.");
+          if (slot.labelAtTop) section.setAttribute("data-otra-empty-slot-top", "1");
+        }
         if (section.hidden) {
           section.hidden = false;
           section.setAttribute("data-otra-empty-revealed", "1");
+        }
+        if (section.id === "story" && section.style && section.style.gridTemplateColumns) {
+          // Without a photo the story text spans the full width; give the
+          // empty photo its column back so the placeholder is usable.
+          section.style.gridTemplateColumns = "";
         }
         if (section.classList.contains("ev-video") && !section.classList.contains("is-live")) {
           section.classList.add("is-image");
