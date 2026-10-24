@@ -49,6 +49,7 @@ const hasMediaSource = extractFunction('slotHasMedia');
 assert(hasMediaSource, 'slotHasMedia must exist');
 const editableSource = extractFunction('isEditableImage');
 const removableSource = extractFunction('isRemovableSection');
+const protectedSource = (html.match(/const PROTECTED_SECTION_CONTENT = "[^"]*";/) || [''])[0] + '\n' + extractFunction('isProtectedSection');
 const injectSource = extractFunction('injectEditControls');
 const revealSectionSource = extractFunction('revealSlotSection', overrides);
 assert(slotsSource, 'EMPTY_IMAGE_SLOTS must exist');
@@ -81,10 +82,19 @@ class FakeEl {
     this.attrs = { ...attrs };
     this.dataset = {};
     this.parentElement = null;
+    this.children = [];
     this.currentSrc = '';
     this.style = { backgroundImage: '', gridTemplateColumns: '' };
   }
-  append(child) { child.parentElement = this; return child; }
+  append(child) { child.parentElement = this; this.children.push(child); return child; }
+  querySelector(selector) {
+    for (const child of this.children) {
+      if (child.matches(selector)) return child;
+      const deep = child.querySelector(selector);
+      if (deep) return deep;
+    }
+    return null;
+  }
   getAttribute(name) { return name in this.attrs ? this.attrs[name] : null; }
   setAttribute(name, value) { this.attrs[name] = String(value); }
   removeAttribute(name) { delete this.attrs[name]; }
@@ -136,7 +146,7 @@ const context = {
   getComputedStyle: () => ({ backgroundImage: 'none' }),
 };
 vm.createContext(context);
-vm.runInContext(`${slotsSource}\n${hasMediaSource}\n${revealSource}\n${editableSource}\n${removableSource}\n${revealSectionSource}\nthis.api = { revealEmptyImageSlots, isEditableImage, isRemovableSection, revealSlotSection };`, context);
+vm.runInContext(`${slotsSource}\n${hasMediaSource}\n${revealSource}\n${editableSource}\n${protectedSource}\n${removableSource}\n${revealSectionSource}\nthis.api = { revealEmptyImageSlots, isEditableImage, isRemovableSection, revealSlotSection };`, context);
 const { revealEmptyImageSlots, isEditableImage, isRemovableSection, revealSlotSection } = context.api;
 
 // 1) Strange Bird style draft: no photos anywhere.

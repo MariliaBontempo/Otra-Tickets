@@ -611,6 +611,7 @@
       </label>
       <button class="btn ghost" id="saveColorBtn" type="button">Save color</button>
       <button class="btn ghost hidden" id="restorePriceCardsBtn" type="button">Restore hidden price cards</button>
+      <button class="btn ghost hidden" id="restoreSectionsBtn" type="button">Restore removed sections</button>
     </div>
 
     <aside class="history-panel hidden" id="historyPanel">
@@ -3375,6 +3376,7 @@
     $("accentColorHex").value = color.toUpperCase();
     showImage($("imageUrl").value);
     updateHiddenPriceCardControl();
+    updateRemovedSectionControl();
   }
 
   function showImage(src) {
@@ -3901,9 +3903,24 @@
     return fields;
   }
 
+  // Whole sections that carry prices, checkout or Before You Go never get a
+  // section X. Price cards keep their own X, and the info cells are edited
+  // with their pencils.
+  const PROTECTED_SECTION_CONTENT = "#book, #otra-checkout-container, #evRates, .ev-rates, .ev-rate, #evInfoGrid, .ev-info-grid";
+
+  function isProtectedSection(el) {
+    if (!el || !el.matches) return true;
+    if (el.matches(PROTECTED_SECTION_CONTENT)) return true;
+    return !!el.querySelector(PROTECTED_SECTION_CONTENT);
+  }
+
   function isRemovableSection(el) {
     if (el.closest("header, nav, .dd-panel, script, style")) return false;
     if (el.id === "book") return false;
+    if (el.hasAttribute && (el.hasAttribute("data-skeleton") || el.hasAttribute("data-otra-removed"))) return false;
+    if (el.tagName === "SECTION" || el.tagName === "FOOTER") {
+      if (isProtectedSection(el)) return false;
+    }
     // A section the template still hides, shown by the editor only so its
     // empty photo slot gets a pencil, is not a real section. Once the page
     // render unhides it for real content, Remove comes back.
@@ -3920,7 +3937,12 @@
     const isPriceCard = field.kind === "price-card";
     const noun = isPriceCard ? "price card" : "section";
     const detail = isPriceCard ? " This only changes the page design; the ticket type and checkout stay unchanged." : "";
-    if (!window.confirm(`Remove this ${noun}${label ? `: ${label}` : ""}?${detail}`)) return;
+    if (!isPriceCard && isProtectedSection(field.element)) {
+      setStatus("This section holds prices, checkout or Before You Go and can't be removed.", "error");
+      return;
+    }
+    const undo = isPriceCard ? "" : " You can bring it back with Restore removed sections.";
+    if (!window.confirm(`Remove this ${noun}${label ? `: ${label}` : ""}?${detail}${undo}`)) return;
     setStatus(`Removing ${noun}...`);
     try {
       await persistOverrideFields((fields) => {
@@ -3942,6 +3964,42 @@
     const text = el && el.querySelector("h1, h2, h3, .ev-eyebrow, .row-head h2, .rk");
     return text ? text.textContent.trim().replace(/\s+/g, " ").slice(0, 80) : "";
   }
+
+  // Section removals are stored without a kind (the server keeps it only
+  // for price cards), so every remove field that is not a price card is a
+  // removed section.
+  function removedSectionKeys() {
+    const fields = currentOverride && currentOverride.fields ? currentOverride.fields : {};
+    return Object.keys(fields).filter((key) => {
+      const field = fields[key];
+      return key.startsWith("remove:") && field && field.type === "remove" && field.kind !== "price-card";
+    });
+  }
+
+  function updateRemovedSectionControl() {
+    const btn = $("restoreSectionsBtn");
+    if (!btn) return;
+    const count = removedSectionKeys().length;
+    btn.classList.toggle("hidden", count === 0);
+    btn.textContent = count === 1 ? "Restore removed section" : `Restore ${count} removed sections`;
+  }
+
+  async function restoreRemovedSections() {
+    if (!selected) return;
+    const keys = removedSectionKeys();
+    if (!keys.length) return;
+    if (!window.confirm(keys.length === 1 ? "Bring back the removed section?" : `Bring back ${keys.length} removed sections?`)) return;
+    setStatus("Restoring removed sections...");
+    try {
+      await persistOverrideFields((fields) => keys.forEach((key) => delete fields[key]));
+      refreshPreview();
+      setStatus(keys.length === 1 ? "Section restored." : `${keys.length} sections restored.`, "ok");
+    } catch (err) {
+      setStatus(err.message, "error");
+    }
+  }
+
+  $("restoreSectionsBtn").addEventListener("click", restoreRemovedSections);
 
   function hiddenPriceCardKeys() {
     const fields = currentOverride && currentOverride.fields ? currentOverride.fields : {};
@@ -4098,6 +4156,7 @@
       // A hidden story image is shown by the editor CSS; hidden stays as the
       // template set it.
       el.setAttribute("data-otra-empty-slot", "1");
+      if (section && section.hasAttribute("data-otra-removed")) return;
       if (section) {
         if (slot.label) {
           section.setAttribute("data-otra-empty-slot-label", slot.label + " is empty. Click the pencil to upload.");

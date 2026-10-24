@@ -104,7 +104,7 @@
       if (!el) continue;
 
       if (type === "remove" && field.type === "remove") {
-        el.remove();
+        applyRemoval(el);
         applied.add(key);
         continue;
       }
@@ -160,6 +160,37 @@
     if (remaining.length > 0 && attempt < 30) {
       setTimeout(() => applyFieldOverrides(fields, attempt + 1, applied), 250);
     }
+  }
+
+  // A removed page section is hidden, never taken out of the DOM. event.html
+  // renders into its sections by id ($("evRatesSection").querySelector(...))
+  // and the edits load in parallel with the event, so a section deleted
+  // before the render made that render throw and stop: every section after
+  // it (prices, checkout) never appeared. Keeping the element also keeps
+  // nth-of-type selectors pointing at the same sections when edits are
+  // applied again after a render, and lets the editor restore it.
+  // Small inner items (a price card) are rebuilt by the render, so they are
+  // still removed outright.
+  function applyRemoval(el) {
+    const tag = String(el.tagName || "").toUpperCase();
+    const isSection = !!el.id || tag === "SECTION" || tag === "FOOTER";
+    if (!isSection || typeof el.setAttribute !== "function") {
+      el.remove();
+      return;
+    }
+    ensureRemovedStyle();
+    el.setAttribute("data-otra-removed", "1");
+    el.hidden = true;
+  }
+
+  function ensureRemovedStyle() {
+    if (typeof document === "undefined" || typeof document.createElement !== "function") return;
+    if (document.getElementById("otra-removed-style")) return;
+    const style = document.createElement("style");
+    style.id = "otra-removed-style";
+    // Triple attribute beats the editor rules that show hidden empty slots.
+    style.textContent = "[data-otra-removed][data-otra-removed][data-otra-removed]{display:none !important}";
+    (document.head || document.documentElement).appendChild(style);
   }
 
   // Hero line (#evMeta): item spans with a <span class="dot"> between them.

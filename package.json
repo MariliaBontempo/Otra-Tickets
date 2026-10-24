@@ -35,6 +35,7 @@
     "check:admin-audit-log": "node scripts/check-admin-audit-log.mjs",
     "check:feed-fast-path": "node scripts/check-feed-fast-path.mjs",
     "check:admin-remove-video": "node scripts/check-admin-remove-video.mjs",
+    "check:admin-remove-section": "node scripts/check-admin-remove-section.mjs",
     "check:search-card-schedule": "node scripts/check-search-card-schedule.mjs",
     "check:publish-draft-edits": "node scripts/check-publish-keeps-draft-edits.mjs",
     "check:hero-meta-empty": "node scripts/check-hero-meta-empty-items.mjs",
