@@ -237,6 +237,8 @@ function extractFunction(name, source) {
     };
     const onLive = run('8266');
     assert(!onLive.includes('evInfoSection') && onLive.includes('story'), 'live page must not hide Before You Go, got ' + JSON.stringify(onLive));
+    const onProd = run('draft-prod-8266');
+    assert(!onProd.includes('evInfoSection'), 'a draft-prod page is live and must keep Before You Go, got ' + JSON.stringify(onProd));
     const onDraft = run(draftId);
     assert(onDraft.includes('evInfoSection'), 'draft page must hide Before You Go, got ' + JSON.stringify(onDraft));
   }

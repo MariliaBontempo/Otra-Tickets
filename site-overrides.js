@@ -106,7 +106,7 @@
       if (type === "remove" && field.type === "remove") {
         // Before You Go is hidden only on a draft page; a live page keeps it
         // even if a draft-only hide reached it.
-        if (isDraftOnlySelector(selector) && !/^draft-/.test(id)) { applied.add(key); continue; }
+        if (isDraftOnlySelector(selector) && !/^draft-(?!prod-)/.test(id)) { applied.add(key); continue; }
         applyRemoval(el);
         applied.add(key);
         continue;
