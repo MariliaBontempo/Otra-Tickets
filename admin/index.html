@@ -3652,8 +3652,9 @@
       .ev-hero-meta > span[data-otra-meta-empty]:not(.dot) { display: inline-block !important; min-width: 34px; min-height: 34px; }
       .otra-admin-remove-btn svg { width: 16px; height: 16px; stroke-width: 2.2; }
       /* Empty image slots stay visible in the editor so they always get a pencil. */
-      img[data-otra-empty-slot] {
-        display: block;
+      img[data-otra-empty-slot],
+      img[hidden][data-otra-empty-slot] {
+        display: block !important;
         width: 100%;
         min-height: 220px;
         background: repeating-linear-gradient(135deg, #1b2630 0 18px, #141c24 18px 36px);
@@ -3662,7 +3663,13 @@
         background: repeating-linear-gradient(135deg, #1b2630 0 18px, #141c24 18px 36px) !important;
         filter: none;
       }
-      section[data-otra-empty-revealed].reveal { opacity: 1 !important; transform: none !important; }
+      /* Sections the template still hides are shown in the editor only, via
+         CSS, so the template keeps owning section.hidden. */
+      section#story[hidden][data-otra-empty-placeholder] { display: grid !important; }
+      section#evBandSection[hidden][data-otra-empty-placeholder] { display: flex !important; }
+      section#evVideoSection[hidden][data-otra-empty-placeholder],
+      section#evPhotoBandSection[hidden][data-otra-empty-placeholder] { display: block !important; }
+      section[hidden][data-otra-empty-placeholder].reveal { opacity: 1 !important; transform: none !important; }
       section[data-otra-empty-slot-label]::before {
         content: attr(data-otra-empty-slot-label);
         position: absolute;
@@ -3874,8 +3881,10 @@
   function isRemovableSection(el) {
     if (el.closest("header, nav, .dd-panel, script, style")) return false;
     if (el.id === "book") return false;
-    // An empty slot shown only so it can get a photo is not a real section.
-    if (el.hasAttribute && el.hasAttribute("data-otra-empty-revealed")) return false;
+    // A section the template still hides, shown by the editor only so its
+    // empty photo slot gets a pencil, is not a real section. Once the page
+    // render unhides it for real content, Remove comes back.
+    if (el.hidden && el.hasAttribute && el.hasAttribute("data-otra-empty-placeholder")) return false;
     const style = el.ownerDocument.defaultView.getComputedStyle(el);
     if (style.display === "none" || style.visibility === "hidden") return false;
     const rect = el.getBoundingClientRect();
@@ -4055,29 +4064,25 @@
         // The first pass can run before the page finished rendering, so a
         // section revealed then is a real section once its media arrives.
         el.removeAttribute("data-otra-empty-slot");
-        el.removeAttribute("data-otra-empty-unhid");
         if (section) {
           section.removeAttribute("data-otra-empty-slot-label");
           section.removeAttribute("data-otra-empty-slot-top");
-          section.removeAttribute("data-otra-empty-revealed");
+          section.removeAttribute("data-otra-empty-placeholder");
         }
         return;
       }
+      // A hidden story image is shown by the editor CSS; hidden stays as the
+      // template set it.
       el.setAttribute("data-otra-empty-slot", "1");
-      if (el.tagName === "IMG" && el.hidden) {
-        // The story image is hidden by the template when there is no photo.
-        el.hidden = false;
-        el.setAttribute("data-otra-empty-unhid", "1");
-      }
       if (section) {
         if (slot.label) {
           section.setAttribute("data-otra-empty-slot-label", slot.label + " is empty. Click the pencil to upload.");
           if (slot.labelAtTop) section.setAttribute("data-otra-empty-slot-top", "1");
         }
-        if (section.hidden) {
-          section.hidden = false;
-          section.setAttribute("data-otra-empty-revealed", "1");
-        }
+        // Never flip section.hidden here: this can run before the page
+        // finishes rendering. The editor CSS shows a hidden section that
+        // carries this marker, and isRemovableSection reads el.hidden live.
+        section.setAttribute("data-otra-empty-placeholder", "1");
         if (section.id === "story" && section.style && section.style.gridTemplateColumns) {
           // Without a photo the story text spans the full width; give the
           // empty photo its column back so the placeholder is usable.
