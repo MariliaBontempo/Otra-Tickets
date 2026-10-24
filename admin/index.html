@@ -3555,6 +3555,7 @@
 
     ensurePreviewStyles(doc);
     watchPreviewResizes(doc);
+    revealEmptyImageSlots(doc);
     const fields = candidateElements(doc);
     fields.forEach((field) => {
       const host = editHost(field.element, field);
@@ -3650,6 +3651,33 @@
       .ev-hero-meta[data-otra-meta-empty] { display: flex !important; }
       .ev-hero-meta > span[data-otra-meta-empty]:not(.dot) { display: inline-block !important; min-width: 34px; min-height: 34px; }
       .otra-admin-remove-btn svg { width: 16px; height: 16px; stroke-width: 2.2; }
+      /* Empty image slots stay visible in the editor so they always get a pencil. */
+      img[data-otra-empty-slot] {
+        display: block;
+        width: 100%;
+        min-height: 220px;
+        background: repeating-linear-gradient(135deg, #1b2630 0 18px, #141c24 18px 36px);
+      }
+      section[data-otra-empty-revealed].reveal { opacity: 1 !important; transform: none !important; }
+      section[data-otra-empty-slot-label]::before {
+        content: attr(data-otra-empty-slot-label);
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        z-index: 3;
+        max-width: 80%;
+        padding: 10px 16px;
+        color: #fff;
+        font: 600 14px/1.35 system-ui, sans-serif;
+        text-align: center;
+        letter-spacing: 0;
+        text-transform: none;
+        background: rgba(7,8,10,0.6);
+        border: 1px dashed rgba(255,255,255,0.65);
+        border-radius: 8px;
+        pointer-events: none;
+      }
     `;
     doc.head.appendChild(style);
   }
@@ -3841,6 +3869,8 @@
   function isRemovableSection(el) {
     if (el.closest("header, nav, .dd-panel, script, style")) return false;
     if (el.id === "book") return false;
+    // An empty slot shown only so it can get a photo is not a real section.
+    if (el.hasAttribute && el.hasAttribute("data-otra-empty-revealed")) return false;
     const style = el.ownerDocument.defaultView.getComputedStyle(el);
     if (style.display === "none" || style.visibility === "hidden") return false;
     const rect = el.getBoundingClientRect();
@@ -3987,8 +4017,48 @@
     return legacyKey !== key ? fields[legacyKey] || null : null;
   }
 
+  // A page created without photos (e.g. from a text only design ZIP) leaves
+  // the hero, feature photo/video and photo band with no image, and the
+  // public template hides empty sections. In the editor preview every such
+  // slot is shown as a labelled placeholder so it always has an upload
+  // pencil. The live page is unchanged until an image is saved for the slot.
+  const EMPTY_IMAGE_SLOTS = [
+    { image: "#evHeroImg", section: "", label: "Hero image" },
+    { image: "#evVideoImg", section: "#evVideoSection", label: "Feature photo or video" },
+    { image: "#evPhotoBandImg", section: "#evPhotoBandSection", label: "Photo band" },
+  ];
+
+  function revealEmptyImageSlots(doc) {
+    const revealed = [];
+    EMPTY_IMAGE_SLOTS.forEach((slot) => {
+      const img = doc.querySelector(slot.image);
+      if (!img || img.tagName !== "IMG") return;
+      const section = slot.section ? doc.querySelector(slot.section) : img.closest("section");
+      const hasMedia = !!(img.getAttribute("src") || img.currentSrc || (img.dataset && img.dataset.otraVideo));
+      if (hasMedia) {
+        img.removeAttribute("data-otra-empty-slot");
+        if (section) section.removeAttribute("data-otra-empty-slot-label");
+        return;
+      }
+      img.setAttribute("data-otra-empty-slot", "1");
+      if (section) {
+        section.setAttribute("data-otra-empty-slot-label", slot.label + " is empty. Click the pencil to upload.");
+        if (section.hidden) {
+          section.hidden = false;
+          section.setAttribute("data-otra-empty-revealed", "1");
+        }
+        if (section.classList.contains("ev-video") && !section.classList.contains("is-live")) {
+          section.classList.add("is-image");
+        }
+      }
+      revealed.push(slot.image);
+    });
+    return revealed;
+  }
+
   function isEditableImage(el) {
     if (el.closest("header, nav, .dd-panel")) return false;
+    if (el.hasAttribute && el.hasAttribute("data-otra-empty-slot")) return true;
     if (el.tagName === "IMG") return !!(el.currentSrc || el.getAttribute("src"));
     if (el.tagName === "VIDEO") return !!el.getAttribute("poster");
     return /url\(/.test(el.style.backgroundImage || getComputedStyle(el).backgroundImage || "");

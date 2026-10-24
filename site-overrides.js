@@ -131,6 +131,7 @@
       }
       if (type === "image" && field.type === "image" && field.value) {
         applyGuardedImage(el, field.value);
+        revealSlotSection(el, !isVideoUrl(field.value));
         applied.add(key);
         continue;
       }
@@ -147,6 +148,7 @@
             ? el.src
             : "";
         applyVideoOverride(el, field.value, poster);
+        revealSlotSection(el, false);
         applied.add(key);
         continue;
       }
@@ -338,6 +340,18 @@
         p.textContent = text;
         el.appendChild(p);
       });
+  }
+
+  // The template hides the feature photo/video and photo band sections when
+  // the design has no image for them. A photo or video saved from the editor
+  // for one of those empty slots must make its section show.
+  function revealSlotSection(el, isImage) {
+    const section = el && el.closest && el.closest("#evVideoSection, #evPhotoBandSection");
+    if (!section) return;
+    section.hidden = false;
+    if (isImage && section.classList.contains("ev-video") && !section.classList.contains("is-live")) {
+      section.classList.add("is-image");
+    }
   }
 
   function isVideoUrl(value) {
