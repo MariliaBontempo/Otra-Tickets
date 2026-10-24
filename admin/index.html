@@ -4052,10 +4052,14 @@
       if (!el) return;
       const section = slot.section ? doc.querySelector(slot.section) : el.closest("section");
       if (slotHasMedia(el, doc)) {
+        // The first pass can run before the page finished rendering, so a
+        // section revealed then is a real section once its media arrives.
         el.removeAttribute("data-otra-empty-slot");
+        el.removeAttribute("data-otra-empty-unhid");
         if (section) {
           section.removeAttribute("data-otra-empty-slot-label");
           section.removeAttribute("data-otra-empty-slot-top");
+          section.removeAttribute("data-otra-empty-revealed");
         }
         return;
       }

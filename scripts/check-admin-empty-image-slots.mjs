@@ -194,6 +194,28 @@ const { revealEmptyImageSlots, isEditableImage, isRemovableSection, revealSlotSe
   assert(!revealed.includes('#evBandBg') && !d.bandBg.hasAttribute('data-otra-empty-slot'), 'a filled band background must not be marked empty');
 }
 
+// 2d) Early pass before render: sections revealed while empty become real,
+// removable sections once render fills them.
+{
+  const d = makeDoc();
+  revealEmptyImageSlots(d.doc);
+  for (const sec of [d.story, d.band, d.video, d.photoBand]) {
+    assert(sec.hasAttribute('data-otra-empty-revealed'), `precondition: ${sec.id} revealed on the early pass`);
+  }
+  d.storyImg.setAttribute('src', '/photos/story.jpg'); d.storyImg.hidden = false; d.story.hidden = false;
+  d.bandBg.style.backgroundImage = 'url("/photos/band.jpg")'; d.band.hidden = false;
+  d.videoImg.setAttribute('src', '/photos/feature.jpg'); d.video.hidden = false;
+  d.bandImg.setAttribute('src', '/photos/photoband.jpg'); d.photoBand.hidden = false;
+  d.heroImg.setAttribute('src', '/photos/hero.jpg');
+  revealEmptyImageSlots(d.doc);
+  for (const sec of [d.story, d.band, d.video, d.photoBand]) {
+    assert(!sec.hasAttribute('data-otra-empty-revealed'), `${sec.id} must drop the empty revealed marker once media loads`);
+    assert(!sec.hasAttribute('data-otra-empty-slot-label'), `${sec.id} must drop the empty label once media loads`);
+    assert(isRemovableSection(sec), `${sec.id} must get its Remove section button back once media loads`);
+  }
+  assert(!d.storyImg.hasAttribute('data-otra-empty-unhid') && !d.storyImg.hasAttribute('data-otra-empty-slot'), 'story image markers must clear once media loads');
+}
+
 // 3) A video override counts as media.
 {
   const d = makeDoc({ videoOverride: 'https://example.com/clip.mp4' });
