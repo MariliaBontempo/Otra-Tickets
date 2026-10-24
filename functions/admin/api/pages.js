@@ -155,6 +155,7 @@ async function buildDraftPages(env) {
         isDraft: true,
         status: project.status === "published" ? "published" : "draft",
         adminOnly: project.adminOnly === true,
+        publishedAt: typeof project.publishedAt === "string" ? project.publishedAt : "",
         otraGuideId: project.otraGuideId ? String(project.otraGuideId) : "",
         syncError: typeof project.syncError === "string" ? project.syncError : "",
         startDate: typeof project.startDate === "string" ? project.startDate : "",

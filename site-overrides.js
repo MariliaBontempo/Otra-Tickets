@@ -104,6 +104,9 @@
       if (!el) continue;
 
       if (type === "remove" && field.type === "remove") {
+        // Before You Go is hidden only on a draft page; a live page keeps it
+        // even if a draft-only hide reached it.
+        if (isDraftOnlySelector(selector) && !/^draft-/.test(id)) { applied.add(key); continue; }
         applyRemoval(el);
         applied.add(key);
         continue;
@@ -171,6 +174,12 @@
   // applied again after a render, and lets the editor restore it.
   // Small inner items (a price card) are rebuilt by the render, so they are
   // still removed outright.
+  // Same keys as functions/_lib/draft-only-sections.js DRAFT_ONLY_REMOVE_KEYS.
+  function isDraftOnlySelector(selector) {
+    const value = String(selector || "").trim();
+    return value === "#evInfoSection" || value === "main > #evInfoSection";
+  }
+
   function applyRemoval(el) {
     const tag = String(el.tagName || "").toUpperCase();
     const isSection = !!el.id || tag === "SECTION" || tag === "FOOTER";

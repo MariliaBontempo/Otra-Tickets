@@ -6,6 +6,7 @@
 import { requireStaff, staffSession, json } from "./_auth.js";
 import { actorForAudit, appendAudit, changedOverrideFields } from "./_audit.js";
 import { resyncPublishedProjectPhotos } from "./projects.js";
+import { allowsDraftOnlyRemovals, withoutDraftOnlyRemovals } from "../../_lib/draft-only-sections.js";
 import { PAGE_EDITS_VERSION, TOP_LEVEL_KEYS, isLegacyDoc, isPublishedBound, isOtraGuideId, resolvePageOverride } from "../../_lib/page-override.js";
 
 const KEY = (id) => `event:${id}`;
@@ -22,6 +23,9 @@ export async function onRequestGet(context) {
   // draft that is its draft edits with the later edits on top.
   const { override, draftId } = await readOverride(kv, id);
   if (override && draftId) override.draftEditsFrom = draftId;
+  // A live page never shows a draft-only hide (Before You Go), so the editor
+  // of a live page does not see or carry it either.
+  if (override && !(await allowsDraftOnlyRemovals(kv, id))) override.fields = withoutDraftOnlyRemovals(override.fields);
   return json({ override });
 }
 
@@ -102,6 +106,9 @@ export async function onRequestPut(context) {
   // draft whose edits it hides: that draft stays hidden, so the page keeps
   // rendering as before and the edits stay there for a deliberate restore,
   // while any other draft published later is merged.
+  // Before You Go is hidden only on unpublished drafts; a save on a live page
+  // or published draft drops that hide instead of storing it.
+  if (!(await allowsDraftOnlyRemovals(kv, id))) override.fields = withoutDraftOnlyRemovals(override.fields);
   if (draftId && (fromDraft || coversThisDraft)) override.draftEditsFrom = draftId;
   else if (legacyAsIs) override.draftEditsHidden = draftId;
   if (isOtraGuideId(id)) override.pageEditsVersion = PAGE_EDITS_VERSION;

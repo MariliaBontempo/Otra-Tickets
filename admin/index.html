@@ -612,6 +612,7 @@
       <button class="btn ghost" id="saveColorBtn" type="button">Save color</button>
       <button class="btn ghost hidden" id="restorePriceCardsBtn" type="button">Restore hidden price cards</button>
       <button class="btn ghost hidden" id="restoreSectionsBtn" type="button">Restore removed sections</button>
+      <button class="btn ghost hidden" id="draftBeforeYouGoBtn" type="button">Hide Before You Go on this draft</button>
     </div>
 
     <aside class="history-panel hidden" id="historyPanel">
@@ -3377,6 +3378,7 @@
     showImage($("imageUrl").value);
     updateHiddenPriceCardControl();
     updateRemovedSectionControl();
+    updateDraftBeforeYouGoControl();
   }
 
   function showImage(src) {
@@ -3908,6 +3910,11 @@
   // with their pencils.
   const PROTECTED_SECTION_CONTENT = "#book, #otra-checkout-container, #evRates, .ev-rates, .ev-rate, #evInfoGrid, .ev-info-grid";
 
+  // Removals allowed only on an unpublished draft (Before You Go). Same keys
+  // as functions/_lib/draft-only-sections.js.
+  const DRAFT_ONLY_REMOVE_KEYS = ["remove:#evInfoSection", "remove:main > #evInfoSection"];
+  const DRAFT_BYG_KEY = DRAFT_ONLY_REMOVE_KEYS[0];
+
   function isProtectedSection(el) {
     if (!el || !el.matches) return true;
     if (el.matches(PROTECTED_SECTION_CONTENT)) return true;
@@ -3972,7 +3979,7 @@
     const fields = currentOverride && currentOverride.fields ? currentOverride.fields : {};
     return Object.keys(fields).filter((key) => {
       const field = fields[key];
-      return key.startsWith("remove:") && field && field.type === "remove" && field.kind !== "price-card";
+      return key.startsWith("remove:") && field && field.type === "remove" && field.kind !== "price-card" && !DRAFT_ONLY_REMOVE_KEYS.includes(key);
     });
   }
 
@@ -4000,6 +4007,56 @@
   }
 
   $("restoreSectionsBtn").addEventListener("click", restoreRemovedSections);
+
+  // Before You Go holds the info grid, so it never gets a section X. On an
+  // unpublished draft it can still be hidden on purpose with this button.
+  // The hide is stored only in this draft's edits, and the server and the
+  // public page drop it on any live or published page, so Before You Go
+  // always stays on published pages.
+
+  function canHideBeforeYouGo(page) {
+    if (!page || !isDraft(page)) return false;
+    if (page.status !== "draft" || page.publishedAt || page.archivedAt) return false;
+    return /^draft-(?!prod-)[a-zA-Z0-9-]+$/.test(overrideIdForPage(page));
+  }
+
+  function draftBeforeYouGoHidden() {
+    const fields = currentOverride && currentOverride.fields ? currentOverride.fields : {};
+    return DRAFT_ONLY_REMOVE_KEYS.some((key) => fields[key] && fields[key].type === "remove");
+  }
+
+  function updateDraftBeforeYouGoControl() {
+    const btn = $("draftBeforeYouGoBtn");
+    if (!btn) return;
+    const show = canHideBeforeYouGo(selected);
+    btn.classList.toggle("hidden", !show);
+    btn.textContent = draftBeforeYouGoHidden() ? "Show Before You Go on this draft" : "Hide Before You Go on this draft";
+  }
+
+  async function toggleDraftBeforeYouGo() {
+    if (!canHideBeforeYouGo(selected)) {
+      setStatus("Before You Go can only be hidden on an unpublished draft.", "error");
+      return;
+    }
+    const hidden = draftBeforeYouGoHidden();
+    const question = hidden
+      ? "Show Before You Go again on this draft?"
+      : "Hide Before You Go on this draft? Prices and checkout stay. Published pages always keep Before You Go.";
+    if (!window.confirm(question)) return;
+    setStatus(hidden ? "Showing Before You Go..." : "Hiding Before You Go...");
+    try {
+      await persistOverrideFields((fields) => {
+        DRAFT_ONLY_REMOVE_KEYS.forEach((key) => delete fields[key]);
+        if (!hidden) fields[DRAFT_BYG_KEY] = { type: "remove", value: "1" };
+      });
+      refreshPreview();
+      setStatus(hidden ? "Before You Go is back on this draft." : "Before You Go hidden on this draft.", "ok");
+    } catch (err) {
+      setStatus(err.message, "error");
+    }
+  }
+
+  $("draftBeforeYouGoBtn").addEventListener("click", toggleDraftBeforeYouGo);
 
   function hiddenPriceCardKeys() {
     const fields = currentOverride && currentOverride.fields ? currentOverride.fields : {};

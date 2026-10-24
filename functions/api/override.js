@@ -4,6 +4,7 @@
 // through /api/event. Admin writes stay behind /admin/api/overrides.
 
 import { resolvePageOverride } from "../_lib/page-override.js";
+import { allowsDraftOnlyRemovals, withoutDraftOnlyRemovals } from "../_lib/draft-only-sections.js";
 import { isHeroMetaTextKey } from "../_lib/schedule-line.js";
 import { heroMetaItemText } from "../_lib/hero-meta-text.js";
 import { checkStaff } from "../admin/api/_auth.js";
@@ -32,13 +33,17 @@ export async function onRequestGet(context) {
       : await draftFollowsHiddenEvent(context.env, id);
     if (hidden && !(await isStaffRequest(context))) return json({ override: null });
     const rawAccent = typeof override.accentColor === "string" ? override.accentColor.trim() : "";
+    // Before You Go can be hidden only on an unpublished draft: a live page
+    // (Otra Guide id or published draft) always keeps it.
+    const draftOnlyOk = await allowsDraftOnlyRemovals(context.env.OVERRIDES, id);
+    const rawFields = draftOnlyOk ? override.fields : withoutDraftOnlyRemovals(override.fields);
     return json({
       override: {
         description: typeof override.description === "string" ? override.description : "",
         image: typeof override.image === "string" ? override.image : "",
         checkoutEventId: typeof override.checkoutEventId === "string" && /^\d+$/.test(override.checkoutEventId) ? override.checkoutEventId : "",
         accentColor: /^#[0-9A-Fa-f]{6}$/.test(rawAccent) ? rawAccent.toLowerCase() : "",
-        fields: normalizeFields(override.fields),
+        fields: normalizeFields(rawFields),
         updatedAt: typeof override.updatedAt === "string" ? override.updatedAt : null,
       },
     });
