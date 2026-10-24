@@ -38,6 +38,7 @@
     "check:search-card-schedule": "node scripts/check-search-card-schedule.mjs",
     "check:publish-draft-edits": "node scripts/check-publish-keeps-draft-edits.mjs",
     "check:hero-meta-empty": "node scripts/check-hero-meta-empty-items.mjs",
-    "check:admin-editor-list": "node scripts/check-admin-editor-list.mjs"
+    "check:admin-editor-list": "node scripts/check-admin-editor-list.mjs",
+    "check:admin-empty-image-slots": "node scripts/check-admin-empty-image-slots.mjs"
   }
 }
