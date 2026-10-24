@@ -11,6 +11,8 @@
   }
   const id = inferOverrideId();
   if (!id) return;
+  // Set from the server answer: true only on an unpublished draft page.
+  let draftOnlyRemovalsOk = false;
 
   // Staff sessions (the admin editor preview) send the admin token so pages of
   // events hidden on Otra Guide still show their edits there.
@@ -24,6 +26,7 @@
     .then((data) => {
       const override = data && data.override;
       if (!override) return;
+      draftOnlyRemovalsOk = override.draftOnlyRemovals === true && /^draft-(?!prod-)/.test(id);
       applyLegacyOverride(override);
       applyFieldOverrides(override.fields || {});
       if (typeof document.addEventListener === "function") {
@@ -104,9 +107,9 @@
       if (!el) continue;
 
       if (type === "remove" && field.type === "remove") {
-        // Before You Go is hidden only on a draft page; a live page keeps it
-        // even if a draft-only hide reached it.
-        if (isDraftOnlySelector(selector) && !/^draft-(?!prod-)/.test(id)) { applied.add(key); continue; }
+        // Before You Go is hidden only on an unpublished draft page; a live
+        // page keeps it whatever selector a saved remove field uses.
+        if (!draftOnlyRemovalsOk && hidesBeforeYouGo(el)) { applied.add(key); continue; }
         applyRemoval(el);
         applied.add(key);
         continue;
@@ -165,10 +168,13 @@
     }
   }
 
-  // Same keys as functions/_lib/draft-only-sections.js DRAFT_ONLY_REMOVE_KEYS.
-  function isDraftOnlySelector(selector) {
-    const value = String(selector || "").trim();
-    return value === "#evInfoSection" || value === "main > #evInfoSection";
+  // True when removing el would hide Before You Go: the section itself, its
+  // info grid, or any wrapper that holds the section. Matches the ids in
+  // functions/_lib/draft-only-sections.js.
+  function hidesBeforeYouGo(el) {
+    if (!el) return false;
+    if (el.id === "evInfoSection" || el.id === "evInfoGrid") return true;
+    return typeof el.querySelector === "function" && !!el.querySelector("#evInfoSection");
   }
 
   // A removed page section is hidden, never taken out of the DOM. event.html

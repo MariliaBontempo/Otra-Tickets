@@ -161,7 +161,8 @@ function extractFunction(name, source) {
   const lib = await import(new URL('../functions/_lib/draft-only-sections.js', import.meta.url));
   const adminKeys = (html.match(/const DRAFT_ONLY_REMOVE_KEYS = (\[[^\]]*\]);/) || [])[1];
   assert(adminKeys && JSON.stringify(JSON.parse(adminKeys)) === JSON.stringify([...lib.DRAFT_ONLY_REMOVE_KEYS]), 'admin and server must agree on the draft-only keys');
-  assert(/value === "#evInfoSection" \|\| value === "main > #evInfoSection"/.test(overrides), 'site-overrides.js must know the same draft-only selectors');
+  assert(/el\.id === "evInfoSection" \|\| el\.id === "evInfoGrid"/.test(overrides), 'site-overrides.js must guard Before You Go by element');
+  assert(/draftOnlyRemovalsOk = override\.draftOnlyRemovals === true && \/\^draft-\(\?!prod-\)\/\.test\(id\)/.test(overrides), 'site-overrides.js must take the draft-only permission from the server');
   assert(/id="evInfoSection"/.test(eventHtml), 'event.html Before You Go section must keep id evInfoSection');
 
   const store = new Map();
@@ -188,8 +189,9 @@ function extractFunction(name, source) {
   assert(await lib.allowsDraftOnlyRemovals(kv, unboundPubDraft) === false, 'a draft with publishedAt must not hide Before You Go');
   assert(await lib.allowsDraftOnlyRemovals(kv, '8266') === false, 'a live Otra Guide page must not hide Before You Go');
   assert(await lib.allowsDraftOnlyRemovals(kv, 'draft-prod-8266') === false, 'draft-prod ids are live pages');
-  const stripped = lib.withoutDraftOnlyRemovals({ ...hideFields, 'remove:main > #evInfoSection': { type: 'remove' }, 'remove:#story': { type: 'remove' } });
-  assert(!stripped['remove:#evInfoSection'] && !stripped['remove:main > #evInfoSection'] && stripped['remove:#story'] && stripped['text:#evBandText'], 'strip drops only the Before You Go hide');
+  const stripped = lib.withoutDraftOnlyRemovals({ ...hideFields, 'remove:main > #evInfoSection': { type: 'remove' }, 'remove:section#evInfoSection': { type: 'remove' }, 'remove:main >  #evInfoGrid': { type: 'remove' }, 'remove:#story': { type: 'remove' }, 'remove:#evInfoSection > div': { type: 'remove' } });
+  assert(!stripped['remove:#evInfoSection'] && !stripped['remove:main > #evInfoSection'] && !stripped['remove:section#evInfoSection'] && !stripped['remove:main >  #evInfoGrid'], 'strip drops every id based Before You Go hide');
+  assert(stripped['remove:#story'] && stripped['text:#evBandText'] && stripped['remove:#evInfoSection > div'], 'strip keeps other fields and inner cell removals');
 
   // Public endpoint, end to end with the fake KV.
   const realFetch = globalThis.fetch;
@@ -199,8 +201,11 @@ function extractFunction(name, source) {
     const read = async (id) => {
       const resp = await onRequestGet({ request: new Request(`https://otratickets.com/api/override?id=${id}`), env: { OVERRIDES: kv } });
       const data = await resp.json();
+      if (data.override) { flags[id] = data.override.draftOnlyRemovals; flagObjs[id] = data.override; }
       return data.override ? data.override.fields : null;
     };
+    const flags = {};
+    const flagObjs = {};
     const draftFields = await read(draftId);
     assert(draftFields && draftFields['remove:#evInfoSection'], 'the unpublished draft page must get its Before You Go hide');
     assert(draftFields && draftFields['text:#evBandText'], 'the draft keeps its Details wording');
@@ -211,6 +216,7 @@ function extractFunction(name, source) {
     assert(pub && !pub['remove:#evInfoSection'], 'a published draft id must keep Before You Go');
     const unbound = await read(unboundPubDraft);
     assert(unbound && !unbound['remove:#evInfoSection'], 'a draft with publishedAt must keep Before You Go');
+    assert(flags[draftId] === true && !('draftOnlyRemovals' in flagObjs['8266']) && flags[pubDraftId] === undefined && flags[unboundPubDraft] === undefined, 'only the unpublished draft gets draftOnlyRemovals, got ' + JSON.stringify(flags));
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -222,25 +228,33 @@ function extractFunction(name, source) {
   assert(/allowsDraftOnlyRemovals\(kv, id\)\)\) override\.fields = withoutDraftOnlyRemovals/.test(get), 'admin GET must drop the hide on live pages');
   assert(/allowsDraftOnlyRemovals\(kv, id\)\)\) override\.fields = withoutDraftOnlyRemovals[\s\S]*kv\.put\(KEY\(id\)/.test(put), 'admin PUT must drop the hide before storing a live page');
 
-  // site-overrides.js ignores the hide on a numeric (live) page id.
+  // site-overrides.js hides Before You Go only when the server allows it, by
+  // id or through a wrapper selector.
   {
     const apply = extractFunction('applyFieldOverrides', overrides);
     const hidden = [];
-    const els = { '#evInfoSection': { id: 'evInfoSection', tagName: 'SECTION' }, '#story': { id: 'story', tagName: 'SECTION' } };
-    const run = (id) => {
+    const byg = { id: 'evInfoSection', tagName: 'SECTION', querySelector: () => null };
+    const els = {
+      '#evInfoSection': byg,
+      'main > section:nth-of-type(7)': byg,
+      '#evInfoGrid': { id: 'evInfoGrid', tagName: 'DIV', querySelector: () => null },
+      'main > div:nth-of-type(1)': { id: '', tagName: 'DIV', querySelector: (sel) => (sel === '#evInfoSection' ? byg : null) },
+      '#story': { id: 'story', tagName: 'SECTION', querySelector: () => null },
+    };
+    const run = (id, ok) => {
       hidden.length = 0;
-      const ctx = { id, document: { querySelector: (sel) => els[sel] || null }, applyRemoval: (el) => hidden.push(el.id), setTimeout: () => {}, tidyMetaLine: () => {} };
+      const ctx = { id, draftOnlyRemovalsOk: ok, document: { querySelector: (sel) => els[sel] || null }, applyRemoval: (el) => hidden.push(el.id || 'wrapper'), setTimeout: () => {}, tidyMetaLine: () => {} };
       vm.createContext(ctx);
-      vm.runInContext(extractFunction('isDraftOnlySelector', overrides) + '\n' + apply, ctx);
-      ctx.applyFieldOverrides({ 'remove:#evInfoSection': { type: 'remove', value: '1' }, 'remove:#story': { type: 'remove', value: '1' } });
+      vm.runInContext(extractFunction('hidesBeforeYouGo', overrides) + '\n' + apply, ctx);
+      ctx.applyFieldOverrides(Object.fromEntries(Object.keys(els).map((sel) => ['remove:' + sel, { type: 'remove', value: '1' }])));
       return [...hidden];
     };
-    const onLive = run('8266');
-    assert(!onLive.includes('evInfoSection') && onLive.includes('story'), 'live page must not hide Before You Go, got ' + JSON.stringify(onLive));
-    const onProd = run('draft-prod-8266');
-    assert(!onProd.includes('evInfoSection'), 'a draft-prod page is live and must keep Before You Go, got ' + JSON.stringify(onProd));
-    const onDraft = run(draftId);
-    assert(onDraft.includes('evInfoSection'), 'draft page must hide Before You Go, got ' + JSON.stringify(onDraft));
+    const onLive = run('8266', false);
+    assert(JSON.stringify(onLive) === JSON.stringify(['story']), 'live page must keep Before You Go under every selector, got ' + JSON.stringify(onLive));
+    const onPubDraft = run(pubDraftId, false);
+    assert(JSON.stringify(onPubDraft) === JSON.stringify(['story']), 'published draft page must keep Before You Go, got ' + JSON.stringify(onPubDraft));
+    const onDraft = run(draftId, true);
+    assert(onDraft.includes('evInfoSection') && onDraft.includes('story'), 'unpublished draft page must hide Before You Go, got ' + JSON.stringify(onDraft));
   }
 
   // Editor control: draft only, confirm first, never a section X.

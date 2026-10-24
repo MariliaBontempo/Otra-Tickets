@@ -14,8 +14,14 @@ export const DRAFT_ONLY_REMOVE_KEYS = Object.freeze([
   "remove:main > #evInfoSection",
 ]);
 
+// Any remove field that targets Before You Go or its info grid by id, with
+// or without a "main >" or "section" prefix. Selectors that reach it by
+// position are caught on the page by site-overrides.js hidesBeforeYouGo.
+const DRAFT_ONLY_REMOVE_RE = /^remove:\s*(?:main\s*>\s*)?(?:section)?#evInfo(?:Section|Grid)\s*$/;
+
 export function isDraftOnlyRemoveKey(key) {
-  return DRAFT_ONLY_REMOVE_KEYS.includes(String(key || "").trim());
+  const value = String(key || "").trim();
+  return DRAFT_ONLY_REMOVE_KEYS.includes(value) || DRAFT_ONLY_REMOVE_RE.test(value);
 }
 
 export function isUnpublishedDraft(project) {

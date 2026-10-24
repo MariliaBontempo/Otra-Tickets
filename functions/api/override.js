@@ -44,6 +44,8 @@ export async function onRequestGet(context) {
         checkoutEventId: typeof override.checkoutEventId === "string" && /^\d+$/.test(override.checkoutEventId) ? override.checkoutEventId : "",
         accentColor: /^#[0-9A-Fa-f]{6}$/.test(rawAccent) ? rawAccent.toLowerCase() : "",
         fields: normalizeFields(rawFields),
+        // Sent only on an unpublished draft, so live answers keep their shape.
+        ...(draftOnlyOk ? { draftOnlyRemovals: true } : {}),
         updatedAt: typeof override.updatedAt === "string" ? override.updatedAt : null,
       },
     });
