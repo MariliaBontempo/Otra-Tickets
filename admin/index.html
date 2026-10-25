@@ -3914,6 +3914,13 @@
   // as functions/_lib/draft-only-sections.js.
   const DRAFT_ONLY_REMOVE_KEYS = ["remove:#evInfoSection", "remove:main > #evInfoSection"];
   const DRAFT_BYG_KEY = DRAFT_ONLY_REMOVE_KEYS[0];
+  // Same match as isDraftOnlyRemoveKey on the server, so the button state
+  // and Restore agree with what the server strips.
+  const DRAFT_ONLY_REMOVE_RE = /^remove:\s*(?:main\s*>\s*)?(?:section)?#evInfo(?:Section|Grid)\s*$/;
+  function isDraftOnlyRemoveKey(key) {
+    const value = String(key || "").trim();
+    return DRAFT_ONLY_REMOVE_KEYS.includes(value) || DRAFT_ONLY_REMOVE_RE.test(value);
+  }
 
   function isProtectedSection(el) {
     if (!el || !el.matches) return true;
@@ -3979,7 +3986,7 @@
     const fields = currentOverride && currentOverride.fields ? currentOverride.fields : {};
     return Object.keys(fields).filter((key) => {
       const field = fields[key];
-      return key.startsWith("remove:") && field && field.type === "remove" && field.kind !== "price-card" && !DRAFT_ONLY_REMOVE_KEYS.includes(key);
+      return key.startsWith("remove:") && field && field.type === "remove" && field.kind !== "price-card" && !isDraftOnlyRemoveKey(key);
     });
   }
 
@@ -4022,7 +4029,7 @@
 
   function draftBeforeYouGoHidden() {
     const fields = currentOverride && currentOverride.fields ? currentOverride.fields : {};
-    return DRAFT_ONLY_REMOVE_KEYS.some((key) => fields[key] && fields[key].type === "remove");
+    return Object.keys(fields).some((key) => isDraftOnlyRemoveKey(key) && fields[key] && fields[key].type === "remove");
   }
 
   function updateDraftBeforeYouGoControl() {
@@ -4046,7 +4053,7 @@
     setStatus(hidden ? "Showing Before You Go..." : "Hiding Before You Go...");
     try {
       await persistOverrideFields((fields) => {
-        DRAFT_ONLY_REMOVE_KEYS.forEach((key) => delete fields[key]);
+        Object.keys(fields).filter(isDraftOnlyRemoveKey).forEach((key) => delete fields[key]);
         if (!hidden) fields[DRAFT_BYG_KEY] = { type: "remove", value: "1" };
       });
       refreshPreview();

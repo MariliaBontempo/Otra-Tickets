@@ -148,8 +148,9 @@ function extractFunction(name, source) {
     'text:#evTitle': { type: 'text', value: 'x' },
   } } };
   ctx.currentOverride.fields['remove:#evInfoSection'] = { type: 'remove', value: '1' };
+  ctx.currentOverride.fields['remove:section#evInfoSection'] = { type: 'remove', value: '1' };
   vm.createContext(ctx);
-  vm.runInContext((html.match(/const DRAFT_ONLY_REMOVE_KEYS = \[[^\]]*\];/) || [''])[0] + '\n' + keys, ctx);
+  vm.runInContext((html.match(/const DRAFT_ONLY_REMOVE_KEYS = \[[^\]]*\];/) || [''])[0] + '\n' + (html.match(/const DRAFT_ONLY_REMOVE_RE = .*;/) || [''])[0] + '\n' + extractFunction('isDraftOnlyRemoveKey', html) + '\n' + keys, ctx);
   const got = ctx.removedSectionKeys();
   assert(got.length === 2 && got.includes('remove:#story') && got.includes('remove:main > section:nth-of-type(2)'), 'Restore removed sections must list section removals only, got ' + JSON.stringify(got));
   assert(/removedSectionKeys\(\)[\s\S]{0,400}delete fields\[key\]/.test(extractFunction('restoreRemovedSections', html)), 'restore must delete the remove fields');
@@ -160,6 +161,12 @@ function extractFunction(name, source) {
 {
   const lib = await import(new URL('../functions/_lib/draft-only-sections.js', import.meta.url));
   const adminKeys = (html.match(/const DRAFT_ONLY_REMOVE_KEYS = (\[[^\]]*\]);/) || [])[1];
+  const adminRe = (html.match(/const DRAFT_ONLY_REMOVE_RE = (\/.*\/);/) || [])[1];
+  const libSrc = fs.readFileSync(new URL('../functions/_lib/draft-only-sections.js', import.meta.url), 'utf8');
+  const libRe = (libSrc.match(/const DRAFT_ONLY_REMOVE_RE = (\/.*\/);/) || [])[1];
+  assert(adminRe && adminRe === libRe, 'admin and server must use the same Before You Go key regex');
+  assert(/Object\.keys\(fields\)\.some\(\(key\) => isDraftOnlyRemoveKey\(key\)/.test(extractFunction('draftBeforeYouGoHidden', html)), 'the Hide button state must use the shared key match');
+  assert(/Object\.keys\(fields\)\.filter\(isDraftOnlyRemoveKey\)/.test(extractFunction('toggleDraftBeforeYouGo', html)), 'Show must clear every Before You Go key the server would strip');
   assert(adminKeys && JSON.stringify(JSON.parse(adminKeys)) === JSON.stringify([...lib.DRAFT_ONLY_REMOVE_KEYS]), 'admin and server must agree on the draft-only keys');
   assert(/el\.id === "evInfoSection" \|\| el\.id === "evInfoGrid"/.test(overrides), 'site-overrides.js must guard Before You Go by element');
   assert(/draftOnlyRemovalsOk = override\.draftOnlyRemovals === true && \/\^draft-\(\?!prod-\)\/\.test\(id\)/.test(overrides), 'site-overrides.js must take the draft-only permission from the server');
