@@ -35,10 +35,12 @@
     "check:admin-audit-log": "node scripts/check-admin-audit-log.mjs",
     "check:feed-fast-path": "node scripts/check-feed-fast-path.mjs",
     "check:admin-remove-video": "node scripts/check-admin-remove-video.mjs",
+    "check:admin-remove-section": "node scripts/check-admin-remove-section.mjs",
     "check:search-card-schedule": "node scripts/check-search-card-schedule.mjs",
     "check:publish-draft-edits": "node scripts/check-publish-keeps-draft-edits.mjs",
     "check:hero-meta-empty": "node scripts/check-hero-meta-empty-items.mjs",
     "check:admin-editor-list": "node scripts/check-admin-editor-list.mjs",
-    "check:admin-empty-image-slots": "node scripts/check-admin-empty-image-slots.mjs"
+    "check:admin-empty-image-slots": "node scripts/check-admin-empty-image-slots.mjs",
+    "check:band-text": "node scripts/check-band-text.mjs"
   }
 }

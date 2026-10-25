@@ -5,7 +5,7 @@ export function contentSnapshot(project) {
 
 export function validateContentPatch(patch, project) {
   if (!patch || typeof patch !== "object" || Array.isArray(patch)) throw new Error("content is required");
-  const textLimits = { description: 20000, bandEyebrow: 200, bandTitle: 500, sponsorTitle: 500, sponsorText: 10000 };
+  const textLimits = { description: 20000, bandEyebrow: 200, bandTitle: 500, bandText: 8000, sponsorTitle: 500, sponsorText: 10000 };
   const allowed = new Set([...Object.keys(textLimits), "appreciates", "perkLayout", "sponsorLayout", "sponsorGroups"]);
   const fields = Object.keys(patch);
   if (!fields.length || fields.some(key => !allowed.has(key))) throw new Error("unsupported content field");

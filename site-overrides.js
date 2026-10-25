@@ -11,6 +11,8 @@
   }
   const id = inferOverrideId();
   if (!id) return;
+  // Set from the server answer: true only on an unpublished draft page.
+  let draftOnlyRemovalsOk = false;
 
   // Staff sessions (the admin editor preview) send the admin token so pages of
   // events hidden on Otra Guide still show their edits there.
@@ -24,6 +26,7 @@
     .then((data) => {
       const override = data && data.override;
       if (!override) return;
+      draftOnlyRemovalsOk = override.draftOnlyRemovals === true && /^draft-(?!prod-)/.test(id);
       applyLegacyOverride(override);
       applyFieldOverrides(override.fields || {});
       if (typeof document.addEventListener === "function") {
@@ -104,7 +107,10 @@
       if (!el) continue;
 
       if (type === "remove" && field.type === "remove") {
-        el.remove();
+        // Before You Go is hidden only on an unpublished draft page; a live
+        // page keeps it whatever selector a saved remove field uses.
+        if (!draftOnlyRemovalsOk && hidesBeforeYouGo(el)) { applied.add(key); continue; }
+        applyRemoval(el);
         applied.add(key);
         continue;
       }
@@ -124,6 +130,7 @@
           el.textContent = value;
           if (value.includes("\n")) el.style.whiteSpace = "pre-line";
         }
+        revealBandText(el, value);
         const infoCell = el.closest && el.closest(".ev-info-cell");
         if (infoCell) syncInfoCellDecorativeState(infoCell);
         applied.add(key);
@@ -159,6 +166,46 @@
     if (remaining.length > 0 && attempt < 30) {
       setTimeout(() => applyFieldOverrides(fields, attempt + 1, applied), 250);
     }
+  }
+
+  // True when removing el would hide Before You Go: the section itself, its
+  // info grid, or any wrapper that holds the section. Matches the ids in
+  // functions/_lib/draft-only-sections.js.
+  function hidesBeforeYouGo(el) {
+    if (!el) return false;
+    if (el.id === "evInfoSection" || el.id === "evInfoGrid") return true;
+    return typeof el.querySelector === "function" && !!el.querySelector("#evInfoSection");
+  }
+
+  // A removed page section is hidden, never taken out of the DOM. event.html
+  // renders into its sections by id ($("evRatesSection").querySelector(...))
+  // and the edits load in parallel with the event, so a section deleted
+  // before the render made that render throw and stop: every section after
+  // it (prices, checkout) never appeared. Keeping the element also keeps
+  // nth-of-type selectors pointing at the same sections when edits are
+  // applied again after a render, and lets the editor restore it.
+  // Small inner items (a price card) are rebuilt by the render, so they are
+  // still removed outright.
+  function applyRemoval(el) {
+    const tag = String(el.tagName || "").toUpperCase();
+    const isSection = !!el.id || tag === "SECTION" || tag === "FOOTER";
+    if (!isSection || typeof el.setAttribute !== "function") {
+      el.remove();
+      return;
+    }
+    ensureRemovedStyle();
+    el.setAttribute("data-otra-removed", "1");
+    el.hidden = true;
+  }
+
+  function ensureRemovedStyle() {
+    if (typeof document === "undefined" || typeof document.createElement !== "function") return;
+    if (document.getElementById("otra-removed-style")) return;
+    const style = document.createElement("style");
+    style.id = "otra-removed-style";
+    // Triple attribute beats the editor rules that show hidden empty slots.
+    style.textContent = "[data-otra-removed][data-otra-removed][data-otra-removed]{display:none !important}";
+    (document.head || document.documentElement).appendChild(style);
   }
 
   // Hero line (#evMeta): item spans with a <span class="dot"> between them.
@@ -360,6 +407,17 @@
     if (isImage && section.classList.contains("ev-video") && !section.classList.contains("is-live")) {
       section.classList.add("is-image");
     }
+  }
+
+  // Band heading or text saved from the editor on a draft whose design had
+  // no band must make the band (and the hidden text block) show.
+  function revealBandText(el, value) {
+    if (!el || !el.closest || !String(value || "").trim()) return;
+    if (el.id !== "evBandTitle" && el.id !== "evBandText") return;
+    const band = el.closest("#evBandSection");
+    if (!band) return;
+    el.hidden = false;
+    band.hidden = false;
   }
 
   function isVideoUrl(value) {

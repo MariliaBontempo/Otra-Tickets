@@ -611,6 +611,8 @@
       </label>
       <button class="btn ghost" id="saveColorBtn" type="button">Save color</button>
       <button class="btn ghost hidden" id="restorePriceCardsBtn" type="button">Restore hidden price cards</button>
+      <button class="btn ghost hidden" id="restoreSectionsBtn" type="button">Restore removed sections</button>
+      <button class="btn ghost hidden" id="draftBeforeYouGoBtn" type="button">Hide Before You Go on this draft</button>
     </div>
 
     <aside class="history-panel hidden" id="historyPanel">
@@ -788,6 +790,7 @@
       <label>Story<textarea id="draftContentStory" rows="5" maxlength="20000"></textarea></label>
       <label>Section label<input id="draftContentEyebrow" maxlength="200" /></label>
       <label>Section heading<input id="draftContentHeading" maxlength="500" /></label>
+      <label>Section text (shown under the heading as typed)<textarea id="draftContentBandText" rows="6" maxlength="8000"></textarea></label>
       <label>Perk layout<select id="draftContentPerkLayout"><option value="list">Editorial list</option><option value="cards">Photo cards (TJ's design)</option></select></label>
       <div class="stack" id="draftContentItems"></div>
       <button class="btn ghost" id="draftContentAddItem" type="button">Add optional perk</button>
@@ -1526,6 +1529,7 @@
       $("draftContentStory").value = project.description || "";
       $("draftContentEyebrow").value = design.bandEyebrow || "What We Appreciate";
       $("draftContentHeading").value = design.bandTitle || "";
+      $("draftContentBandText").value = design.bandText || "";
       $("draftContentPerkLayout").value = design.perkLayout === "cards" ? "cards" : "list";
       $("draftContentSponsorTitle").value = design.sponsorTitle || "With thanks to our sponsors & friends";
       $("draftContentSponsors").value = design.sponsorText || "";
@@ -1600,6 +1604,7 @@
         description: $("draftContentStory").value,
         bandEyebrow: $("draftContentEyebrow").value,
         bandTitle: $("draftContentHeading").value,
+        bandText: $("draftContentBandText").value,
         perkLayout: $("draftContentPerkLayout").value,
         appreciates: [...$("draftContentItems").children].map(row => ({ name: row.querySelector("[data-content-name]").value, description: row.querySelector("[data-content-description]").value, image: row.querySelector("[data-content-image]").value })),
         sponsorTitle: $("draftContentSponsorTitle").value,
@@ -3372,6 +3377,8 @@
     $("accentColorHex").value = color.toUpperCase();
     showImage($("imageUrl").value);
     updateHiddenPriceCardControl();
+    updateRemovedSectionControl();
+    updateDraftBeforeYouGoControl();
   }
 
   function showImage(src) {
@@ -3556,6 +3563,7 @@
     ensurePreviewStyles(doc);
     watchPreviewResizes(doc);
     revealEmptyImageSlots(doc);
+    revealEmptyTextSlots(doc);
     const fields = candidateElements(doc);
     fields.forEach((field) => {
       const host = editHost(field.element, field);
@@ -3690,6 +3698,25 @@
         pointer-events: none;
       }
       section[data-otra-empty-slot-top]::before { top: 16px; transform: translateX(-50%); }
+      /* Empty band heading and text keep a dashed box with a pencil so the
+         wording can be added on any draft. */
+      [data-otra-empty-text],
+      [hidden][data-otra-empty-text] {
+        display: block !important;
+        min-height: 48px;
+        padding-right: 48px;
+        border: 1px dashed rgba(255,255,255,0.45);
+        border-radius: 8px;
+      }
+      [data-otra-empty-text]::before {
+        content: attr(data-otra-empty-text);
+        display: block;
+        padding: 12px 14px;
+        color: rgba(255,255,255,0.7);
+        font: 600 14px/1.35 system-ui, sans-serif;
+        letter-spacing: 0;
+        text-transform: none;
+      }
     `;
     doc.head.appendChild(style);
   }
@@ -3736,7 +3763,7 @@
       ".ev-info-cell .k", ".ev-info-cell .v",
       ".ev-rate .rk", ".ev-rate .rp", ".ev-rate .rn",
       ".ev-rates-foot", ".row-head .count", ".row-head .see-all", ".ev-note",
-      ".ev-likes span", ".rnb-edition", ".rnb-venue",
+      ".ev-likes span", ".ev-band-text", ".rnb-edition", ".rnb-venue",
       ".btn-metal", ".btn-ghost", "footer .pb", "footer .loc"
     ].join(",");
     const imageSelector = [
@@ -3878,9 +3905,36 @@
     return fields;
   }
 
+  // Whole sections that carry prices, checkout or Before You Go never get a
+  // section X. Price cards keep their own X, and the info cells are edited
+  // with their pencils.
+  const PROTECTED_SECTION_CONTENT = "#book, #otra-checkout-container, #evRates, .ev-rates, .ev-rate, #evInfoGrid, .ev-info-grid";
+
+  // Removals allowed only on an unpublished draft (Before You Go). Same keys
+  // as functions/_lib/draft-only-sections.js.
+  const DRAFT_ONLY_REMOVE_KEYS = ["remove:#evInfoSection", "remove:main > #evInfoSection"];
+  const DRAFT_BYG_KEY = DRAFT_ONLY_REMOVE_KEYS[0];
+  // Same match as isDraftOnlyRemoveKey on the server, so the button state
+  // and Restore agree with what the server strips.
+  const DRAFT_ONLY_REMOVE_RE = /^remove:\s*(?:main\s*>\s*)?(?:section)?#evInfo(?:Section|Grid)\s*$/;
+  function isDraftOnlyRemoveKey(key) {
+    const value = String(key || "").trim();
+    return DRAFT_ONLY_REMOVE_KEYS.includes(value) || DRAFT_ONLY_REMOVE_RE.test(value);
+  }
+
+  function isProtectedSection(el) {
+    if (!el || !el.matches) return true;
+    if (el.matches(PROTECTED_SECTION_CONTENT)) return true;
+    return !!el.querySelector(PROTECTED_SECTION_CONTENT);
+  }
+
   function isRemovableSection(el) {
     if (el.closest("header, nav, .dd-panel, script, style")) return false;
     if (el.id === "book") return false;
+    if (el.hasAttribute && (el.hasAttribute("data-skeleton") || el.hasAttribute("data-otra-removed"))) return false;
+    if (el.tagName === "SECTION" || el.tagName === "FOOTER") {
+      if (isProtectedSection(el)) return false;
+    }
     // A section the template still hides, shown by the editor only so its
     // empty photo slot gets a pencil, is not a real section. Once the page
     // render unhides it for real content, Remove comes back.
@@ -3897,7 +3951,12 @@
     const isPriceCard = field.kind === "price-card";
     const noun = isPriceCard ? "price card" : "section";
     const detail = isPriceCard ? " This only changes the page design; the ticket type and checkout stay unchanged." : "";
-    if (!window.confirm(`Remove this ${noun}${label ? `: ${label}` : ""}?${detail}`)) return;
+    if (!isPriceCard && isProtectedSection(field.element)) {
+      setStatus("This section holds prices, checkout or Before You Go and can't be removed.", "error");
+      return;
+    }
+    const undo = isPriceCard ? "" : " You can bring it back with Restore removed sections.";
+    if (!window.confirm(`Remove this ${noun}${label ? `: ${label}` : ""}?${detail}${undo}`)) return;
     setStatus(`Removing ${noun}...`);
     try {
       await persistOverrideFields((fields) => {
@@ -3919,6 +3978,92 @@
     const text = el && el.querySelector("h1, h2, h3, .ev-eyebrow, .row-head h2, .rk");
     return text ? text.textContent.trim().replace(/\s+/g, " ").slice(0, 80) : "";
   }
+
+  // Section removals are stored without a kind (the server keeps it only
+  // for price cards), so every remove field that is not a price card is a
+  // removed section.
+  function removedSectionKeys() {
+    const fields = currentOverride && currentOverride.fields ? currentOverride.fields : {};
+    return Object.keys(fields).filter((key) => {
+      const field = fields[key];
+      return key.startsWith("remove:") && field && field.type === "remove" && field.kind !== "price-card" && !isDraftOnlyRemoveKey(key);
+    });
+  }
+
+  function updateRemovedSectionControl() {
+    const btn = $("restoreSectionsBtn");
+    if (!btn) return;
+    const count = removedSectionKeys().length;
+    btn.classList.toggle("hidden", count === 0);
+    btn.textContent = count === 1 ? "Restore removed section" : `Restore ${count} removed sections`;
+  }
+
+  async function restoreRemovedSections() {
+    if (!selected) return;
+    const keys = removedSectionKeys();
+    if (!keys.length) return;
+    if (!window.confirm(keys.length === 1 ? "Bring back the removed section?" : `Bring back ${keys.length} removed sections?`)) return;
+    setStatus("Restoring removed sections...");
+    try {
+      await persistOverrideFields((fields) => keys.forEach((key) => delete fields[key]));
+      refreshPreview();
+      setStatus(keys.length === 1 ? "Section restored." : `${keys.length} sections restored.`, "ok");
+    } catch (err) {
+      setStatus(err.message, "error");
+    }
+  }
+
+  $("restoreSectionsBtn").addEventListener("click", restoreRemovedSections);
+
+  // Before You Go holds the info grid, so it never gets a section X. On an
+  // unpublished draft it can still be hidden on purpose with this button.
+  // The hide is stored only in this draft's edits, and the server and the
+  // public page drop it on any live or published page, so Before You Go
+  // always stays on published pages.
+
+  function canHideBeforeYouGo(page) {
+    if (!page || !isDraft(page)) return false;
+    if (page.status !== "draft" || page.publishedAt || page.archivedAt) return false;
+    return /^draft-(?!prod-)[a-zA-Z0-9-]+$/.test(overrideIdForPage(page));
+  }
+
+  function draftBeforeYouGoHidden() {
+    const fields = currentOverride && currentOverride.fields ? currentOverride.fields : {};
+    return Object.keys(fields).some((key) => isDraftOnlyRemoveKey(key) && fields[key] && fields[key].type === "remove");
+  }
+
+  function updateDraftBeforeYouGoControl() {
+    const btn = $("draftBeforeYouGoBtn");
+    if (!btn) return;
+    const show = canHideBeforeYouGo(selected);
+    btn.classList.toggle("hidden", !show);
+    btn.textContent = draftBeforeYouGoHidden() ? "Show Before You Go on this draft" : "Hide Before You Go on this draft";
+  }
+
+  async function toggleDraftBeforeYouGo() {
+    if (!canHideBeforeYouGo(selected)) {
+      setStatus("Before You Go can only be hidden on an unpublished draft.", "error");
+      return;
+    }
+    const hidden = draftBeforeYouGoHidden();
+    const question = hidden
+      ? "Show Before You Go again on this draft?"
+      : "Hide Before You Go on this draft? Prices and checkout stay. Published pages always keep Before You Go.";
+    if (!window.confirm(question)) return;
+    setStatus(hidden ? "Showing Before You Go..." : "Hiding Before You Go...");
+    try {
+      await persistOverrideFields((fields) => {
+        Object.keys(fields).filter(isDraftOnlyRemoveKey).forEach((key) => delete fields[key]);
+        if (!hidden) fields[DRAFT_BYG_KEY] = { type: "remove", value: "1" };
+      });
+      refreshPreview();
+      setStatus(hidden ? "Before You Go is back on this draft." : "Before You Go hidden on this draft.", "ok");
+    } catch (err) {
+      setStatus(err.message, "error");
+    }
+  }
+
+  $("draftBeforeYouGoBtn").addEventListener("click", toggleDraftBeforeYouGo);
 
   function hiddenPriceCardKeys() {
     const fields = currentOverride && currentOverride.fields ? currentOverride.fields : {};
@@ -4019,6 +4164,7 @@
     if (el.closest("[data-otra-admin-edit]")) return false;
     if (el.closest("header, nav, .dd-panel, script, style")) return false;
     if (el.textContent.trim()) return true;
+    if (el.hasAttribute && el.hasAttribute("data-otra-empty-text")) return true;
     const saved = fieldOverrideForKey(key);
     return !!(saved && saved.type === "text");
   }
@@ -4074,6 +4220,7 @@
       // A hidden story image is shown by the editor CSS; hidden stays as the
       // template set it.
       el.setAttribute("data-otra-empty-slot", "1");
+      if (section && section.hasAttribute("data-otra-removed")) return;
       if (section) {
         if (slot.label) {
           section.setAttribute("data-otra-empty-slot-label", slot.label + " is empty. Click the pencil to upload.");
@@ -4093,6 +4240,30 @@
         }
       }
       revealed.push(slot.image);
+    });
+    return revealed;
+  }
+
+  // The appreciation band heading and text are empty on a draft whose design
+  // has no wording for them, so the generic text rule finds nothing to edit.
+  // Mark them so the editor shows a dashed box with a pencil. The marker
+  // clears as soon as the element has text.
+  const EMPTY_TEXT_SLOTS = [
+    { text: "#evBandTitle", label: "Add a section heading" },
+    { text: "#evBandText", label: "Add section text" },
+  ];
+
+  function revealEmptyTextSlots(doc) {
+    const revealed = [];
+    EMPTY_TEXT_SLOTS.forEach((slot) => {
+      const el = doc.querySelector(slot.text);
+      if (!el) return;
+      if ((el.textContent || "").trim()) {
+        el.removeAttribute("data-otra-empty-text");
+        return;
+      }
+      el.setAttribute("data-otra-empty-text", slot.label);
+      revealed.push(slot.text);
     });
     return revealed;
   }
