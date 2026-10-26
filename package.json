@@ -41,6 +41,7 @@
     "check:hero-meta-empty": "node scripts/check-hero-meta-empty-items.mjs",
     "check:admin-editor-list": "node scripts/check-admin-editor-list.mjs",
     "check:admin-empty-image-slots": "node scripts/check-admin-empty-image-slots.mjs",
-    "check:band-text": "node scripts/check-band-text.mjs"
+    "check:band-text": "node scripts/check-band-text.mjs",
+    "check:admin-override-conflict": "node scripts/check-admin-override-conflict.mjs"
   }
 }

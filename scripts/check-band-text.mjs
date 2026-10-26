@@ -54,7 +54,7 @@ assert(eventHtml.includes('$("evBandText").textContent = design.bandText || "";'
 assert(/textLimits = \{[^}]*bandText: 8000/.test(validator), 'the server must accept bandText up to 8000 characters');
 assert(/<textarea id="draftContentBandText" rows="\d+" maxlength="8000"><\/textarea>/.test(html), 'draft content modal must have a Section text textarea');
 assert(html.includes('$("draftContentBandText").value = design.bandText || "";'), 'Section text must load the saved band text');
-assert(html.includes('bandText: $("draftContentBandText").value,'), 'Section text must be saved');
+assert(/bandText: \{ input: "draftContentBandText"/.test(html) && html.includes('...draftContentPencilValues(),'), 'Section text must be saved');
 const label = (html.match(/<label>(Section text[^<]*)<textarea id="draftContentBandText"/) || [])[1] || '';
 assert(label && !/[-\u2010-\u2015]/.test(label), 'Section text label must exist and have no hyphen or dash');
 
