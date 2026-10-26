@@ -2,6 +2,7 @@ import { eventSlug } from "./_lib/event-slug.js";
 import { SLUG_ALIASES } from "./_lib/slug-aliases.js";
 import { onRequestGet as getHomepageEvents } from "./api/homepage-events.js";
 import { findUnlistedSiteEvent } from "./_lib/homepage-feed.js";
+import { setNoStore } from "./_lib/no-store.js";
 
 const STATIC_PATHS = new Set([
   "admin",
@@ -100,7 +101,14 @@ export async function onRequestGet(context) {
   const id = String(event.id || "");
   const assetPath = SPECIAL_EVENT_ASSETS[id] || "/event";
   const assetResponse = await context.env.ASSETS.fetch(new URL(assetPath, context.request.url));
-  if (!assetResponse.ok || assetPath !== "/event") return assetResponse;
+  if (!assetResponse.ok || assetPath !== "/event") {
+    // A special page (Clearboat, R&B) or an asset error reached through an
+    // unlisted link must not carry the asset's own cacheable headers.
+    if (!unlisted) return assetResponse;
+    const headers = setNoStore(new Headers(assetResponse.headers));
+    headers.set("x-robots-tag", "noindex, nofollow");
+    return new Response(assetResponse.body, { status: assetResponse.status, headers });
+  }
 
   const html = await assetResponse.text();
   const body = injectEventHead(
@@ -114,9 +122,16 @@ export async function onRequestGet(context) {
   );
   const headers = new Headers(assetResponse.headers);
   headers.set("content-type", "text/html; charset=utf-8");
-  // Link only pages are never cached, so unlisting, relisting or a link
-  // change applies on the next request, not up to a minute later.
-  headers.set("cache-control", unlisted ? "no-store" : "public, max-age=60");
+  // Link only pages are never stored anywhere, so unlisting, relisting or a
+  // link change applies on the next request. A listed page revalidates on
+  // every load (the _headers HTML rule) so a copy taken before it was
+  // unlisted cannot be reused either.
+  if (unlisted) setNoStore(headers);
+  else {
+    headers.set("cache-control", "public, max-age=0, must-revalidate");
+    headers.delete("etag");
+    headers.delete("last-modified");
+  }
   headers.set("link", `</${slug}>; rel="canonical"`);
   // Link only: keep it out of search engines too.
   if (unlisted) headers.set("x-robots-tag", "noindex, nofollow");
@@ -272,14 +287,16 @@ function permanentRedirect(location) {
 function aliasRedirect(location) {
   return new Response(null, {
     status: 302,
-    headers: { location, "cache-control": "no-store" },
+    headers: setNoStore(new Headers({ location })),
   });
 }
 
+// no-store: a slug that 404s now may become an unlisted link (or the other
+// way round) on the next admin change.
 function notFound() {
   return new Response("Not found", {
     status: 404,
-    headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" },
+    headers: setNoStore(new Headers({ "content-type": "text/plain; charset=utf-8" })),
   });
 }
 

@@ -11,6 +11,7 @@ import { findBoundProjects, resolvePageOverride } from "../_lib/page-override.js
 import { readHiddenPageIds } from "../_lib/hidden-pages.js";
 import { isServableUnlisted, isUnlistedProject } from "../_lib/unlisted.js";
 import { isUnlistedLink } from "../_lib/homepage-feed.js";
+import { setNoStore } from "../_lib/no-store.js";
 import { hasEnded } from "../_lib/event-ended.js";
 import { heroMetaItems } from "../_lib/hero-meta-text.js";
 import { ticketSaleState, withSaleState } from "../_lib/ticket-sale-state.js";
@@ -27,6 +28,9 @@ const PROJECT_DATES = Symbol("projectDates");
 // Otra Guide failed (5xx, 429, timeout) rather than answering 404: the page
 // shows its error state, never "not found", and nothing is cached.
 const UPSTREAM_FAILED = Symbol("upstreamFailed");
+// A draft id (draft-...) whose own project is unlisted: kept off the JSON
+// like PROJECT_DATES; the response is then marked unlisted and never cached.
+const DRAFT_UNLISTED = Symbol("draftUnlisted");
 
 const ACCENT_OVERRIDES = {
   "6113": "#1fa9a0", // Clearboat — turquoise from the original handoff design
@@ -117,6 +121,12 @@ export async function onRequestGet(context) {
     else delete payload.slug;
   }
   // A listed page never points visitors at another page's unlisted link.
+  // A draft id has no bound project; its own unlisted flag decides. Its URL
+  // stays /event?id=draft-... (never moved to a link) and it is noindex.
+  if (isDraftId(id) && base[DRAFT_UNLISTED] === true) {
+    payload.unlisted = true;
+    delete payload.slug;
+  }
   let touchesUnlisted = payload.unlisted === true || isUnlistedProject(project) || isUnlistedProject(livePage);
   if (!payload.unlisted && payload.slug && (await isUnlistedLink(context.env, payload.slug))) {
     delete payload.slug;
@@ -128,9 +138,10 @@ export async function onRequestGet(context) {
   // An override can point checkout at another Guide event (a newer edition
   // still on sale), so only the page's own checkout follows its dates.
   payload.isPast = isPastPayload(payload, base.checkoutEventId);
-  // Anything shaped by an unlisted page is never cached, so a toggle or link
-  // change shows on the next request.
-  return json(payload, 200, staffPreview || override || touchesUnlisted ? 0 : 60);
+  // Anything shaped by an unlisted page is never stored, so a toggle or link
+  // change shows on the next request. Everything else revalidates on every
+  // load, so a copy taken before a page was unlisted is never reused.
+  return json(payload, 200, !(staffPreview || override || touchesUnlisted));
 }
 
 async function getBasePayload(context, id, url, project) {
@@ -287,6 +298,7 @@ async function getDraftPayload(env, id) {
     status: draft.status === "published" ? "published" : "draft",
     design: draft.claudeDesign && typeof draft.claudeDesign === "object" ? draft.claudeDesign : null,
     adminOnly: draft.adminOnly === true,
+    [DRAFT_UNLISTED]: isUnlistedProject(draft),
     [PROJECT_DATES]: {
       startDate: typeof draft.startDate === "string" ? draft.startDate : "",
       endDate: typeof draft.endDate === "string" ? draft.endDate : "",
@@ -342,14 +354,15 @@ function isDraftId(id) {
   return /^draft-[a-zA-Z0-9-]+$/.test(id);
 }
 
-function json(obj, status = 200, maxAge = 0) {
-  return new Response(JSON.stringify(obj), {
-    status,
-    headers: {
-      "content-type": "application/json; charset=utf-8",
-      "cache-control": maxAge ? `public, max-age=${maxAge}` : "no-store",
-    },
-  });
+// Errors, staff, override and unlisted answers are no-store (see
+// no-store.js). A plain listed answer may be stored but is revalidated on
+// every load: it never has a public max-age a browser or CDN could reuse.
+export const REVALIDATE = "public, max-age=0, must-revalidate";
+function json(obj, status = 200, cacheable = false) {
+  const headers = new Headers({ "content-type": "application/json; charset=utf-8" });
+  if (cacheable) headers.set("cache-control", REVALIDATE);
+  else setNoStore(headers);
+  return new Response(JSON.stringify(obj), { status, headers });
 }
 
 // The detail fetch also reports the status, so a 404 is told apart from an

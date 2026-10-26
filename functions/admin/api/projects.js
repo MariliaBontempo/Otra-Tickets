@@ -295,11 +295,9 @@ export async function onRequestPost(context) {
       next.frozenSlug = liveSlugBase(project);
     }
     await putProject(kv, next);
-    try {
-      await kv.delete("__homepage_feed_snapshot__");
-    } catch {
-      /* snapshot miss is fine */
-    }
+    // New feed epoch too, so a rebuild already in flight cannot write the
+    // pre-rename snapshot back.
+    await invalidatePublicFeed(kv);
     return json({ project: next });
   }
 

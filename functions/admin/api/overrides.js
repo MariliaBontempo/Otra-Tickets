@@ -9,6 +9,7 @@ import { resyncPublishedProjectPhotos } from "./projects.js";
 import { allowsDraftOnlyRemovals, withoutDraftOnlyRemovals } from "../../_lib/draft-only-sections.js";
 import { PAGE_EDITS_VERSION, TOP_LEVEL_KEYS, isLegacyDoc, isPublishedBound, isOtraGuideId, resolvePageOverride } from "../../_lib/page-override.js";
 import { OVERRIDE_CONFLICT_MESSAGE, mergeOverrideSave } from "../../_lib/override-conflict.js";
+import { invalidatePublicFeed } from "../../_lib/homepage-feed.js";
 
 const KEY = (id) => `event:${id}`;
 
@@ -127,11 +128,9 @@ export async function onRequestPut(context) {
   });
   // Drop the public homepage snapshot so the next /api/homepage-events rebuild
   // picks up renamed titles and new hero photos instead of serving stale cards.
-  try {
-    await kv.delete("__homepage_feed_snapshot__");
-  } catch {
-    /* snapshot miss is fine */
-  }
+  // invalidatePublicFeed also moves the feed epoch, so a rebuild already in
+  // flight cannot write the old cards back.
+  await invalidatePublicFeed(kv);
 
   // A photo edit on an already-published event must reach Otra Guide too -
   // publish-time sync alone would leave its gallery stuck at the photos from

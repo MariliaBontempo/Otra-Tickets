@@ -21,20 +21,22 @@
 // staff-only admin preview endpoint (/admin/api/homepage-events). This public
 // route never includes admin-only events, so its cached responses stay safe.
 
-import { getPublicHomepageFeed, EDGE_TTL } from "../_lib/homepage-feed.js";
+import { getPublicHomepageFeed } from "../_lib/homepage-feed.js";
+import { setNoStore } from "../_lib/no-store.js";
 
 export async function onRequestGet(context) {
   const url = new URL(context.request.url);
   const forceFresh = url.searchParams.get("fresh") === "1";
-  const { events, rows, hasSiteEvents, feedSource } = await getPublicHomepageFeed(context, { forceFresh });
-  return json({ events, rows }, 200, hasSiteEvents ? 0 : 120, feedSource);
+  const { events, rows, feedSource } = await getPublicHomepageFeed(context, { forceFresh });
+  // Never stored: any page can be unlisted at any moment, and a copy of the
+  // feed taken before that (a browser's stale-while-revalidate included)
+  // would keep listing it. It used to get a 120s public cache when no site
+  // page existed, which the first unlisted publish then raced.
+  return json({ events, rows }, 200, feedSource);
 }
 
-function json(obj, status = 200, maxAge = 0, feedSource = "") {
-  const headers = {
-    "content-type": "application/json; charset=utf-8",
-    "cache-control": maxAge ? `public, max-age=${maxAge}, stale-while-revalidate=${EDGE_TTL}` : "no-store",
-  };
-  if (feedSource) headers["x-feed-source"] = feedSource;
+function json(obj, status = 200, feedSource = "") {
+  const headers = setNoStore(new Headers({ "content-type": "application/json; charset=utf-8" }));
+  if (feedSource) headers.set("x-feed-source", feedSource);
   return new Response(JSON.stringify(obj), { status, headers });
 }

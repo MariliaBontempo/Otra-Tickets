@@ -427,21 +427,31 @@ function isSnapshotUsable(snapshot) {
 // `epoch` is the feed epoch read before the build started; a build that
 // raced an admin change (new epoch) is not written.
 async function writeSnapshot(env, { events, rows, hasSiteEvents }, epoch = "") {
-  if (!env || !env.OVERRIDES || !events.length) return;
-  if ((await readFeedEpoch(env)) !== epoch) return;
+  if (!env || !env.OVERRIDES || !events.length || epoch === null) return;
+  const current = await readFeedEpoch(env);
+  if (current === null || current !== epoch) return;
   const snapshot = { events, rows, hasSiteEvents, generatedAt: Date.now() };
   if (epoch) snapshot.epoch = epoch;
   await env.OVERRIDES.put(SNAPSHOT_KEY, JSON.stringify(snapshot));
 }
 
+// "" when no epoch was ever set. null when it could not be read: then no
+// snapshot is served or written (fail closed), so a read error can never
+// let a copy from before an unlist through.
 async function readFeedEpoch(env) {
   if (!env || !env.OVERRIDES) return "";
   try {
     const raw = await env.OVERRIDES.get(FEED_EPOCH_KEY, "json");
     return raw && typeof raw.epoch === "string" ? raw.epoch : "";
   } catch {
-    return "";
+    return null;
   }
+}
+
+// The one rule for trusting a snapshot: it was written under the current
+// feed epoch, and that epoch was read.
+function snapshotMatchesEpoch(snapshot, epoch) {
+  return Boolean(snapshot) && epoch !== null && String(snapshot.epoch || "") === epoch;
 }
 
 // Take the public feed off its snapshot now: new epoch (so no in flight
@@ -464,10 +474,12 @@ export async function invalidatePublicFeed(kv) {
 }
 
 // The events of the last public snapshot, or an empty list. Read only:
-// unlike getPublicHomepageFeed it never starts a background rebuild.
+// unlike getPublicHomepageFeed it never starts a background rebuild. Same
+// epoch rule as the feed: a snapshot from before the last unlist or link
+// change is never used.
 export async function snapshotEvents(env) {
-  const snapshot = await readSnapshot(env);
-  return snapshot ? snapshot.events : [];
+  const [snapshot, epoch] = await Promise.all([readSnapshot(env), readFeedEpoch(env)]);
+  return snapshotMatchesEpoch(snapshot, epoch) ? snapshot.events : [];
 }
 
 // Public homepage feed with a two-tier latency strategy:
@@ -512,7 +524,7 @@ async function getPublicHomepageFeedRaw(context, { forceFresh = false } = {}) {
     readFeedEpoch(context.env),
   ]);
 
-  if (snapshot && isSnapshotUsable(snapshot) && String(snapshot.epoch || "") === epoch) {
+  if (snapshotMatchesEpoch(snapshot, epoch) && isSnapshotUsable(snapshot)) {
     context.waitUntil(
       buildHomepageFeed(context, {}).then((fresh) => writeSnapshot(context.env, fresh, epoch))
     );
