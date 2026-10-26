@@ -639,7 +639,7 @@ async function readCheckout(context, accessToken, eventId) {
     accessToken,
     new URLSearchParams({ id: String(eventId) })
   );
-  if (adminResults && adminResults.length) return { event: adminResults[0], complete: true };
+  if (adminResults && adminResults.length) return { event: normalizeAdminEvent(adminResults[0]), complete: true };
   return { event: await hydrateFromPublic(context, accessToken, eventId), complete: false };
 }
 
