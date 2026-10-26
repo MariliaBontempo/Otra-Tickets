@@ -48,7 +48,9 @@ const end = { time: "20:00" };
 test("cleared practicalInfo with only the automatic Tickets cell hides Before You Go (Strange Bird 8266/8267)", () => {
   const out = run({ design: { practicalInfo: [], practicalTitle: "" }, ev: { isPerennial: false, tickets: strangeBirdTickets } });
   assert.equal(out.show, false);
-  assert.deepEqual(out.cells, []);
+  // The Tickets cell is still built (kept in the hidden grid for staff
+  // edits and editor pencils), it just does not open the section.
+  assert.deepEqual(out.cells, [["Tickets", "From XCG 500"]]);
 });
 
 test("no design and no dates: tickets alone do not open Before You Go", () => {
@@ -96,9 +98,93 @@ test("From still quotes only on-sale tiers, and ended tiers never set it", () =>
   assert.deepEqual(run({ design: {}, start, end, isPast: true, ev: allEnded }).cells.at(-1), ["Tickets", "From $10"]);
 });
 
-test("the page unhides #evInfoSection only when practicalInfoCells says show", () => {
+test("the page renders every cell but unhides #evInfoSection only when practicalInfoCells says show", () => {
   const block = html.slice(html.indexOf("// ----- PRACTICAL INFO -----"), html.indexOf("// ----- RATES -----"));
-  assert.match(block, /if \(practical\.show\) \{[\s\S]*?\$\("evInfoSection"\)\.hidden = false;/);
+  assert.match(block, /if \(practical\.cells\.length\) \{[\s\S]*?grid\.innerHTML = infoCellMarkup\(practical\.cells\);/);
+  assert.match(block, /if \(practical\.show\) \$\("evInfoSection"\)\.hidden = false;/);
   assert.equal((block.match(/\$\("evInfoSection"\)\.hidden = false/g) || []).length, 1);
   assert.match(html, /<section[^>]*id="evInfoSection"[^>]*hidden>/);
+});
+
+// ---- staff edits on a hidden Before You Go (site-overrides.js) ----
+const overridesSrc = readFileSync(new URL("../../site-overrides.js", import.meta.url), "utf8");
+function extractFrom(source, name) {
+  const start = source.search(new RegExp(`function\\s+${name}\\s*\\(`));
+  assert.ok(start >= 0, `${name} must exist`);
+  const open = source.indexOf("{", source.indexOf(")", start));
+  let depth = 0;
+  for (let i = open; i < source.length; i += 1) {
+    if (source[i] === "{") depth += 1;
+    if (source[i] === "}") { depth -= 1; if (depth === 0) return source.slice(start, i + 1); }
+  }
+  throw new Error(name);
+}
+function fakeSection({ hidden = true, removed = false } = {}) {
+  const attrs = new Map(removed ? [["data-otra-removed", "1"]] : []);
+  return {
+    id: "evInfoSection",
+    hidden,
+    hasAttribute: (k) => attrs.has(k),
+    getAttribute: (k) => (attrs.has(k) ? attrs.get(k) : null),
+    setAttribute: (k, v) => attrs.set(k, String(v)),
+    removeAttribute: (k) => attrs.delete(k),
+    attrs,
+  };
+}
+const revealCtx = vm.createContext({});
+vm.runInContext(`${extractFrom(overridesSrc, "revealInfoSection")}; this.reveal = revealInfoSection;`, revealCtx);
+const cellIn = (section, text) => ({ textContent: text, closest: (sel) => (sel === "#evInfoSection" ? section : null) });
+
+test("a staff edit that gives a hidden Before You Go cell text opens the section", () => {
+  const section = fakeSection();
+  revealCtx.reveal(cellIn(section, "Meeting pointCruise Terminal"));
+  assert.equal(section.hidden, false);
+});
+
+test("a cleared or decorative cell edit keeps Before You Go hidden (Strange Bird stays clean)", () => {
+  const section = fakeSection();
+  revealCtx.reveal(cellIn(section, "   "));
+  assert.equal(section.hidden, true);
+});
+
+test("a draft-only remove of Before You Go wins over a cell edit", () => {
+  const section = fakeSection({ removed: true });
+  revealCtx.reveal(cellIn(section, "Parking"));
+  assert.equal(section.hidden, true);
+});
+
+test("both info-cell text paths in applyFieldOverrides call revealInfoSection", () => {
+  assert.match(overridesSrc, /applyInfoCellText\(el, value\);\s*revealInfoSection\(el\);/);
+  assert.match(overridesSrc, /syncInfoCellDecorativeState\(infoCell\);\s*revealInfoSection\(infoCell\);/);
+});
+
+// ---- editor keeps the pencils on a hidden Before You Go (admin/index.html) ----
+const adminSrc = readFileSync(new URL("../../admin/index.html", import.meta.url), "utf8");
+const adminCtx = vm.createContext({});
+vm.runInContext(`${extractFrom(adminSrc, "revealHiddenInfoSection")}; this.reveal = revealHiddenInfoSection;`, adminCtx);
+const docWith = (section, hasCells) => {
+  section.querySelector = (sel) => (sel === ".ev-info-cell" && hasCells ? {} : null);
+  return { getElementById: (id) => (id === "evInfoSection" ? section : null) };
+};
+
+test("editor marks a hidden Before You Go with cells as a placeholder, never touching hidden", () => {
+  const section = fakeSection();
+  adminCtx.reveal(docWith(section, true));
+  assert.equal(section.getAttribute("data-otra-empty-placeholder"), "info");
+  assert.equal(section.hidden, true);
+  assert.match(adminSrc, /section#evInfoSection\[hidden\]\[data-otra-empty-placeholder\] \{ display: block !important; \}/);
+  assert.match(adminSrc, /revealEmptyTextSlots\(doc\);\s*revealHiddenInfoSection\(doc\);/);
+});
+
+test("editor leaves a removed, visible, or empty Before You Go alone and clears its own marker", () => {
+  const removed = fakeSection({ removed: true });
+  adminCtx.reveal(docWith(removed, true));
+  assert.equal(removed.getAttribute("data-otra-empty-placeholder"), null);
+  const visible = fakeSection({ hidden: false });
+  visible.setAttribute("data-otra-empty-placeholder", "info");
+  adminCtx.reveal(docWith(visible, true));
+  assert.equal(visible.getAttribute("data-otra-empty-placeholder"), null);
+  const empty = fakeSection();
+  adminCtx.reveal(docWith(empty, false));
+  assert.equal(empty.getAttribute("data-otra-empty-placeholder"), null);
 });

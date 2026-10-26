@@ -118,6 +118,7 @@
         const value = typeof field.value === "string" ? field.value : "";
         if (isInfoCell(el)) {
           applyInfoCellText(el, value);
+          revealInfoSection(el);
           applied.add(key);
           continue;
         }
@@ -132,7 +133,10 @@
         }
         revealBandText(el, value);
         const infoCell = el.closest && el.closest(".ev-info-cell");
-        if (infoCell) syncInfoCellDecorativeState(infoCell);
+        if (infoCell) {
+          syncInfoCellDecorativeState(infoCell);
+          revealInfoSection(infoCell);
+        }
         applied.add(key);
         continue;
       }
@@ -293,6 +297,18 @@
       el.removeAttribute("data-otra-meta-empty");
       el.hidden = false;
     }
+  }
+
+  // event.html keeps Before You Go hidden when its only cell is the
+  // automatic Tickets price, but still renders the cells. A staff edit that
+  // gives a cell text opens the section, unless a draft-only remove field
+  // took it off.
+  function revealInfoSection(cell) {
+    if (!cell || !cell.closest || !(cell.textContent || "").trim()) return;
+    const section = cell.closest("#evInfoSection");
+    if (!section || !section.hidden) return;
+    if (section.hasAttribute && section.hasAttribute("data-otra-removed")) return;
+    section.hidden = false;
   }
 
   function isInfoCell(el) {

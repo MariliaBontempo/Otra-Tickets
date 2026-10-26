@@ -1476,20 +1476,24 @@ html[data-presidente-event="8088"] .btn-metal:hover { background: #4cba57; box-s
 
       // ----- PRACTICAL INFO -----
       const practical = practicalInfoCells({ design, ev, start, end, hasTickets, isPast, cur, money });
-      if (practical.show) {
+      if (practical.cells.length) {
+        // The cells are always rendered so staff edits to them still apply
+        // and the editor keeps its pencils; site-overrides.js opens the
+        // section when an edit gives one of them text.
         if (design.practicalTitle) $("evInfoSection").querySelector(".ev-h2").textContent = design.practicalTitle;
         const grid = $("evInfoGrid");
         grid.innerHTML = infoCellMarkup(practical.cells);
-        $("evInfoSection").hidden = false;
       }
+      if (practical.show) $("evInfoSection").hidden = false;
 
       // Before You Go cells. Returns { cells, show }.
       // The automatic "Tickets — From …" cell only repeats the price list,
       // so it never opens Before You Go on its own: with no authored
       // practicalInfo and no Date / Time / Availability / Location cell
       // (a page whose staff cleared Before You Go, e.g. Strange Bird with
-      // no dates on the page) the section stays hidden. When the section
-      // has real cells the Tickets cell still closes the grid as before.
+      // no dates on the page) the section stays hidden. The Tickets cell is
+      // still built (it closes the grid as before, and is the cell staff can
+      // edit); only `show` decides whether the section opens.
       function practicalInfoCells({ design, ev, start, end, hasTickets, isPast, cur, money }) {
         const cells = [];
         if (Array.isArray(design.practicalInfo) && design.practicalInfo.length) {
@@ -1509,7 +1513,7 @@ html[data-presidente-event="8088"] .btn-metal:hover { background: #4cba57; box-s
         const priced = !hasTickets ? [] : isPast ? ev.tickets
           : ev.tickets.some((t) => t.sale === "on_sale") ? ev.tickets.filter((t) => t.sale === "on_sale")
           : ev.tickets.filter((t) => t.sale !== "ended");
-        if (show && priced.length) {
+        if (priced.length) {
           const min = Math.min(...priced.map((t) => Number(t.price) || 0));
           const code = priced[0].currency;
           cells.push(["Tickets", "From " + cur(code) + money(min)]);

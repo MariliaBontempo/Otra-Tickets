@@ -4012,6 +4012,7 @@
     watchPreviewResizes(doc);
     revealEmptyImageSlots(doc);
     revealEmptyTextSlots(doc);
+    revealHiddenInfoSection(doc);
     const fields = candidateElements(doc);
     fields.forEach((field) => {
       const host = editHost(field.element, field);
@@ -4124,7 +4125,8 @@
       section#story[hidden][data-otra-empty-placeholder] { display: grid !important; }
       section#evBandSection[hidden][data-otra-empty-placeholder] { display: flex !important; }
       section#evVideoSection[hidden][data-otra-empty-placeholder],
-      section#evPhotoBandSection[hidden][data-otra-empty-placeholder] { display: block !important; }
+      section#evPhotoBandSection[hidden][data-otra-empty-placeholder],
+      section#evInfoSection[hidden][data-otra-empty-placeholder] { display: block !important; }
       section[hidden][data-otra-empty-placeholder].reveal { opacity: 1 !important; transform: none !important; }
       section[data-otra-empty-slot-label]::before {
         content: attr(data-otra-empty-slot-label);
@@ -4700,6 +4702,27 @@
     { text: "#evBandTitle", label: "Add a section heading" },
     { text: "#evBandText", label: "Add section text" },
   ];
+
+  // Before You Go stays hidden on the page while its only cell is the
+  // automatic Tickets price. The cells are still rendered, so the editor
+  // shows the section (CSS only, section.hidden untouched) to keep their
+  // pencils reachable. A draft-only remove keeps it off.
+  function revealHiddenInfoSection(doc) {
+    const section = doc.getElementById("evInfoSection");
+    if (!section) return;
+    const hasCells = !!section.querySelector(".ev-info-cell");
+    if (!section.hidden || !hasCells || section.hasAttribute("data-otra-removed")) {
+      if (section.getAttribute("data-otra-empty-placeholder") === "info") {
+        section.removeAttribute("data-otra-empty-placeholder");
+        section.removeAttribute("data-otra-empty-slot-label");
+        section.removeAttribute("data-otra-empty-slot-top");
+      }
+      return;
+    }
+    section.setAttribute("data-otra-empty-placeholder", "info");
+    section.setAttribute("data-otra-empty-slot-label", "Before You Go is hidden on the page until a cell has your text. Click a pencil to add it.");
+    section.setAttribute("data-otra-empty-slot-top", "1");
+  }
 
   function revealEmptyTextSlots(doc) {
     const revealed = [];
