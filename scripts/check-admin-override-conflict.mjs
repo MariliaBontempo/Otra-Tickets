@@ -138,6 +138,7 @@ try {
     assert(/reload/i.test(b.body.error || '') && /changed/i.test(b.body.error || ''), 'the 409 must tell the editor the page changed and to reload, got ' + JSON.stringify(b.body.error));
     assert(JSON.stringify(b.body.conflictKeys) === JSON.stringify(['text:#evBandText']), 'the 409 names the conflicting key, got ' + JSON.stringify(b.body.conflictKeys));
     assert(JSON.stringify(kv.doc(`event:${DRAFT}`)) === JSON.stringify(before), 'a refused save stores nothing');
+    assert(JSON.stringify(b.body.override) === JSON.stringify(await load(kv)), 'the 409 returns the page exactly as a fresh GET serves it, got ' + JSON.stringify(b.body.override));
   }
 
   // c) a stale red X on a section the other editor just edited: 409, not a silent wipe.
@@ -226,6 +227,105 @@ try {
   assert(JSON.stringify(base) === JSON.stringify({ updatedAt: 'v1', top: { accentColor: '#1c9ebd' }, fields: { 'text:#b': text('y'), 'text:#c': null } }), 'base lists only changed keys with their loaded values, got ' + JSON.stringify(base));
 }
 
+// ---- 2b) client: a 409 loads the returned page as the new save base ----
+{
+  const put = extractFunction('putOverride', html);
+  assert(/err\.data\.conflict === true/.test(put) && /applyConflictOverride\(err\.data\.override\)/.test(put) && /throw err;/.test(put), 'putOverride must load the 409 override and still throw the conflict message');
+  const keepInputs = (html.match(/const OVERRIDE_CONFLICT_KEEP_INPUTS = \[[^\]]*\];/) || [''])[0];
+  assert(keepInputs.includes('"description"') && keepInputs.includes('"infoCellTitle"'), 'the open edit dialog keeps what was typed after a 409');
+
+  // Two tabs, real server: tab B saves a stale edit of the key tab A changed.
+  const staffFetch = globalThis.fetch;
+  globalThis.fetch = async (input) => {
+    if (String(input).endsWith('/users/user-role/')) return { ok: true, json: async () => ({ is_staff_or_admin: true, role: 'staff' }) };
+    return { ok: true, json: async () => ({}) };
+  };
+  try {
+    const kv = seed();
+    const elements = new Map();
+    const el = (id) => {
+      if (!elements.has(id)) elements.set(id, { id, value: '', classList: { hidden: true, contains(name) { return name === 'hidden' && this.hidden; } } });
+      return elements.get(id);
+    };
+    const calls = { previews: 0, history: 0 };
+    const ctx = {
+      $: el,
+      selected: { id: DRAFT, url: '/e/' + DRAFT },
+      loadedOverride: null,
+      currentOverride: null,
+      overrideIdForPage: (page) => page.id,
+      authHeaders: (headers = {}) => ({ authorization: 'Bearer t', ...headers }),
+      showImage: () => {},
+      updateHiddenPriceCardControl: () => {},
+      updateRemovedSectionControl: () => {},
+      updateDraftBeforeYouGoControl: () => {},
+      refreshPreview: () => { calls.previews += 1; },
+      loadPageHistory: async () => { calls.history += 1; },
+      api: async (path, options) => {
+        const { status, body } = await save(kv, JSON.parse(options.body));
+        if (status >= 400) {
+          const error = new Error(body.error || 'Request failed');
+          error.data = body;
+          throw error;
+        }
+        return body;
+      },
+    };
+    vm.createContext(ctx);
+    vm.runInContext([
+      (html.match(/const OVERRIDE_TOP_LEVEL_KEYS = \[[^\]]*\];/) || [''])[0].replace(/^const /, 'var '),
+      keepInputs.replace(/^const /, 'var '),
+      extractFunction('fillForm', html),
+      extractFunction('overrideToSave', html),
+      extractFunction('overrideSaveBase', html),
+      extractFunction('applyConflictOverride', html),
+      extractFunction('putOverride', html),
+    ].join('\n'), ctx);
+
+    const tabA = await load(kv);
+    ctx.fillForm(await load(kv)); // tab B opens the page
+    await save(kv, {
+      ...tabA,
+      fields: { ...tabA.fields, 'text:#evBandText': text('A wording') },
+      base: { updatedAt: tabA.updatedAt, top: {}, fields: { 'text:#evBandText': tabA.fields['text:#evBandText'] } },
+    });
+    const storedAfterA = JSON.stringify(kv.doc(`event:${DRAFT}`));
+
+    el('editModal').classList.hidden = false; // tab B's pencil dialog is open
+    el('description').value = 'B wording';
+    const stale = ctx.overrideToSave();
+    stale.fields['text:#evBandText'] = text('B wording');
+    let conflict = null;
+    try { await ctx.putOverride(stale); } catch (err) { conflict = err; }
+    assert(conflict && /reload/i.test(conflict.message) && /edit again/i.test(conflict.message), 'tab B still sees the reload / make your edit again message, got ' + (conflict && conflict.message));
+    assert(conflict && JSON.stringify(conflict.data.conflictKeys) === JSON.stringify(['text:#evBandText']), 'the error keeps the conflicting keys');
+    assert(JSON.stringify(kv.doc(`event:${DRAFT}`)) === storedAfterA, 'the refused save stores nothing');
+    assert(ctx.loadedOverride && ctx.loadedOverride.updatedAt === kv.doc(`event:${DRAFT}`).updatedAt, 'after a 409 the save base is the stored version, got ' + JSON.stringify(ctx.loadedOverride && ctx.loadedOverride.updatedAt));
+    assert(ctx.currentOverride && ctx.currentOverride.fields['text:#evBandText']?.value === 'A wording', 'after a 409 the editor state shows the other editor\'s text');
+    assert(el('description').value === 'B wording', 'the open dialog keeps what tab B typed so the edit can be made again');
+    assert(calls.previews === 1, 'the preview reloads after a 409 so it shows the stored page');
+
+    // Redoing the edit now saves on top of A's version instead of being refused again.
+    const redo = ctx.overrideToSave();
+    redo.fields['text:#evBandText'] = text('B wording');
+    let redoError = null;
+    try { await ctx.putOverride(redo); } catch (err) { redoError = err; }
+    assert(!redoError, 'redoing the edit after a 409 saves, got ' + (redoError && redoError.message));
+    assert(kv.doc(`event:${DRAFT}`).fields['text:#evBandText']?.value === 'B wording', 'the redone edit is stored');
+    assert(kv.doc(`event:${DRAFT}`).fields['text:#evTitle']?.value === 'Strange Bird Flight 2', 'untouched keys are kept by the redone save');
+
+    // Any other failed save (no conflict flag) leaves the editor state alone.
+    const before = JSON.stringify(ctx.loadedOverride);
+    const previews = calls.previews;
+    ctx.api = async () => { const error = new Error('this draft is published; edit the live page instead'); error.data = { error: error.message, liveId: '1' }; throw error; };
+    let other = null;
+    try { await ctx.putOverride(ctx.overrideToSave()); } catch (err) { other = err; }
+    assert(other && JSON.stringify(ctx.loadedOverride) === before && calls.previews === previews, 'a non-conflict error does not reload the editor state');
+  } finally {
+    globalThis.fetch = staffFetch;
+  }
+}
+
 // ---- 3) draft content modal clears older pencil edits it would be hidden under ----
 {
   const targets = (html.match(/const DRAFT_CONTENT_PENCIL_TARGETS = \{[\s\S]*?\n {2}\};/) || [''])[0];
@@ -263,4 +363,4 @@ if (failures.length) {
   console.error('check-admin-override-conflict FAILED:\n- ' + failures.join('\n- '));
   process.exit(1);
 }
-console.log('check-admin-override-conflict OK (stale saves merge per key, same-key conflicts 409 with reload, every client save sends its base, modal clears stale pencil edits)');
+console.log('check-admin-override-conflict OK (stale saves merge per key, same-key conflicts 409 with reload, every client save sends its base, a 409 reloads the client base, modal clears stale pencil edits)');

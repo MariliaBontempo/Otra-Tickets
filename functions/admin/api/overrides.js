@@ -86,7 +86,9 @@ export async function onRequestPut(context) {
   const served = previous && !draftOnlyRemovalsOk ? { ...previous, fields: withoutDraftOnlyRemovals(previous.fields) } : previous;
   const saved = mergeOverrideSave(served, { description, image, checkoutEventId, accentColor, fields }, normalizeBase(body.base));
   if (saved.conflictKeys) {
-    return json({ error: OVERRIDE_CONFLICT_MESSAGE, conflict: true, conflictKeys: saved.conflictKeys, override: served }, 409);
+    // Same shape as the GET, so the editor can load it as its new base.
+    const current = served && draftId ? { ...served, draftEditsFrom: draftId } : served;
+    return json({ error: OVERRIDE_CONFLICT_MESSAGE, conflict: true, conflictKeys: saved.conflictKeys, override: current }, 409);
   }
   const override = {
     id,

@@ -2253,6 +2253,9 @@
     fields[imageKey] = { type: "image", value };
   }
 
+  // Edit dialog inputs kept as typed when a save is refused with 409.
+  const OVERRIDE_CONFLICT_KEEP_INPUTS = ["description", "imageUrl", "checkoutEventId", "infoCellTitle", "infoCellSubtitle"];
+
   // The override to save, starting from what the editor shows now.
   function overrideToSave() {
     const from = currentOverride || {};
@@ -2283,12 +2286,35 @@
     return { updatedAt: loaded.updatedAt || null, top, fields };
   }
 
+  // A save refused with 409 because another tab or editor changed the same
+  // key carries the page as stored now. Load it so the next save starts from
+  // that version instead of the stale one, but keep what is typed in an open
+  // edit dialog so the edit can be made again.
+  function applyConflictOverride(override) {
+    const modalOpen = !$("editModal").classList.contains("hidden");
+    const kept = modalOpen
+      ? OVERRIDE_CONFLICT_KEEP_INPUTS.map((id) => [id, $(id).value])
+      : [];
+    fillForm(override);
+    kept.forEach(([id, value]) => { $(id).value = value; });
+    if (modalOpen) showImage($("imageUrl").value);
+    refreshPreview();
+  }
+
   async function putOverride(next) {
-    const data = await api("/admin/api/overrides?id=" + encodeURIComponent(overrideIdForPage(selected)), {
-      method: "PUT",
-      headers: authHeaders({ "content-type": "application/json" }),
-      body: JSON.stringify(Object.assign({}, next, { base: overrideSaveBase(next) })),
-    });
+    let data;
+    try {
+      data = await api("/admin/api/overrides?id=" + encodeURIComponent(overrideIdForPage(selected)), {
+        method: "PUT",
+        headers: authHeaders({ "content-type": "application/json" }),
+        body: JSON.stringify(Object.assign({}, next, { base: overrideSaveBase(next) })),
+      });
+    } catch (err) {
+      if (err.data && err.data.conflict === true && "override" in err.data) {
+        applyConflictOverride(err.data.override);
+      }
+      throw err;
+    }
     fillForm(data.override);
     await loadPageHistory();
     return data;
