@@ -26,6 +26,7 @@ let partialAfterDelete = false;
 let publicOnlyAfterDelete = false;
 let rateDown = false;
 let staffSearchDown = false;
+let recurringFlag = null;
 let calls;
 function resetGuide() {
   guide = [
@@ -41,6 +42,7 @@ function resetGuide() {
   publicOnlyAfterDelete = false;
   rateDown = false;
   staffSearchDown = false;
+  recurringFlag = null;
   calls = [];
 }
 
@@ -70,7 +72,7 @@ globalThis.fetch = async (input, options = {}) => {
   if (url.includes('/events/admin-ticketed-search/')) {
     const id = new URL(url).searchParams.get('id');
     if (id && id !== String(EVENT) && !wrongEventEcho) return Response.json({ events: [] });
-    return Response.json({ events: [{ id: EVENT, title: 'Disposable test gala', isTicketed: true, tickets: guide }] });
+    return Response.json({ events: [{ id: EVENT, title: 'Disposable test gala', isTicketed: true, ...(recurringFlag ? { [recurringFlag]: true } : {}), tickets: guide }] });
   }
   if (url.endsWith(`/events/details/${EVENT}/`)) return Response.json({ id: EVENT, title: 'Disposable test gala' });
   if (url.includes('/events/details/') || url.includes('/ticket/purchase/tickets/')) {
@@ -220,6 +222,16 @@ r = await call({ ...good, ticketTypeId: 'abc' });
 assert(r.status === 400 && guideDeletes() === 0, 'a non numeric ticket type id is refused');
 r = await call({ ...good, eventId: 0 });
 assert(r.status === 400 && guideDeletes() === 0, 'a missing event id is refused');
+
+// 4e. A recurring or perennial event never sends the delete: its listed
+// remaining count leaves out tickets sold on specific dates.
+for (const flag of ['isRecurring', 'isPerennial']) {
+  resetGuide();
+  recurringFlag = flag;
+  r = await call(good);
+  assert(r.status === 409 && r.data.code === 'ticket_type_recurring' && /Nothing was deleted/.test(r.data.error) && guideDeletes() === 0,
+    `a ${flag} event is refused before Otra Guide is called (got ${r.status} ${JSON.stringify(r.data)})`);
+}
 
 // 5. Last ticket type is refused.
 resetGuide();

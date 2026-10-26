@@ -182,6 +182,14 @@ export async function onRequestDelete(context) {
       code: "guide_read_incomplete",
     }, 503);
   }
+  // On a recurring or perennial event the remaining count Otra Guide lists
+  // leaves out tickets sold on specific dates, so "0 sold" can't be trusted.
+  if (current.isRecurring || current.isPerennial) {
+    return json({
+      error: `${current.title || "This event"} repeats on several dates, so Otra Tickets can't confirm that ${ticket.name} has no sold tickets. Nothing was deleted. Delete it in the Otra Guide ticketing dashboard, which checks sold tickets itself.`,
+      code: "ticket_type_recurring",
+    }, 409);
+  }
   if (current.tickets.length <= 1) {
     return json({ error: "A checkout needs at least one ticket type. Add the replacement first, then delete this one. Nothing was deleted." }, 400);
   }
