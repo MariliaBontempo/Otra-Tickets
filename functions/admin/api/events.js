@@ -191,6 +191,15 @@ export async function onRequestDelete(context) {
       code: "draft_ambiguous",
     }, 409);
   }
+  // One delete of a type at a time: a second request while one is open
+  // would move the same page edits twice.
+  const open = kv ? await kv.get(pendingDeleteKey(eventId, ticketTypeId), "json").catch(() => null) : null;
+  if (open && Date.now() - Date.parse(open.createdAt || 0) < PENDING_DELETE_LOCK_MS) {
+    return json({
+      error: `A delete of ${ticket.name} is already running. Wait a minute, then press Delete again with the same name. Nothing was deleted by this request.`,
+      code: "delete_in_progress",
+    }, 409);
+  }
   let pending;
   try {
     pending = {
@@ -254,6 +263,9 @@ export async function onRequestDelete(context) {
 
   return finishDeleteCleanup(context, session, kv, pending, after);
 }
+
+// Longer than the 30 s Otra Guide timeout plus the re-read.
+const PENDING_DELETE_LOCK_MS = 2 * 60 * 1000;
 
 export function pendingDeleteKey(eventId, ticketTypeId) {
   return `ticket-delete:${eventId}:${ticketTypeId}`;

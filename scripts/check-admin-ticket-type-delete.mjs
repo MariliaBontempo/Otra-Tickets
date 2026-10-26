@@ -350,6 +350,21 @@ for (const failAt of ['draft-page', 'progress-save', 'edit-marker']) {
   assert(read(kv, 'site-event:draft-qa-1').ticketTypeIds.join(',') === '11,13' && !kv.store.has(`ticket-delete:${EVENT}:12`), `the retry clears the pending record (${failAt})`);
 }
 
+// 8f2. A second delete while one is still open is refused before Otra Guide;
+// an old open record (an earlier unknown result) does not block.
+resetGuide();
+guideDeleteMode = 'boom';
+kv = makeKv({ [`event:${EVENT}`]: { fields: { [rateKey(3)]: { type: 'text', value: 'XCG 5000' } } } });
+r = await call(good, { kv });
+assert(r.status === 502 && guideDeletes() === 1, 'first delete is unknown');
+guideDeleteMode = 'ok';
+r = await call(good, { kv });
+assert(r.status === 409 && r.data.code === 'delete_in_progress' && guideDeletes() === 1, `a delete while one is open is refused (got ${r.status} ${JSON.stringify(r.data)})`);
+const stale = read(kv, `ticket-delete:${EVENT}:12`);
+kv.store.set(`ticket-delete:${EVENT}:12`, JSON.stringify({ ...stale, createdAt: new Date(Date.now() - 5 * 60 * 1000).toISOString() }));
+r = await call(good, { kv });
+assert(r.status === 200 && guideDeletes() === 2 && read(kv, `event:${EVENT}`).fields[rateKey(2)]?.value === 'XCG 5000', `an old open record does not block a new delete (got ${r.status} ${JSON.stringify(r.data)})`);
+
 // 8g. A bound draft listing the type twice is refused before Otra Guide is called.
 resetGuide();
 kv = makeKv({ 'site-event:draft-dup': { ...boundProject('draft-dup'), ticketTypeIds: [12, 12, 13] } });
