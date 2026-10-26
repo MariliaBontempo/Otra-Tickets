@@ -115,7 +115,7 @@
         continue;
       }
       if (type === "text" && field.type === "text") {
-        const value = typeof field.value === "string" ? field.value : "";
+        let value = typeof field.value === "string" ? field.value : "";
         if (isInfoCell(el)) {
           applyInfoCellText(el, value);
           revealInfoSection(el);
@@ -127,6 +127,7 @@
           applied.add(key);
           continue;
         }
+        if (isPriceAmount(el)) value = value.replace(/\s+/g, " ").trim();
         if (el.textContent !== value) {
           el.textContent = value;
           if (value.includes("\n")) el.style.whiteSpace = "pre-line";
@@ -380,6 +381,12 @@
     } catch {
       return { title: "", subtitle: raw };
     }
+  }
+
+  // A price card amount ("XCG 5000") is one unit: a line break saved in its
+  // text override becomes a space so currency and number never split.
+  function isPriceAmount(el) {
+    return !!(el && el.classList && el.classList.contains("rp") && el.closest && el.closest(".ev-rate"));
   }
 
   function isDescriptionBody(el) {
