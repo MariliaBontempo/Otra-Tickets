@@ -79,6 +79,7 @@ test("every event page keeps the price amount on one line", () => {
     assert.ok(rule, `${page} styles .ev-rate .rp`);
     assert.match(rule[0], /white-space:\s*nowrap/, `${page} price amount must not wrap`);
     assert.match(rule[0], /font-size:\s*min\(clamp\(40px, 4\.4vw, 60px\), 18cqi\)/, `${page} price shrinks to fit a narrow card`);
+    assert.match(rule[0], /font-size:\s*clamp\(40px, 4\.4vw, 60px\); font-size:\s*min\(/, `${page} keeps a plain size for browsers without container units`);
     assert.match(read(page), /\.ev-rate \{ container-type: inline-size;/, `${page} price card is the size container`);
   }
 });
