@@ -52,6 +52,16 @@ export function isServableUnlisted(project) {
   );
 }
 
+// The one rule for "this page holds its unlisted link": every unlisted page
+// that is not archived (archivedAt), whatever its status. Drafts, admin only
+// pages, pages archived from the list (hidden) and pages whose Otra Guide
+// event is gone keep their link, so a link already shared never starts
+// opening a different event. Listing the page again or archiving the draft
+// frees it.
+export function reservesUnlistedLink(project) {
+  return isUnlistedProject(project) && !project.archivedAt && !!persistedFrozenSlug(project);
+}
+
 // "Strange Bird Gala (secret)!" -> "strange-bird-gala-secret". Cut on a word
 // boundary so a long title never becomes a long link.
 export function cleanUnlistedSlug(value) {
@@ -84,8 +94,16 @@ export function defaultUnlistedSlug(project) {
 // Picks the unlisted link. `taken` maps slug -> title of the page using it.
 // An explicit link that is taken is refused with a clear message; a default
 // link that is taken gets a plain counter (-2, -3), never an id or a hash.
-export function pickUnlistedSlug({ requested = "", fallback = "", taken = new Map() }) {
+// `keep` is the page's current public link (a listed page being unlisted, or
+// a live unlisted page republished): kept byte for byte when it is valid and
+// free, even past UNLISTED_SLUG_MAX, so its old URL keeps working.
+export function pickUnlistedSlug({ requested = "", fallback = "", keep = "", taken = new Map() }) {
   const explicit = String(requested || "").trim();
+  if (explicit && eventSlug(explicit).length > UNLISTED_SLUG_MAX) {
+    return { error: `Keep the link to ${UNLISTED_SLUG_MAX} characters or fewer.`, status: 400 };
+  }
+  const kept = explicit ? "" : eventSlug(keep);
+  if (kept && kept === String(keep).trim() && !unlistedSlugProblem(kept) && !taken.has(kept)) return { slug: kept };
   const base = cleanUnlistedSlug(explicit || fallback);
   const problem = unlistedSlugProblem(base);
   if (problem) return { error: problem, status: 400 };

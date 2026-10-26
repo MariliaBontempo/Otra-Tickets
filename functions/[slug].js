@@ -114,7 +114,9 @@ export async function onRequestGet(context) {
   );
   const headers = new Headers(assetResponse.headers);
   headers.set("content-type", "text/html; charset=utf-8");
-  headers.set("cache-control", "public, max-age=60");
+  // Link only pages are never cached, so unlisting, relisting or a link
+  // change applies on the next request, not up to a minute later.
+  headers.set("cache-control", unlisted ? "no-store" : "public, max-age=60");
   headers.set("link", `</${slug}>; rel="canonical"`);
   // Link only: keep it out of search engines too.
   if (unlisted) headers.set("x-robots-tag", "noindex, nofollow");

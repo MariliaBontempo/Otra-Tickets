@@ -7,7 +7,7 @@
 // Run: node scripts/check-unlisted-link-only.mjs
 
 import { readFileSync } from "node:fs";
-import { buildHomepageFeed, buildPublishedSiteEvents, dropUnlistedIndex, findUnlistedSiteEvent } from "../functions/_lib/homepage-feed.js";
+import { buildHomepageFeed, buildPublishedSiteEvents, dropUnlistedIndex, findUnlistedSiteEvent, getPublicHomepageFeed, invalidatePublicFeed } from "../functions/_lib/homepage-feed.js";
 import { cleanUnlistedSlug, defaultUnlistedSlug, pickUnlistedSlug, UNLISTED_SLUG_MAX } from "../functions/_lib/unlisted.js";
 import { onRequestGet as slugRoute } from "../functions/[slug].js";
 import { onRequestGet as sitemapRoute } from "../functions/sitemap.xml.js";
@@ -394,6 +394,139 @@ try {
     const draft = pages.find((page) => page.id === "draft-secret-unpublished");
     assert(draft && draft.unlisted === true && draft.frozenSlug === "not-yet-secret", "draft entries carry unlisted and the link");
   }
+
+  const postTo = async (kv, query) => {
+    const response = await projectsPost({
+      ...ctx(kv, "/admin/api/projects?" + query),
+      request: new Request("https://otratickets.com/admin/api/projects?" + query, { method: "POST", headers: { authorization: "Bearer t" } }),
+    });
+    return { status: response.status, body: await response.json() };
+  };
+
+  // ── 8. Unlisting takes the page off the feed on the next request ──
+  {
+    const stale = { events: [{ id: 7600, title: "Strange Bird Gala Secret", slug: "strange-bird-gala-secret" }, { id: 7999, title: "Listed Party", slug: "listed-party" }], rows: [], hasSiteEvents: true, generatedAt: Date.now() };
+    const records = baseProjects();
+    records[SNAP_KEY] = JSON.parse(JSON.stringify(stale));
+    const kv = makeKv(records);
+    const pending = [];
+    const withWait = () => ctx(kv, "/api/homepage-events", { waitUntil: (p) => pending.push(p) });
+    const first = await getPublicHomepageFeed(withWait());
+    assert(first.feedSource === "kv-stale", "the snapshot is served before any change: " + first.feedSource);
+    // The admin unlists while that background rebuild is still in flight.
+    await invalidatePublicFeed(kv);
+    await Promise.all(pending.splice(0));
+    assert(!kv.store.has(SNAP_KEY), "a rebuild that raced an unlist never writes its snapshot back");
+    // An older snapshot written back anyway (a slow worker) is never served.
+    kv.store.set(SNAP_KEY, JSON.parse(JSON.stringify(stale)));
+    const next = await getPublicHomepageFeed(withWait());
+    assert(next.feedSource === "origin", "a snapshot from before the unlist is not served: " + next.feedSource);
+    assert(!next.events.some((e) => String(e.id) === "7600" || e.slug === "strange-bird-gala-secret"), "the very next request after unlisting never lists the page");
+    await Promise.all(pending.splice(0));
+    const fresh = kv.store.get(SNAP_KEY);
+    assert(fresh && fresh.epoch && fresh.epoch === kv.store.get("__homepage_feed_epoch__").epoch, "the rebuilt snapshot carries the current epoch");
+    const third = await getPublicHomepageFeed(withWait());
+    assert(third.feedSource === "kv-stale", "a snapshot from after the change is served again: " + third.feedSource);
+    await Promise.all(pending.splice(0));
+
+    // The set-unlisted action itself moves the epoch.
+    const before = (kv.store.get("__homepage_feed_epoch__") || {}).epoch;
+    const toggled = await postTo(kv, "action=set-unlisted&id=draft-public&value=true");
+    assert(toggled.status === 200, "unlisting the listed page works");
+    assert((kv.store.get("__homepage_feed_epoch__") || {}).epoch !== before, "set-unlisted moves the feed epoch");
+    const after = await getPublicHomepageFeed(withWait());
+    assert(!after.events.some((e) => String(e.id) === "7999"), "the page just unlisted is off the next feed response");
+    await Promise.all(pending.splice(0));
+
+    // Admin only and archive on an unlisted page move it too.
+    const e1 = kv.store.get("__homepage_feed_epoch__").epoch;
+    await postTo(kv, "action=archive&id=draft-secret-unpublished");
+    assert(kv.store.get("__homepage_feed_epoch__").epoch !== e1, "archiving an unlisted draft moves the feed epoch");
+  }
+
+  // ── 8b. Link only responses are never cached ──
+  {
+    const kv = makeKv(baseProjects());
+    const feed = await buildHomepageFeed(ctx(kv), {});
+    const hook = async () => new Response(JSON.stringify({ events: feed.events }), { headers: { "content-type": "application/json" } });
+    const open = (slug) => slugRoute({ ...ctx(kv, "/" + slug), getHomepageEvents: hook, params: { slug } });
+    const secret = await open("strange-bird-gala-secret");
+    assert(secret.status === 200 && secret.headers.get("cache-control") === "no-store", "an unlisted page is sent no-store: " + secret.headers.get("cache-control"));
+    const listed = await open("listed-party");
+    assert(/max-age=60/.test(listed.headers.get("cache-control") || ""), "a listed page keeps its short cache");
+    const api = async (id) => (await eventRoute(ctx(kv, "/api/event?id=" + id))).headers.get("cache-control");
+    assert((await api("7600")) === "no-store", "/api/event for a live unlisted page is no-store");
+    assert((await api("7610")) === "no-store", "/api/event for an event with an unlisted draft is no-store");
+    assert((await api("7630")) === "no-store", "/api/event for a hidden unlisted page is no-store");
+    assert(/max-age=60/.test((await api("7999")) || ""), "/api/event for a listed page keeps its cache");
+
+    const onlySecret = makeKv({ "site-event:draft-secret": baseProjects()["site-event:draft-secret"] });
+    const feedRes = await homepageEventsRoute(ctx(onlySecret));
+    assert(feedRes.headers.get("cache-control") === "no-store", "/api/homepage-events is no-store when the only site page is unlisted: " + feedRes.headers.get("cache-control"));
+  }
+
+  // ── 8c. Unlisting a page with a long link keeps its public URL ──
+  {
+    const longSlug = "the-annual-strange-bird-gala-under-the-stars-with-friends-and-family";
+    assert(longSlug.length > UNLISTED_SLUG_MAX, "fixture link is longer than the short link limit");
+    const records = baseProjects();
+    records["site-event:draft-long"] = {
+      id: "draft-long", otraGuideId: "7680", otraGuideSlug: "7680", title: "The Annual Strange Bird Gala Under The Stars With Friends And Family", status: "published",
+      publishedAt: "2026-10-01T12:00:00.000Z", frozenSlug: longSlug, startDate: "2999-09-01T20:00:00-04:00",
+      claudeDesign: rates, createdAt: "2026-10-01T09:00:00.000Z",
+    };
+    records["site-event:draft-long-draft"] = {
+      id: "draft-long-draft", otraGuideId: "7690", otraGuideSlug: "7690", title: "Another Very Long Draft Title That Goes On And On Past The Short Link Limit", status: "draft",
+      claudeDesign: rates, createdAt: "2026-10-01T09:30:00.000Z",
+    };
+    const kv = makeKv(records);
+    const { events } = await buildHomepageFeed(ctx(kv), {});
+    const card = events.find((e) => String(e.id) === "7680");
+    assert(card && card.slug === longSlug, "fixture: the long page is listed at its long link: " + (card && card.slug));
+    const on = await postTo(kv, "action=set-unlisted&id=draft-long&value=true");
+    assert(on.status === 200 && on.body.project.frozenSlug === longSlug, "a listed page unlisted keeps its long link byte for byte: " + (on.body.project && on.body.project.frozenSlug));
+    const opened = await findUnlistedSiteEvent(ctx(kv), longSlug);
+    assert(opened && String(opened.id) === "7680", "the old long URL keeps opening the page after unlisting");
+    const draftOn = await postTo(kv, "action=set-unlisted&id=draft-long-draft&value=true");
+    assert(draftOn.status === 200 && draftOn.body.project.frozenSlug.length <= UNLISTED_SLUG_MAX, "a draft still gets a short link: " + draftOn.body.project.frozenSlug);
+    const typedLong = await postTo(kv, "action=set-unlisted&id=draft-long-draft&value=true&slug=" + "a-very-long-typed-link-that-is-much-longer-than-sixty-characters-total");
+    assert(typedLong.status === 400 && /60 characters/.test(typedLong.body.error), "a typed link over 60 characters is refused, never silently cut");
+    const keptFree = pickUnlistedSlug({ keep: longSlug, fallback: "x", taken: new Map() });
+    assert(keptFree.slug === longSlug, "keep wins when free");
+    const keptTaken = pickUnlistedSlug({ keep: longSlug, fallback: "fallback-link", taken: new Map([[longSlug, "Other"]]) });
+    assert(keptTaken.slug === "fallback-link", "a taken keep falls back to the short default: " + keptTaken.slug);
+  }
+
+  // ── 8d. Which unlisted pages hold their link ──
+  {
+    const kv = makeKv(baseProjects());
+    const unlisted = { ids: new Set(), slugs: new Set() };
+    await buildPublishedSiteEvents({ OVERRIDES: kv, OTRA_API_URL: API }, { unlisted });
+    for (const slug of ["strange-bird-gala-secret", "not-yet-secret", "staff-secret", "archived-secret", "gone-secret"]) {
+      assert(unlisted.slugs.has(slug), "the public feed keeps " + slug + " reserved");
+    }
+    const records = baseProjects();
+    records["site-event:draft-new"] = {
+      id: "draft-new", otraGuideId: "7650", otraGuideSlug: "7650", title: "New Page", status: "draft",
+      claudeDesign: rates, createdAt: "2026-10-07T10:00:00.000Z",
+    };
+    const kv2 = makeKv(records);
+    for (const [slug, why] of [["archived-secret", "a hidden unlisted page"], ["staff-secret", "an admin only unlisted page"], ["gone-secret", "an unlisted page whose Guide event is gone"], ["not-yet-secret", "an unlisted draft"]]) {
+      const r = await postTo(kv2, "action=set-unlisted&id=draft-new&value=true&slug=" + slug);
+      assert(r.status === 409, why + " keeps its link (" + slug + "), got " + r.status);
+    }
+    const archived = await postTo(kv2, "action=archive&id=draft-secret-archived");
+    assert(archived.status === 200, "archiving the hidden unlisted draft works");
+    const freed = await postTo(kv2, "action=set-unlisted&id=draft-new&value=true&slug=archived-secret");
+    assert(freed.status === 200 && freed.body.project.frozenSlug === "archived-secret", "archiving (archivedAt) frees the link: " + freed.status);
+    const after = { ids: new Set(), slugs: new Set() };
+    await buildPublishedSiteEvents({ OVERRIDES: kv2, OTRA_API_URL: API }, { unlisted: after });
+    assert(after.slugs.has("archived-secret"), "the new holder now reserves the freed link");
+    kv2.store.get("site-event:draft-new").archivedAt = "2026-10-10T00:00:00.000Z";
+    const none = { ids: new Set(), slugs: new Set() };
+    await buildPublishedSiteEvents({ OVERRIDES: kv2, OTRA_API_URL: API }, { unlisted: none });
+    assert(!none.slugs.has("archived-secret"), "an archived (archivedAt) unlisted draft reserves nothing");
+  }
 } finally {
   restoreFetch();
   if (realCaches === undefined) delete globalThis.caches;
@@ -409,6 +542,7 @@ try {
   assert(/action: "set-unlisted", id: projectId/.test(admin), "toggle posts set-unlisted for the live draft id");
   assert(/if \(page\.projectId\) return page\.projectId;/.test(admin), "a live page entry uses its draft for the switch");
   assert(/navigator\.clipboard\.writeText\(link\)/.test(admin), "Copy link writes the link to the clipboard");
+  assert(/for \(const row of pages\) \{\s*if \(row === page \|\| unlistedProjectId\(row\) !== projectId\) continue;\s*row\.unlisted = page\.unlisted;\s*row\.frozenSlug = page\.frozenSlug;/.test(admin), "toggling updates every list row of the same draft (draft row and live row) without a reload");
   assert(/location\.origin \+ "\/" \+ page\.frozenSlug/.test(admin), "the copied link is origin + / + short slug");
   assert(/starts working after Publish/.test(admin), "admin says a draft link works after Publish");
   assert(/addEventListener\("change", \(\) => setUnlisted/.test(admin) && /addEventListener\("click", copyUnlistedLink\)/.test(admin), "toggle and Copy link listeners are bound");

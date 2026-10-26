@@ -3750,6 +3750,13 @@
       const data = await api("/admin/api/projects?" + params.toString(), { method: "POST", headers: authHeaders() });
       page.unlisted = !!(data.project && data.project.unlisted);
       page.frozenSlug = (data.project && data.project.frozenSlug) || page.frozenSlug || "";
+      // The same draft can show up twice in the page list (its draft row and
+      // its live row), so every row for it gets the new state without a reload.
+      for (const row of pages) {
+        if (row === page || unlistedProjectId(row) !== projectId) continue;
+        row.unlisted = page.unlisted;
+        row.frozenSlug = page.frozenSlug;
+      }
       if (selected === page) renderUnlistedControls();
       setStatus(page.unlisted ? unlistedStatusText(page) : "Listed again: the page shows on the homepage and search.", "ok");
     } catch (err) {

@@ -117,8 +117,10 @@ export async function onRequestGet(context) {
     else delete payload.slug;
   }
   // A listed page never points visitors at another page's unlisted link.
+  let touchesUnlisted = payload.unlisted === true || isUnlistedProject(project) || isUnlistedProject(livePage);
   if (!payload.unlisted && payload.slug && (await isUnlistedLink(context.env, payload.slug))) {
     delete payload.slug;
+    touchesUnlisted = true;
   }
   if (staffPreview) payload.staffPreview = true;
   // Worked out per response (the base payload is edge cached), so a page
@@ -126,7 +128,9 @@ export async function onRequestGet(context) {
   // An override can point checkout at another Guide event (a newer edition
   // still on sale), so only the page's own checkout follows its dates.
   payload.isPast = isPastPayload(payload, base.checkoutEventId);
-  return json(payload, 200, staffPreview || override ? 0 : 60);
+  // Anything shaped by an unlisted page is never cached, so a toggle or link
+  // change shows on the next request.
+  return json(payload, 200, staffPreview || override || touchesUnlisted ? 0 : 60);
 }
 
 async function getBasePayload(context, id, url, project) {

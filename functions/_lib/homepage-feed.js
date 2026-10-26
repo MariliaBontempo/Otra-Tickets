@@ -12,7 +12,7 @@ import { readHiddenPageIds } from "./hidden-pages.js";
 import { cardScheduleLabel, scheduleEdited, validDateValue } from "./schedule-line.js";
 import { isOtraGuideId, readOverrideDoc, resolvePageOverride } from "./page-override.js";
 import { isHiddenGuideEvent } from "./guide-event-hidden.js";
-import { isServableUnlisted, isUnlistedProject } from "./unlisted.js";
+import { isServableUnlisted, isUnlistedProject, reservesUnlistedLink } from "./unlisted.js";
 
 const API = "https://otraguide.com/api";
 
@@ -68,6 +68,12 @@ export const EDGE_TTL = 86400;
 const UPSTREAM_TTL = 300;
 // KV key for the last-known-good homepage feed snapshot (OVERRIDES namespace).
 const SNAPSHOT_KEY = "__homepage_feed_snapshot__";
+// KV key holding the current feed "epoch". An admin change that must leave
+// the public feed at once (unlisting a page, editing its link) writes a new
+// epoch. A snapshot is only served while it carries the epoch that was
+// current when its build started, so a rebuild that began before the change
+// can never put the page back on the homepage, even for one request.
+const FEED_EPOCH_KEY = "__homepage_feed_epoch__";
 const HOMEPAGE_TIME_ZONE = "America/Curacao";
 // Internal-only marker. Symbols are omitted from the JSON response, while
 // allowing dedupeEvents to distinguish a deliberately edited hero from the
@@ -141,7 +147,9 @@ export async function buildHomepageFeed(context, { includeAdminOnly = false, aut
   assignUniqueSlugs(events);
   avoidReservedSlugs(events, unlisted.slugs);
   const rows = await buildRows(events, context.env);
-  return { events, rows, hasSiteEvents: siteEvents.length > 0 };
+  // Unlisted pages count as site events: a feed that hides one must never be
+  // served with a public max-age (see /api/homepage-events).
+  return { events, rows, hasSiteEvents: siteEvents.length > 0 || unlisted.ids.size > 0 };
 }
 
 // Published site events bound to an Otra Guide event that the public listing
@@ -416,12 +424,50 @@ function isSnapshotUsable(snapshot) {
 
 // Write the last-known-good snapshot to KV. Skipped when events is empty
 // (never overwrite a good snapshot with a failed/empty build).
-async function writeSnapshot(env, { events, rows, hasSiteEvents }) {
+// `epoch` is the feed epoch read before the build started; a build that
+// raced an admin change (new epoch) is not written.
+async function writeSnapshot(env, { events, rows, hasSiteEvents }, epoch = "") {
   if (!env || !env.OVERRIDES || !events.length) return;
-  await env.OVERRIDES.put(
-    SNAPSHOT_KEY,
-    JSON.stringify({ events, rows, hasSiteEvents, generatedAt: Date.now() })
-  );
+  if ((await readFeedEpoch(env)) !== epoch) return;
+  const snapshot = { events, rows, hasSiteEvents, generatedAt: Date.now() };
+  if (epoch) snapshot.epoch = epoch;
+  await env.OVERRIDES.put(SNAPSHOT_KEY, JSON.stringify(snapshot));
+}
+
+async function readFeedEpoch(env) {
+  if (!env || !env.OVERRIDES) return "";
+  try {
+    const raw = await env.OVERRIDES.get(FEED_EPOCH_KEY, "json");
+    return raw && typeof raw.epoch === "string" ? raw.epoch : "";
+  } catch {
+    return "";
+  }
+}
+
+// Take the public feed off its snapshot now: new epoch (so no in flight
+// rebuild can write an older copy back), snapshot deleted, unlisted link
+// index dropped. Call it after the project change is stored.
+export async function invalidatePublicFeed(kv) {
+  dropUnlistedIndex(kv);
+  if (!kv) return;
+  const epoch = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  try {
+    await kv.put(FEED_EPOCH_KEY, JSON.stringify({ epoch }));
+  } catch {
+    /* the snapshot delete below still applies */
+  }
+  try {
+    await kv.delete(SNAPSHOT_KEY);
+  } catch {
+    /* snapshot miss is fine */
+  }
+}
+
+// The events of the last public snapshot, or an empty list. Read only:
+// unlike getPublicHomepageFeed it never starts a background rebuild.
+export async function snapshotEvents(env) {
+  const snapshot = await readSnapshot(env);
+  return snapshot ? snapshot.events : [];
 }
 
 // Public homepage feed with a two-tier latency strategy:
@@ -448,8 +494,9 @@ export async function getPublicHomepageFeed(context, options = {}) {
 
 async function getPublicHomepageFeedRaw(context, { forceFresh = false } = {}) {
   if (forceFresh) {
+    const epoch = await readFeedEpoch(context.env);
     const result = await buildHomepageFeed(context, { forceFresh: true });
-    context.waitUntil(writeSnapshot(context.env, result));
+    context.waitUntil(writeSnapshot(context.env, result, epoch));
     return { ...result, feedSource: "origin" };
   }
 
@@ -457,14 +504,17 @@ async function getPublicHomepageFeedRaw(context, { forceFresh = false } = {}) {
   // alongside the snapshot because a snapshot is a point-in-time copy: without
   // this, archiving an event from the admin would be undone the moment the feed
   // served from KV. Archive stays instant; everything else is one rebuild behind.
-  const [snapshot, hiddenIds] = await Promise.all([
+  // The feed epoch is read here too: a snapshot older than the last unlist or
+  // link change is never served (see FEED_EPOCH_KEY).
+  const [snapshot, hiddenIds, epoch] = await Promise.all([
     readSnapshot(context.env),
     readHiddenPageIds(context.env),
+    readFeedEpoch(context.env),
   ]);
 
-  if (snapshot && isSnapshotUsable(snapshot)) {
+  if (snapshot && isSnapshotUsable(snapshot) && String(snapshot.epoch || "") === epoch) {
     context.waitUntil(
-      buildHomepageFeed(context, {}).then((fresh) => writeSnapshot(context.env, fresh))
+      buildHomepageFeed(context, {}).then((fresh) => writeSnapshot(context.env, fresh, epoch))
     );
     const events = snapshot.events.filter(
       (event) => !hiddenIds.has(String(event && event.id))
@@ -480,7 +530,7 @@ async function getPublicHomepageFeedRaw(context, { forceFresh = false } = {}) {
   }
 
   const result = await buildHomepageFeed(context, {});
-  context.waitUntil(writeSnapshot(context.env, result));
+  context.waitUntil(writeSnapshot(context.env, result, epoch));
   return { ...result, feedSource: "origin" };
 }
 
@@ -590,29 +640,34 @@ export async function buildPublishedSiteEvents(
       } catch {
         project = null;
       }
-      if (
-        !project ||
-        typeof project !== "object" ||
-        project.status !== "published" ||
-        Boolean(project.archivedAt)
-      ) continue;
-      // Admin-only site events never reach the public feed (which is edge
-      // cached); only the staff preview endpoint opts in to seeing them.
-      if (project.adminOnly === true && !includeAdminOnly) continue;
+      if (!project || typeof project !== "object" || Boolean(project.archivedAt)) continue;
       const draftId = key.name.replace(/^site-event:/, "");
       const id = project.otraGuideId ? String(project.otraGuideId) : draftId;
-      // Unlisted pages are link only: never on a feed, staff preview included.
-      if (unlistedOnly) {
-        if (!isServableUnlisted(project)) continue;
-        if (slug && persistedFrozenSlug(project) !== slug) continue;
-      } else if (isUnlistedProject(project)) {
+      // An unlisted link stays reserved while its page can come back (draft,
+      // admin only, archived from the list, Guide event hidden): a shared link
+      // must never start opening another event. Only archiving the draft
+      // itself (archivedAt) or listing the page again frees it. The same rule
+      // as reservesUnlistedLink, used by the admin link checks.
+      if (unlisted && !unlistedOnly && reservesUnlistedLink(project)) {
+        unlisted.slugs.add(persistedFrozenSlug(project));
+      }
+      if (project.status !== "published") continue;
+      // Unlisted pages are link only: never on a feed, staff preview included,
+      // and the upstream copy of their Guide event is dropped too (admin only
+      // unlisted pages included, so the public and staff feeds agree).
+      if (!unlistedOnly && isUnlistedProject(project)) {
         if (unlisted) {
           unlisted.ids.add(id);
           unlisted.ids.add(draftId);
-          const link = persistedFrozenSlug(project);
-          if (link) unlisted.slugs.add(link);
         }
         continue;
+      }
+      // Admin-only site events never reach the public feed (which is edge
+      // cached); only the staff preview endpoint opts in to seeing them.
+      if (project.adminOnly === true && !includeAdminOnly) continue;
+      if (unlistedOnly) {
+        if (!isServableUnlisted(project)) continue;
+        if (slug && persistedFrozenSlug(project) !== slug) continue;
       }
       const localCard = LOCAL_CARD_INFO[id];
       const startDate = validDateValue(project.startDate);
@@ -733,28 +788,59 @@ export async function findUnlistedSiteEvent(context, slug) {
 const UNLISTED_INDEX_TTL_MS = 30_000;
 const unlistedIndex = new WeakMap();
 
-// True when /<slug> is the short link of an unlisted page. A listed page
-// whose own link collides never moves its URL there (the feed already moved
-// its card), so /api/event keeps it on /event?id=.
+// True when /<slug> is reserved by an unlisted page (servable or not, the
+// same rule the feed uses). A listed page whose own link collides never moves
+// its URL there (the feed already moved its card), so /api/event keeps it on
+// /event?id=.
 export async function isUnlistedLink(env, slug) {
   const wanted = String(slug || "").trim();
   if (!wanted || !env || !env.OVERRIDES) return false;
   try {
-    return (await servableUnlistedSlugs(env.OVERRIDES)).has(wanted);
+    return (await unlistedLinkIndex(env.OVERRIDES)).reserved.has(wanted);
   } catch {
     return false;
   }
 }
 
+// Bumped on every drop, so a scan that started before an admin change never
+// caches its older answer, and concurrent misses share one scan.
+const unlistedIndexGen = new WeakMap();
+const unlistedIndexPending = new WeakMap();
+
 export function dropUnlistedIndex(kv) {
-  if (kv && typeof kv === "object") unlistedIndex.delete(kv);
+  if (!kv || typeof kv !== "object") return;
+  unlistedIndex.delete(kv);
+  unlistedIndexPending.delete(kv);
+  unlistedIndexGen.set(kv, (unlistedIndexGen.get(kv) || 0) + 1);
 }
 
 async function servableUnlistedSlugs(kv) {
-  const now = Date.now();
+  return (await unlistedLinkIndex(kv)).servable;
+}
+
+async function unlistedLinkIndex(kv) {
   const cached = unlistedIndex.get(kv);
-  if (cached && now - cached.at < UNLISTED_INDEX_TTL_MS) return cached.slugs;
-  const slugs = new Set();
+  if (cached && Date.now() - cached.at < UNLISTED_INDEX_TTL_MS) return cached;
+  const gen = unlistedIndexGen.get(kv) || 0;
+  const pending = unlistedIndexPending.get(kv);
+  if (pending && pending.gen === gen) return pending.promise;
+  const promise = scanUnlistedLinks(kv).then((index) => {
+    if ((unlistedIndexGen.get(kv) || 0) === gen) unlistedIndex.set(kv, index);
+    return index;
+  });
+  unlistedIndexPending.set(kv, { gen, promise });
+  try {
+    return await promise;
+  } finally {
+    const current = unlistedIndexPending.get(kv);
+    if (current && current.promise === promise) unlistedIndexPending.delete(kv);
+  }
+}
+
+async function scanUnlistedLinks(kv) {
+  const now = Date.now();
+  const servable = new Set();
+  const reserved = new Set();
   let cursor;
   do {
     const page = await kv.list({ prefix: "site-event:", cursor });
@@ -765,12 +851,12 @@ async function servableUnlistedSlugs(kv) {
       } catch {
         project = null;
       }
-      if (isServableUnlisted(project)) slugs.add(persistedFrozenSlug(project));
+      if (isServableUnlisted(project)) servable.add(persistedFrozenSlug(project));
+      if (reservesUnlistedLink(project)) reserved.add(persistedFrozenSlug(project));
     }
     cursor = page.list_complete ? undefined : page.cursor;
   } while (cursor);
-  unlistedIndex.set(kv, { at: now, slugs });
-  return slugs;
+  return { at: now, servable, reserved };
 }
 
 async function fetchJson(url, authToken = "") {

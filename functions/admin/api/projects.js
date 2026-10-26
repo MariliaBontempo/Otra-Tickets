@@ -7,8 +7,8 @@
 import { apiBase, requireStaff, staffSession, json } from "./_auth.js";
 import { actorForAudit, appendAudit } from "./_audit.js";
 import { mintFrozenSlug, liveSlugBase, persistedFrozenSlug } from "../../_lib/event-slug.js";
-import { defaultUnlistedSlug, isUnlistedProject, pickUnlistedSlug } from "../../_lib/unlisted.js";
-import { dropUnlistedIndex, getPublicHomepageFeed } from "../../_lib/homepage-feed.js";
+import { defaultUnlistedSlug, isUnlistedProject, pickUnlistedSlug, reservesUnlistedLink } from "../../_lib/unlisted.js";
+import { buildHomepageFeed, invalidatePublicFeed, snapshotEvents } from "../../_lib/homepage-feed.js";
 import { normalizeCloneSaleWindows, shiftCloneEventDay, toDay } from "../../_lib/clone-sale-windows.js";
 import { rewriteProjectDate } from "./events.js";
 import { contentSnapshot, validateContentPatch } from "./_draft-content.js";
@@ -115,6 +115,8 @@ export async function onRequestPost(context) {
     if (!project) return json({ error: "draft not found" }, 404);
     const next = { ...project, archivedAt: new Date().toISOString() };
     await putProject(kv, next);
+    // Archiving an unlisted draft frees its link right away.
+    if (isUnlistedProject(next)) await invalidatePublicFeed(kv);
     return json({ project: next });
   }
 
@@ -310,7 +312,7 @@ export async function onRequestPost(context) {
     if (!project) return json({ error: "draft not found" }, 404);
     const next = { ...project, adminOnly: url.searchParams.get("value") === "true" };
     await putProject(kv, next);
-    if (isUnlistedProject(next)) dropUnlistedIndex(kv);
+    if (isUnlistedProject(next)) await invalidatePublicFeed(kv);
     return json({ project: next });
   }
 
@@ -327,7 +329,9 @@ export async function onRequestPost(context) {
     if (!project) return json({ error: "draft not found" }, 404);
     let next;
     if (url.searchParams.get("value") === "true") {
-      const picked = await resolveUnlistedSlug(context, kv, project, url.searchParams.get("slug") || "");
+      const picked = await resolveUnlistedSlug(context, kv, project, url.searchParams.get("slug") || "", {
+        fromListed: isListedLivePage(project),
+      });
       if (picked.error) return json({ error: picked.error, project }, picked.status || 409);
       next = { ...project, unlisted: true, frozenSlug: picked.slug };
     } else {
@@ -395,7 +399,7 @@ export async function onRequestPost(context) {
       // An unlisted page goes live at its own short link. If a listed page
       // took that link meanwhile, it gets a plain counter (-2) instead.
       if (isUnlistedProject(next)) {
-        const picked = await resolveUnlistedSlug(context, kv, next, "");
+        const picked = await resolveUnlistedSlug(context, kv, next, "", { keep: persistedFrozenSlug(project) });
         if (!picked.error) next.frozenSlug = picked.slug;
       } else {
         // A listed page never takes another page's unlisted link: the feed
@@ -819,13 +823,10 @@ async function otraFetch(context, accessToken, path, options = {}) {
   return data;
 }
 
+// Unlisting, relisting or a link change leaves the public feed at once: a new
+// feed epoch makes any older or in flight snapshot unusable.
 async function dropFeedSnapshot(kv) {
-  dropUnlistedIndex(kv);
-  try {
-    await kv.delete("__homepage_feed_snapshot__");
-  } catch {
-    /* snapshot miss is fine */
-  }
+  await invalidatePublicFeed(kv);
 }
 
 function isListedLivePage(project) {
@@ -834,9 +835,12 @@ function isListedLivePage(project) {
 }
 
 // Every link already in use, mapped to the title using it: listed pages from
-// the public feed, other published listed pages and other unlisted pages. The
+// the public feed (a fresh build plus the last snapshot, so a page published
+// minutes ago and one the build missed both count), other published listed
+// pages and every link an unlisted page holds (reservesUnlistedLink). The
 // page's own link is free. When another listed page is live for the same
 // Otra Guide event, that event's feed card belongs to it, so its link is taken.
+// ownSlug is the page's own card link on the public feed, if it has one.
 async function takenSlugs(context, kv, project) {
   const projects = await listProjects(kv);
   const guideId = String(project.otraGuideId || "");
@@ -846,18 +850,25 @@ async function takenSlugs(context, kv, project) {
   const own = new Set([String(project.id)]);
   if (guideId && !listedSibling) own.add(guideId);
   const taken = new Map();
-  const feed = await getPublicHomepageFeed(context);
-  for (const event of (feed && feed.events) || []) {
-    if (!event || !event.slug || own.has(String(event.id))) continue;
-    taken.set(String(event.slug), String(event.title || ""));
+  let ownSlug = "";
+  // Built directly, not through getPublicHomepageFeed: that one starts a
+  // background rebuild which could write a snapshot from before this change.
+  const [fresh, snapshot] = await Promise.all([buildHomepageFeed(context, {}), snapshotEvents(context.env)]);
+  for (const event of [...((fresh && fresh.events) || []), ...(snapshot || [])]) {
+    if (!event || !event.slug) continue;
+    if (own.has(String(event.id))) {
+      if (!ownSlug && fresh && fresh.events && fresh.events.includes(event)) ownSlug = String(event.slug);
+      continue;
+    }
+    if (!taken.has(String(event.slug))) taken.set(String(event.slug), String(event.title || ""));
   }
   for (const other of projects) {
     if (other.id === project.id) continue;
-    if (!isUnlistedProject(other) && !isListedLivePage(other)) continue;
+    if (!reservesUnlistedLink(other) && !isListedLivePage(other)) continue;
     const slug = persistedFrozenSlug(other);
     if (slug && !taken.has(slug)) taken.set(slug, other.title);
   }
-  return taken;
+  return { taken, ownSlug };
 }
 
 // The link a listed page goes live at: its own, or the first free counter
@@ -869,7 +880,7 @@ export async function avoidUnlistedLinks(kv, project) {
   try {
     reserved = new Set(
       (await listProjects(kv))
-        .filter((other) => other.id !== project.id && isUnlistedProject(other))
+        .filter((other) => other.id !== project.id && reservesUnlistedLink(other))
         .map((other) => persistedFrozenSlug(other))
         .filter(Boolean)
     );
@@ -884,14 +895,18 @@ export async function avoidUnlistedLinks(kv, project) {
   return project.frozenSlug;
 }
 
-async function resolveUnlistedSlug(context, kv, project, requested) {
-  let taken;
+// fromListed: a listed live page being unlisted keeps its current public URL
+// (its feed card link, else its frozen link), even when longer than the
+// usual short link limit. keep: the link to keep as is when free.
+async function resolveUnlistedSlug(context, kv, project, requested, { fromListed = false, keep = "" } = {}) {
+  let found;
   try {
-    taken = await takenSlugs(context, kv, project);
+    found = await takenSlugs(context, kv, project);
   } catch {
     return { error: "Could not check the link right now. Try again in a minute.", status: 503 };
   }
-  return pickUnlistedSlug({ requested, fallback: defaultUnlistedSlug(project), taken });
+  const current = fromListed ? found.ownSlug || liveSlugBase(project) : keep;
+  return pickUnlistedSlug({ requested, fallback: defaultUnlistedSlug(project), keep: current, taken: found.taken });
 }
 
 function putProject(kv, project) {
