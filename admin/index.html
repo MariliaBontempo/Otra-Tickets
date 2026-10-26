@@ -2905,7 +2905,7 @@
     const sold = checkoutSoldCount(ticket);
     const soldText = Number.isSafeInteger(ticket.remainingQuantity)
       ? `${sold} (${ticket.remainingQuantity} of ${ticket.quantity} remaining)`
-      : "Checked on Otra Guide before deleting. Any sold ticket blocks the delete.";
+      : "Checked on Otra Guide before deleting. A sold ticket, or no ticket count from Otra Guide, blocks the delete.";
     const onlyOne = (checkoutEvent.tickets || []).length <= 1;
     const unsaved = checkoutHasUnsavedEdits();
     let block = "";

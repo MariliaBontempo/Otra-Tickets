@@ -131,19 +131,28 @@ export async function onRequestDelete(context) {
   if (!typed || typed !== String(ticket.name || "").trim()) {
     return json({ error: `Type the exact ticket name "${ticket.name}" to confirm. Nothing was deleted.` }, 400);
   }
-  // The staff search reports no remaining count, so read it from the public
-  // rate list (same list the page renders). That list also fixes the row the
+  // The staff search reports no remaining count, so read the counts from the
+  // public rate list (same list the page renders). That list also fixes the row the
   // type sits on, so page edits pinned to later rate rows move up one.
   const rateList = await publicRateList(context, accessToken, eventId);
   const rateIndex = rateList.findIndex((item) => String(item && item.id) === String(ticketTypeId));
   const rateRow = rateIndex >= 0 ? rateIndex + 1 : 0;
   const listed = rateIndex >= 0 ? rateList[rateIndex] : null;
-  // A type off sale is missing from that list, so its count can be unknown.
-  // Then Otra Guide's own locked check (issued tickets, open checkouts) decides.
-  const sold = soldCount({
-    quantity: ticket.quantity,
-    remainingQuantity: ticket.remainingQuantity ?? optionalCount(listed && listed.remaining_quantity),
-  });
+  // Both counts come from that one list (the hydrated quantity may be a 500
+  // default). A type off sale is missing from it, so its count is unknown.
+  // Fail closed: without a count Otra Tickets never sends the delete.
+  const listedQuantity = optionalCount(listed && listed.quantity);
+  const counts = {
+    quantity: listedQuantity > 0 ? listedQuantity : null,
+    remainingQuantity: optionalCount(listed && listed.remaining_quantity),
+  };
+  if (counts.quantity === null || counts.remainingQuantity === null) {
+    return json({
+      error: `Otra Tickets can't confirm that ${ticket.name} has no sold tickets, because Otra Guide shows no ticket count for it (it is not on sale right now). Nothing was deleted. Delete it in the Otra Guide ticketing dashboard, which checks sold tickets itself.`,
+      code: "ticket_type_sold_unknown",
+    }, 409);
+  }
+  const sold = soldCount(counts);
   if (sold > 0) {
     return json({
       error: `${ticket.name} already has ${sold} sold ticket${sold === 1 ? "" : "s"}. It can't be deleted. Nothing was deleted.`,

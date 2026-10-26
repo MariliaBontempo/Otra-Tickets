@@ -17,6 +17,7 @@ const assert = (condition, message) => { if (!condition) failures.push(message);
 const EVENT = 990001;
 let guide;
 let publicRemaining;
+let offSale = new Set();
 let wrongEventEcho = false;
 let guideDeleteMode;
 let downAfterDelete = false;
@@ -28,6 +29,7 @@ function resetGuide() {
     { id: 13, name: 'Table of 10', price: '5000.00', quantity: 156, remainingQuantity: 156, currency: 'XCG' },
   ];
   publicRemaining = {};
+  offSale = new Set();
   guideDeleteMode = 'ok';
   downAfterDelete = false;
   calls = [];
@@ -52,7 +54,7 @@ globalThis.fetch = async (input, options = {}) => {
     if (!url.includes(String(EVENT))) return Response.json({ detail: 'Not found.' }, { status: 404 });
   }
   if (url.endsWith(`/ticket/purchase/tickets/${EVENT}/`)) {
-    return Response.json({ results: guide.map((t) => ({ id: t.id, name: t.name, remaining_quantity: publicRemaining[t.id] ?? null })) });
+    return Response.json({ results: guide.filter((t) => !offSale.has(t.id)).map((t) => ({ id: t.id, name: t.name, quantity: t.quantity, remaining_quantity: t.id in publicRemaining ? publicRemaining[t.id] : t.remainingQuantity })) });
   }
   const del = url.match(new RegExp(`/ticket/create/tickets/${EVENT}/(\\d+)/$`));
   if (del && method === 'DELETE') {
@@ -105,7 +107,7 @@ const good = { eventId: EVENT, ticketTypeId: 12, confirmName: 'Table of 12', dra
 
 // Unit pieces.
 assert(soldCount({ quantity: 156, remainingQuantity: 153 }) === 3, 'sold = quantity - remaining');
-assert(soldCount({ quantity: 156, remainingQuantity: null }) === 0, 'unknown remaining counts as 0 here (Guide still guards)');
+assert(soldCount({ quantity: 156, remainingQuantity: null }) === 0, 'soldCount alone reads unknown as 0; the handler refuses an unknown count before it');
 assert(optionalCount(null) === null && optionalCount('') === null && optionalCount(undefined) === null && optionalCount(0) === 0 && optionalCount('7') === 7 && optionalCount(-1) === null,
   'a missing count stays unknown instead of reading as 0');
 const spliced = withoutTicketType(boundProject('draft-x'), 12);
@@ -150,6 +152,15 @@ publicRemaining = { 12: 150 };
 r = await call(good);
 assert(r.status === 409 && r.data.code === 'ticket_type_sold' && r.data.sold === 6 && guideDeletes() === 0,
   'sold count from the public rate list blocks the delete when the staff search has none');
+
+// 4b2. No count (off sale, so missing from the public list, or no quantity) -> fail closed, Otra Guide never called.
+for (const missing of [{ remainingQuantity: null }, { quantity: null }, { quantity: 0 }, { offSale: true }]) {
+  resetGuide();
+  if (missing.offSale) offSale.add(12); else Object.assign(guide[1], missing);
+  r = await call(good);
+  assert(r.status === 409 && r.data.code === 'ticket_type_sold_unknown' && /Nothing was deleted/.test(r.data.error) && guideDeletes() === 0,
+    `an unknown sold count blocks the delete without calling Otra Guide (${JSON.stringify(missing)}, got ${r.status} ${JSON.stringify(r.data)})`);
+}
 
 // 4c. Another event id never reaches the Otra Guide delete, even if the
 // staff search answers with a different event than the one asked for.
