@@ -8,7 +8,8 @@
 
 import fs from 'node:fs';
 import { URL } from 'node:url';
-import { draftRateRow, listedSoldCount, onRequestDelete, optionalCount, shiftRateFields, shiftRateOverrides, withoutTicketType } from '../functions/admin/api/events.js';
+import { draftRateRow, listPendingDeletes, listedSoldCount, nextVersion, onRequestDelete, optionalCount, shiftRateFields, shiftRateOverrides, withoutTicketType } from '../functions/admin/api/events.js';
+import { coversDraft, mergeOverrideDocs } from '../functions/_lib/page-override.js';
 
 const adminHtml = fs.readFileSync(new URL('../admin/index.html', import.meta.url), 'utf8');
 const failures = [];
@@ -107,7 +108,12 @@ function makeKv(entries = {}) {
     },
   };
 }
-const read = (kv, key) => JSON.parse(kv.store.get(key));
+// A missing key fails with its name instead of JSON.parse("undefined").
+const read = (kv, key) => {
+  const value = kv.store.get(key);
+  if (value === undefined) throw new Error(`KV key ${key} is missing`);
+  return JSON.parse(value);
+};
 
 function boundProject(id) {
   return {
@@ -350,20 +356,87 @@ for (const failAt of ['draft-page', 'progress-save', 'edit-marker']) {
   assert(read(kv, 'site-event:draft-qa-1').ticketTypeIds.join(',') === '11,13' && !kv.store.has(`ticket-delete:${EVENT}:12`), `the retry clears the pending record (${failAt})`);
 }
 
-// 8f2. A second delete while one is still open is refused before Otra Guide;
-// an old open record (an earlier unknown result) does not block.
+// 8f2. A second delete while one is still running is refused before Otra
+// Guide; a finished request (or a lock left by a request that died) does not block.
 resetGuide();
 guideDeleteMode = 'boom';
 kv = makeKv({ [`event:${EVENT}`]: { fields: { [rateKey(3)]: { type: 'text', value: 'XCG 5000' } } } });
 r = await call(good, { kv });
 assert(r.status === 502 && guideDeletes() === 1, 'first delete is unknown');
+assert(read(kv, `ticket-delete:${EVENT}:12`).lockedUntil === null, 'an ended request releases its lock');
+const held = read(kv, `ticket-delete:${EVENT}:12`);
+kv.store.set(`ticket-delete:${EVENT}:12`, JSON.stringify({ ...held, lockedUntil: new Date(Date.now() + 60 * 1000).toISOString() }));
 guideDeleteMode = 'ok';
 r = await call(good, { kv });
-assert(r.status === 409 && r.data.code === 'delete_in_progress' && guideDeletes() === 1, `a delete while one is open is refused (got ${r.status} ${JSON.stringify(r.data)})`);
-const stale = read(kv, `ticket-delete:${EVENT}:12`);
-kv.store.set(`ticket-delete:${EVENT}:12`, JSON.stringify({ ...stale, createdAt: new Date(Date.now() - 5 * 60 * 1000).toISOString() }));
+assert(r.status === 409 && r.data.code === 'delete_in_progress' && guideDeletes() === 1, `a delete while one is running is refused (got ${r.status} ${JSON.stringify(r.data)})`);
+kv.store.set(`ticket-delete:${EVENT}:12`, JSON.stringify({ ...held, lockedUntil: new Date(Date.now() - 1000).toISOString() }));
 r = await call(good, { kv });
-assert(r.status === 200 && guideDeletes() === 2 && read(kv, `event:${EVENT}`).fields[rateKey(2)]?.value === 'XCG 5000', `an old open record does not block a new delete (got ${r.status} ${JSON.stringify(r.data)})`);
+assert(r.status === 200 && guideDeletes() === 2 && read(kv, `event:${EVENT}`).fields[rateKey(2)]?.value === 'XCG 5000', `an expired lock does not block a new delete (got ${r.status} ${JSON.stringify(r.data)})`);
+
+// 8f3. The finish path takes the same lock: a finish while another run is
+// going is refused and changes no page.
+resetGuide();
+guideDeleteMode = 'timeout';
+kv = makeKv({ 'site-event:draft-qa-1': boundProject('draft-qa-1'), [`event:${EVENT}`]: { fields: { [rateKey(3)]: { type: 'text', value: 'XCG 5000' } } } });
+r = await call(good, { kv });
+guide = guide.filter((t) => t.id !== 12);
+const open = read(kv, `ticket-delete:${EVENT}:12`);
+kv.store.set(`ticket-delete:${EVENT}:12`, JSON.stringify({ ...open, lockedUntil: new Date(Date.now() + 60 * 1000).toISOString() }));
+r = await call(good, { kv });
+assert(r.status === 409 && r.data.code === 'delete_in_progress' && read(kv, 'site-event:draft-qa-1').ticketTypeIds.length === 3 && read(kv, `event:${EVENT}`).fields[rateKey(3)]?.value === 'XCG 5000',
+  `a finish while another run holds the lock is refused (got ${r.status} ${JSON.stringify(r.data)})`);
+// After a reload the type is gone from the checkout, so the admin lists the open delete to finish it.
+const listedOpen = await listPendingDeletes(kv, EVENT, { tickets: guide });
+assert(listedOpen.length === 1 && listedOpen[0].ticketTypeId === '12' && listedOpen[0].name === 'Table of 12' && listedOpen[0].running === true, 'an open delete is listed for Edit checkout');
+assert((await listPendingDeletes(kv, EVENT, { tickets: [{ id: 12 }] })).length === 0, 'an open delete whose type is still listed is not offered as a finish');
+kv.store.set(`ticket-delete:${EVENT}:12`, JSON.stringify({ ...open, lockedUntil: null }));
+r = await call(good, { kv });
+assert(r.status === 200 && r.data.finishedEarlierDelete === true && read(kv, `event:${EVENT}`).fields[rateKey(2)]?.value === 'XCG 5000', `the finish runs once the lock is free (got ${r.status} ${JSON.stringify(r.data)})`);
+assert((await listPendingDeletes(kv, EVENT, { tickets: guide })).length === 0, 'a finished delete is no longer listed');
+
+// 8f4. Two cleanups that overlap (each with its own progress) never move a
+// page twice: the move is marked inside the page document itself.
+kv = makeKv({ [`event:${EVENT}`]: { fields: { [rateKey(2)]: { type: 'text', value: 'b' }, [rateKey(3)]: { type: 'text', value: 'c' } }, updatedAt: '2026-01-01T00:00:00.000Z' } });
+const shiftArgs = { eventId: EVENT, ticketTypeId: 12, guideRow: 2, draftRows: new Map() };
+assert(await shiftRateOverrides(kv, shiftArgs) === 1 && await shiftRateOverrides(kv, shiftArgs) === 0, 'a second run of the same delete moves nothing');
+const once = read(kv, `event:${EVENT}`);
+assert(once.fields[rateKey(2)]?.value === 'c' && !(rateKey(3) in once.fields) && once.ticketDeletesApplied.includes(`${EVENT}:12`), 'the page moved exactly once and carries the marker');
+assert(await shiftRateOverrides(kv, { ...shiftArgs, ticketTypeId: 11, guideRow: 1 }) === 1, 'a later delete of another type still moves the page');
+
+// 8f5. A published bound draft keeps its version, so the live page merge
+// never changes which document wins; its edits move by the Otra Guide row.
+assert(nextVersion('2026-01-01T00:00:00.000Z') === '2026-01-01T00:00:00.001Z', 'a moved page gets the next millisecond');
+assert(nextVersion('2026-01-01T00:00:00.000Z', new Set([Date.parse('2026-01-01T00:00:00.001Z')])) === '2026-01-01T00:00:00.000Z', 'the next millisecond never reaches a published draft version');
+assert(nextVersion(undefined, new Set([1])) === undefined, 'a page without a version gets none while published drafts exist');
+for (const [eventAt, draftAt] of [['2026-01-01T00:00:00.000Z', '2026-02-01T00:00:00.000Z'], ['2026-03-01T00:00:00.000Z', '2026-02-01T00:00:00.000Z'], [undefined, '2026-02-01T00:00:00.000Z']]) {
+  resetGuide();
+  const pub = { ...boundProject('draft-pub'), ticketTypeIds: [11, 13, 12], status: 'published' };
+  const pubOther = { ...boundProject('draft-pub-old'), ticketTypeIds: [11, 13], ticketQuantities: [130, 156], claudeDesign: { rates: [{}, {}] }, status: 'published' };
+  const eventDoc = { fields: { [rateKey(2)]: { type: 'text', value: 'live 12' }, [rateKey(3)]: { type: 'text', value: 'live 13' } }, draftEditsFrom: 'draft-pub', pageEditsVersion: 2, ...(eventAt ? { updatedAt: eventAt } : {}) };
+  const draftDoc = { fields: { [rateKey(3, 1)]: { type: 'text', value: 'draft 13' }, 'text:h1': { type: 'text', value: 'old draft title' } }, description: 'old draft text', updatedAt: draftAt };
+  const oldDoc = { fields: { [rateKey(3, 1)]: { type: 'text', value: 'old 13' } }, updatedAt: draftAt };
+  kv = makeKv({ 'site-event:draft-pub': pub, 'site-event:draft-pub-old': pubOther, [`event:${EVENT}`]: eventDoc, 'event:draft-pub': draftDoc, 'event:draft-pub-old': oldDoc });
+  const winner = (ev, dr) => {
+    if (coversDraft(ev, 'draft-pub', dr)) return 'live page as is';
+    const m = mergeOverrideDocs(dr, ev);
+    return `merged, description ${m.description}, row 2 ${m.fields[rateKey(2)]?.value}, updatedAt from ${m.updatedAt === dr.updatedAt ? 'draft' : 'live'}`;
+  };
+  const winnerBefore = winner(eventDoc, draftDoc);
+  r = await call(good, { kv });
+  assert(r.status === 200, `published draft case returns 200 (got ${r.status} ${JSON.stringify(r.data)})`);
+  const eventAfter = read(kv, `event:${EVENT}`);
+  const draftAfter = read(kv, 'event:draft-pub');
+  assert(draftAfter.updatedAt === draftAt && read(kv, 'event:draft-pub-old').updatedAt === draftAt, `a published draft document keeps its version (${eventAt})`);
+  assert(draftAfter.description === 'old draft text' && draftAfter.fields['text:h1']?.value === 'old draft title', 'a published draft keeps everything but the moved rows');
+  assert(draftAfter.fields[rateKey(2, 1)]?.value === 'draft 13' && !(rateKey(3, 1) in draftAfter.fields), 'a published draft moves by the Otra Guide row');
+  assert(read(kv, 'event:draft-pub-old').fields[rateKey(2, 1)]?.value === 'old 13', 'a published draft without the type still moves with the live page');
+  const winnerAfter = winner(eventAfter, draftAfter).replace('row 2 live 13', 'row 2 live 12');
+  assert(winnerBefore === winnerAfter, `the live page merge keeps the same winner (${eventAt}: ${winnerBefore} vs ${winnerAfter})`);
+  const before = Date.parse(eventAt || '') || 0;
+  const after = Date.parse(eventAfter.updatedAt || '') || 0;
+  assert((before < Date.parse(draftAt)) === (after < Date.parse(draftAt)) && (before > Date.parse(draftAt)) === (after > Date.parse(draftAt)), `the live page version keeps its order against the draft (${eventAt})`);
+  assert(eventAfter.fields[rateKey(2)]?.value === 'live 13', 'the live page moves by the Otra Guide row');
+}
 
 // 8g. A bound draft listing the type twice is refused before Otra Guide is called.
 resetGuide();
@@ -444,8 +517,10 @@ assert(/data-checkout-delete-confirm disabled/.test(adminHtml) && /confirm\.disa
 assert(/method: "DELETE"[\s\S]{0,200}ticketTypeId/.test(adminHtml), 'the UI calls DELETE /admin/api/events');
 assert(/function deleteCheckoutTicket[\s\S]*renderCheckoutTickets\(checkoutEvent\.tickets[\s\S]*refreshPreview\(\)/.test(adminHtml), 'success re-renders rows and refreshes the page and embed');
 assert(/data-checkout-delete-impact>[^<]*Otra Guide app and website checkout[^<]*Otra Tickets checkout/.test(adminHtml), 'step 1 states the Otra Guide and Otra Tickets impact');
-assert(/\/Nothing was deleted\|Reload\|Delete again\/\.test\(err\.message\)\s*\?\s*err\.message\s*:\s*`\$\{err\.message \|\| "No answer from Otra Tickets\."\} Reload the checkout/.test(adminHtml) && !/`\$\{err\.message\} Nothing was deleted\.`/.test(adminHtml), 'only server refusals say nothing was deleted; an unknown result asks for a reload');
-assert(/if \(data\.pageEditsMoved\) await reloadOverrideAfterDelete\(\)/.test(adminHtml), 'after moved page edits the editor loads the page as stored now');
+assert(/\/Nothing was deleted\|Reload\|Delete again\|Finish page update\|Wait a minute\/\.test\(err\.message\)\s*\?\s*err\.message\s*:\s*`\$\{err\.message \|\| "No answer from Otra Tickets\."\} Close and reopen Edit checkout/.test(adminHtml) && !/`\$\{err\.message\} Nothing was deleted\.`/.test(adminHtml), 'only server refusals say nothing was deleted; an unknown result asks for a reload');
+assert(/if \(data\.pageEditsMoved \|\| data\.finishedEarlierDelete\) await reloadOverrideAfterDelete\(\)/.test(adminHtml), 'after moved page edits (or a finished earlier delete) the editor loads the page as stored now');
+assert(/checkoutPendingDeletes = Array\.isArray\(data\.pendingDeletes\)/.test(adminHtml) && /data-finish-delete=/.test(adminHtml) && /function finishPendingDelete[\s\S]{0,1500}method: "DELETE"[\s\S]{0,300}confirmName: item\.name/.test(adminHtml),
+  'Edit checkout offers Finish page update for an open delete after a reload');
 assert(/function checkoutHasUnsavedEdits/.test(adminHtml), 'unsaved edits block a delete instead of being thrown away');
 assert(/pageRows === event\.tickets\.length\) ticket = event\.tickets\[rowIndex\]/.test(adminHtml), 'price pencil only falls back to row position when the page and checkout rows line up');
 

@@ -6,6 +6,7 @@
 
 import { apiBase, otraGet, requireStaff, staffSession, json } from "./_auth.js";
 import { actorForAudit, appendAudit } from "./_audit.js";
+import { isPublishedBound } from "../../_lib/page-override.js";
 
 const CATEGORY_ID = 339;
 const PAGE_SIZE = 12;
@@ -23,7 +24,9 @@ export async function onRequestGet(context) {
 
   if (id) {
     const event = await hydrateEvent(context, accessToken, id);
-    return event ? json({ events: [event] }) : json({ error: "event not found" }, 404);
+    if (!event) return json({ error: "event not found" }, 404);
+    const pendingDeletes = await listPendingDeletes(context.env && context.env.OVERRIDES, id, event);
+    return json({ events: [event], pendingDeletes });
   }
 
   if (query.length < 2) return json({ events: [] });
@@ -142,6 +145,19 @@ export async function onRequestDelete(context) {
           code: "guide_delete_unknown",
         }, 502);
       }
+      // One cleanup run at a time, so two runs never move a page edit twice.
+      if (isLocked(pending)) {
+        return json({
+          error: `The page update for ${pending.name} is already running. Wait a minute, then check the checkout again. Nothing was changed by this request.`,
+          code: "delete_in_progress",
+        }, 409);
+      }
+      try {
+        pending.lockedUntil = new Date(Date.now() + PENDING_DELETE_LOCK_MS).toISOString();
+        await kv.put(pendingDeleteKey(eventId, ticketTypeId), JSON.stringify(pending));
+      } catch {
+        return json({ error: `Otra Tickets could not start the page update for ${pending.name}. Try again.`, code: "guide_delete_unknown" }, 503);
+      }
       return finishDeleteCleanup(context, session, kv, pending, current, true);
     }
     return json({ error: "This ticket type is no longer on this event. Reload the checkout. Nothing was deleted." }, 409);
@@ -194,7 +210,7 @@ export async function onRequestDelete(context) {
   // One delete of a type at a time: a second request while one is open
   // would move the same page edits twice.
   const open = kv ? await kv.get(pendingDeleteKey(eventId, ticketTypeId), "json").catch(() => null) : null;
-  if (open && Date.now() - Date.parse(open.createdAt || 0) < PENDING_DELETE_LOCK_MS) {
+  if (isLocked(open)) {
     return json({
       error: `A delete of ${ticket.name} is already running. Wait a minute, then press Delete again with the same name. Nothing was deleted by this request.`,
       code: "delete_in_progress",
@@ -212,10 +228,11 @@ export async function onRequestDelete(context) {
       otherIds: current.tickets.filter((item) => String(item.id) !== String(ticketTypeId)).map((item) => String(item.id)),
       siteKeys: plan.siteKeys,
       draftRows: plan.draftRows,
+      liveDrafts: plan.liveDrafts,
       auditPageId: plan.auditPageId,
       done: [],
-      stamps: {},
       createdAt: new Date().toISOString(),
+      lockedUntil: new Date(Date.now() + PENDING_DELETE_LOCK_MS).toISOString(),
     };
     if (kv) await kv.put(pendingDeleteKey(eventId, ticketTypeId), JSON.stringify(pending));
   } catch {
@@ -224,6 +241,11 @@ export async function onRequestDelete(context) {
   const forgetPending = async () => {
     if (kv && typeof kv.delete === "function") await kv.delete(pendingDeleteKey(eventId, ticketTypeId)).catch(() => {});
   };
+  // The request is over but the delete may still land on Otra Guide: keep
+  // the pending cleanup and let the next request run it.
+  const releaseLock = async () => {
+    if (kv) await kv.put(pendingDeleteKey(eventId, ticketTypeId), JSON.stringify({ ...pending, lockedUntil: null })).catch(() => {});
+  };
 
   const result = await guideDeleteTicketType(context, accessToken, eventId, ticketTypeId);
   // Re-read the checkout. It is only trusted when every other ticket type
@@ -231,7 +253,11 @@ export async function onRequestDelete(context) {
   // back as an empty list, which must never count as "deleted").
   const reread = await readCheckout(context, accessToken, eventId).catch(() => ({ event: null, complete: false }));
   const after = reread.event;
-  const unknown = (why) => json({
+  const unknown = async (why) => {
+    await releaseLock();
+    return unknownReply(why);
+  };
+  const unknownReply = (why) => json({
     error: `${why} so Otra Tickets can't tell yet whether ${ticket.name} was deleted. Otra Tickets pages were not changed. Wait a minute, then press Delete again with the same name: Otra Tickets checks Otra Guide again first and only updates its pages once ${ticket.name} is gone.`,
     code: "guide_delete_unknown",
   }, 502);
@@ -264,8 +290,38 @@ export async function onRequestDelete(context) {
   return finishDeleteCleanup(context, session, kv, pending, after);
 }
 
-// Longer than the 30 s Otra Guide timeout plus the re-read.
+// Longer than the 30 s Otra Guide timeout plus the re-read. A request holds
+// the lock while it runs and releases it when it ends; the time limit only
+// frees a lock left by a request that died.
 const PENDING_DELETE_LOCK_MS = 2 * 60 * 1000;
+
+function isLocked(record) {
+  const until = record && typeof record.lockedUntil === "string" ? Date.parse(record.lockedUntil) : NaN;
+  return Number.isFinite(until) && until > Date.now();
+}
+
+// Deletes of this event whose page update is still open and whose type is
+// no longer on the checkout, so the admin can offer to finish them.
+export async function listPendingDeletes(kv, eventId, event) {
+  if (!kv || typeof kv.list !== "function") return [];
+  const listed = new Set(((event && event.tickets) || []).map((item) => String(item.id)));
+  const found = [];
+  try {
+    let cursor;
+    do {
+      const page = await kv.list({ prefix: `ticket-delete:${eventId}:`, cursor });
+      for (const key of page.keys || []) {
+        const pending = await kv.get(key.name, "json");
+        if (!pending || String(pending.eventId) !== String(eventId) || listed.has(String(pending.ticketTypeId))) continue;
+        found.push({ ticketTypeId: String(pending.ticketTypeId), name: String(pending.name || ""), running: isLocked(pending) });
+      }
+      cursor = page.list_complete ? undefined : page.cursor;
+    } while (cursor);
+  } catch {
+    return found;
+  }
+  return found;
+}
 
 export function pendingDeleteKey(eventId, ticketTypeId) {
   return `ticket-delete:${eventId}:${ticketTypeId}`;
@@ -292,8 +348,14 @@ async function finishDeleteCleanup(context, session, kv, pending, after, finishe
     ({ pagesUpdated, pageEditsMoved } = await runPageCleanup(kv, pending));
     if (kv && typeof kv.delete === "function") await kv.delete(pendingDeleteKey(pending.eventId, pending.ticketTypeId));
   } catch {
+    // Free the lock (keeping the steps already done) so the next request can finish.
+    if (kv) {
+      const key = pendingDeleteKey(pending.eventId, pending.ticketTypeId);
+      const saved = await kv.get(key, "json").catch(() => null);
+      await kv.put(key, JSON.stringify({ ...(saved || pending), lockedUntil: null })).catch(() => {});
+    }
     return json({
-      error: `${pending.name} was deleted on Otra Guide, but Otra Tickets pages were not fully updated yet. Press Delete again with the same name to finish updating the pages.`,
+      error: `${pending.name} was deleted on Otra Guide, but Otra Tickets pages were not fully updated yet. Press Delete again with the same name, or reopen Edit checkout and press Finish page update, to finish updating the pages.`,
       code: "pages_not_updated",
       deletedOnGuide: true,
       event: after,
@@ -326,8 +388,7 @@ export async function runPageCleanup(kv, pending) {
   if (!kv) return { pagesUpdated: 0, pageEditsMoved: 0 };
   const key = pendingDeleteKey(pending.eventId, pending.ticketTypeId);
   const done = new Set(Array.isArray(pending.done) ? pending.done : []);
-  const stamps = { ...(pending.stamps || {}) };
-  const save = () => kv.put(key, JSON.stringify({ ...pending, done: [...done], stamps }));
+  const save = () => kv.put(key, JSON.stringify({ ...pending, done: [...done] }));
   const mark = async (step) => {
     done.add(step);
     await save();
@@ -349,16 +410,13 @@ export async function runPageCleanup(kv, pending) {
   const draftRows = new Map(Object.entries(pending.draftRows || {}));
   const pageEditsMoved = await shiftRateOverrides(kv, {
     eventId: pending.eventId,
+    ticketTypeId: pending.ticketTypeId,
     guideRow: pending.guideRow,
     draftRows,
-    // A page edit move is recorded with the version stamp it writes before
-    // it is written, so a retry after a lost progress save never moves it twice.
-    skip: (overrideKey, doc) => done.has(`edit:${overrideKey}`)
-      || Boolean(stamps[overrideKey] && doc && doc.updatedAt === stamps[overrideKey]),
-    beforeWrite: async (overrideKey, stamp) => {
-      stamps[overrideKey] = stamp;
-      await save();
-    },
+    liveDrafts: new Set(Array.isArray(pending.liveDrafts) ? pending.liveDrafts : []),
+    // Each moved page also carries its own marker (see shiftRateOverrides),
+    // so a retry after a lost progress save never moves it twice.
+    skip: (overrideKey) => done.has(`edit:${overrideKey}`),
     onDone: (overrideKey) => mark(`edit:${overrideKey}`),
   });
   return { pagesUpdated, pageEditsMoved };
@@ -434,7 +492,7 @@ export function draftRateRow(project, ticketTypeId) {
 // Read only: which draft pages are bound to the event and list the type, and
 // the rate row each one shows it on.
 export async function planSiteEventCleanup(kv, { draftId, eventId, ticketTypeId }) {
-  const plan = { siteKeys: [], draftRows: {}, ambiguous: [], auditPageId: String(eventId) };
+  const plan = { siteKeys: [], draftRows: {}, liveDrafts: [], ambiguous: [], auditPageId: String(eventId) };
   if (!kv) return plan;
   const seen = new Set();
   const consider = async (key) => {
@@ -442,6 +500,11 @@ export async function planSiteEventCleanup(kv, { draftId, eventId, ticketTypeId 
     seen.add(key);
     const project = await kv.get(key, "json");
     if (!project || String(project.otraGuideId || "") !== String(eventId)) return;
+    const id = key.slice("site-event:".length);
+    // A published bound draft's edits are merged under the live page, which
+    // renders the Otra Guide rate list, so its edits move by that row.
+    const live = isPublishedBound(project);
+    if (live) plan.liveDrafts.push(id);
     if (!withoutTicketType(project, ticketTypeId)) return;
     const ids = Array.isArray(project.ticketTypeIds) ? project.ticketTypeIds : [];
     if (ids.filter((id) => String(id) === String(ticketTypeId)).length > 1) {
@@ -450,7 +513,7 @@ export async function planSiteEventCleanup(kv, { draftId, eventId, ticketTypeId 
     }
     plan.siteKeys.push(key);
     const row = draftRateRow(project, ticketTypeId);
-    if (row) plan.draftRows[key.slice("site-event:".length)] = row;
+    if (row && !live) plan.draftRows[id] = row;
   };
   const ownDraft = /^draft-[a-zA-Z0-9-]+$/.test(String(draftId || "")) ? String(draftId) : "";
   if (ownDraft) await consider(`site-event:${ownDraft}`);
@@ -496,18 +559,34 @@ export function shiftRateFields(fields, row) {
 }
 
 // Each page renders its own rate list, so each moves by its own row:
-// - a draft page (event:draft-...) renders its claudeDesign.rates, so it moves
-//   only when that draft lost the type, by the row it had there;
+// - an unpublished draft page (event:draft-...) renders its claudeDesign.rates,
+//   so it moves only when that draft lost the type, by the row it had there;
+// - a published bound draft's edits show under the live page, which renders
+//   the Otra Guide rate list, so they move by that row;
 // - an Otra Guide event page renders the checkout event's public rate list, so
 //   it moves by that row, and only when it sells through this event.
-// skip/onDone let a resumed cleanup leave alone the pages it already moved.
-export async function shiftRateOverrides(kv, { eventId, guideRow, draftRows, skip, beforeWrite, onDone }) {
+//
+// Versions: a published bound draft's document keeps its updatedAt, so which
+// of it and the live document is newer (coversDraft, mergeOverrideDocs) never
+// changes. Every other moved document gets the next millisecond as its
+// version, so an editor tab opened before the move is merged key by key
+// instead of saving over it, while its order against those drafts is kept.
+//
+// Every moved document records `${eventId}:${ticketTypeId}` in
+// ticketDeletesApplied in the same write, so a document is never moved twice
+// for one delete. skip/onDone let a resumed cleanup skip pages already done.
+export const TICKET_DELETE_MARKER_LIMIT = 20;
+
+export async function shiftRateOverrides(kv, { eventId, ticketTypeId, guideRow, draftRows, liveDrafts, skip, onDone }) {
   if (!kv) return 0;
   const rows = draftRows instanceof Map ? draftRows : new Map();
+  const live = liveDrafts instanceof Set ? liveDrafts : new Set();
   if (!guideRow && rows.size === 0) return 0;
+  const marker = `${eventId}:${ticketTypeId}`;
   const keys = new Set([`event:${eventId}`, ...[...rows.keys()].map((id) => `event:${id}`)]);
-  // A page may sell through this event without being bound to it.
   if (guideRow) {
+    for (const id of live) keys.add(`event:${id}`);
+    // A page may sell through this event without being bound to it.
     let cursor;
     do {
       const page = await kv.list({ prefix: "event:", cursor });
@@ -515,35 +594,58 @@ export async function shiftRateOverrides(kv, { eventId, guideRow, draftRows, ski
       cursor = page.list_complete ? undefined : page.cursor;
     } while (cursor);
   }
+  // Versions of the published bound drafts, which a new live version must not reach.
+  const liveStamps = new Set();
+  for (const id of live) {
+    const doc = await kv.get(`event:${id}`, "json");
+    const at = doc && typeof doc.updatedAt === "string" ? Date.parse(doc.updatedAt) : NaN;
+    if (Number.isFinite(at)) liveStamps.add(at);
+  }
   let moved = 0;
   for (const key of keys) {
-    if (typeof skip === "function" && skip(key, null)) continue;
+    if (typeof skip === "function" && skip(key)) continue;
     const id = key.slice("event:".length);
+    const frozen = live.has(id);
     let row = 0;
-    if (/^draft-/.test(id)) {
-      row = rows.get(id) || 0;
-    } else if (/^\d+$/.test(id)) {
-      // Read the doc only for event pages; the checkout event decides the rates.
+    if (frozen || /^\d+$/.test(id)) {
+      // The checkout event decides the rates of live pages.
       row = guideRow;
+    } else if (/^draft-/.test(id)) {
+      row = rows.get(id) || 0;
     }
     if (!row) continue;
     const doc = await kv.get(key, "json");
     if (!doc || typeof doc !== "object") continue;
-    if (!/^draft-/.test(id)) {
+    if (/^\d+$/.test(id)) {
       const checkout = /^\d+$/.test(String(doc.checkoutEventId || "")) ? String(doc.checkoutEventId) : id;
       if (checkout !== String(eventId)) continue;
     }
-    if (typeof skip === "function" && skip(key, doc)) continue;
+    const applied = Array.isArray(doc.ticketDeletesApplied) ? doc.ticketDeletesApplied : [];
+    if (applied.includes(marker)) {
+      if (typeof onDone === "function") await onDone(key);
+      continue;
+    }
     const { fields, changed } = shiftRateFields(doc.fields, row);
     if (!changed) continue;
-    let stamp = new Date().toISOString();
-    if (stamp === doc.updatedAt) stamp = new Date(Date.parse(stamp) + 1).toISOString();
-    if (typeof beforeWrite === "function") await beforeWrite(key, stamp);
-    await kv.put(key, JSON.stringify({ ...doc, fields, updatedAt: stamp }));
+    const next = { ...doc, fields, ticketDeletesApplied: [...applied, marker].slice(-TICKET_DELETE_MARKER_LIMIT) };
+    if (!frozen) {
+      const version = nextVersion(doc.updatedAt, liveStamps);
+      if (version) next.updatedAt = version;
+    }
+    await kv.put(key, JSON.stringify(next));
     if (typeof onDone === "function") await onDone(key);
     moved += 1;
   }
   return moved;
+}
+
+// The next millisecond after a version. Kept as is when that would reach a
+// published draft's version, and left out for a document without a version
+// when published drafts exist (any new version would be newer than them).
+export function nextVersion(updatedAt, avoid = new Set()) {
+  const at = typeof updatedAt === "string" ? Date.parse(updatedAt) : NaN;
+  if (!Number.isFinite(at)) return avoid.size ? updatedAt : new Date().toISOString();
+  return avoid.has(at + 1) ? updatedAt : new Date(at + 1).toISOString();
 }
 
 async function searchEvents(context, accessToken, query, region) {
