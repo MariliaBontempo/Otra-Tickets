@@ -25,7 +25,6 @@
     window.addEventListener("load", queueFitPriceAmounts);
     window.addEventListener("resize", queueFitPriceAmounts);
   }
-  queueFitPriceAmounts();
   const id = inferOverrideId();
   if (!id) return;
   // Set from the server answer: true only on an unpublished draft page.
@@ -144,11 +143,13 @@
           applied.add(key);
           continue;
         }
-        if (isPriceAmount(el)) value = value.replace(/\s+/g, " ").trim();
+        const priceAmount = isPriceAmount(el);
+        if (priceAmount) value = value.replace(/\s+/g, " ").trim();
         if (el.textContent !== value) {
           el.textContent = value;
           if (value.includes("\n")) el.style.whiteSpace = "pre-line";
         }
+        if (priceAmount) fitPriceAmount(el);
         revealBandText(el, value);
         const infoCell = el.closest && el.closest(".ev-info-cell");
         if (infoCell) {
@@ -184,7 +185,6 @@
     }
 
     tidyMetaLine();
-    queueFitPriceAmounts();
     const remaining = Object.keys(fields).filter((k) => !applied.has(k));
     if (remaining.length > 0 && attempt < 30) {
       setTimeout(() => applyFieldOverrides(fields, attempt + 1, applied), 250);
@@ -411,18 +411,20 @@
   // "XCG 10,000" in a narrow four card row, gets just enough smaller to fit;
   // amounts that already fit keep the page's size.
   function fitPriceAmounts() {
+    document.querySelectorAll(".ev-rate .rp").forEach(fitPriceAmount);
+  }
+
+  function fitPriceAmount(el) {
     if (!priceCardObserver && typeof ResizeObserver === "function") {
       priceCardObserver = new ResizeObserver(queueFitPriceAmounts);
     }
-    document.querySelectorAll(".ev-rate .rp").forEach((el) => {
-      // Refit whenever a card changes width (layout, viewport, editor frame).
-      if (priceCardObserver && el.parentElement) priceCardObserver.observe(el.parentElement);
-      if (el.style.fontSize) el.style.fontSize = "";
-      const room = el.clientWidth;
-      if (!room || el.scrollWidth <= room) return;
-      const size = parseFloat(getComputedStyle(el).fontSize);
-      el.style.fontSize = Math.floor((size * (room - 1)) / el.scrollWidth) + "px";
-    });
+    // Refit whenever a card changes width (layout, viewport, editor frame).
+    if (priceCardObserver && el.parentElement) priceCardObserver.observe(el.parentElement);
+    if (el.style.fontSize) el.style.fontSize = "";
+    const room = el.clientWidth;
+    if (!room || el.scrollWidth <= room) return;
+    const size = parseFloat(getComputedStyle(el).fontSize);
+    el.style.fontSize = Math.floor((size * (room - 1)) / el.scrollWidth) + "px";
   }
 
   function queueFitPriceAmounts() {

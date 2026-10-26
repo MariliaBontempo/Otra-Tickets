@@ -90,9 +90,12 @@ test("every event page keeps the price amount on one line", () => {
 // like real text. Each case is one card width and one amount width at 60px.
 // fitPriceAmounts reads these from the surrounding script.
 const FIT_PRELUDE = "let priceCardObserver = null; function queueFitPriceAmounts() {}\n";
+const FIT_SRC = ["fitPriceAmounts", "fitPriceAmount"]
+  .map((name) => overridesSrc.match(new RegExp(`  function ${name}\\(\\w*\\) \\{[\\s\\S]*?\\n  \\}\\n`))[0])
+  .join("\n");
 
 function runFit(cards) {
-  const src = overridesSrc.match(/  function fitPriceAmounts\(\) \{[\s\S]*?\n  \}\n/)[0];
+  const src = FIT_SRC;
   const els = cards.map(({ room, textAt60 }) => {
     const style = { fontSize: "" };
     return {
@@ -132,7 +135,7 @@ test("an amount wider than its card shrinks just enough to fit on one line", () 
 test("refitting after the card grows restores the design size", () => {
   const els = runFit([{ room: 196, textAt60: 330 }]);
   assert.ok(els[0].style.fontSize);
-  const src = overridesSrc.match(/  function fitPriceAmounts\(\) \{[\s\S]*?\n  \}\n/)[0];
+  const src = FIT_SRC;
   els[0].clientWidth = 400;
   vm.runInNewContext(`${FIT_PRELUDE}${src}\nfitPriceAmounts();`, {
     document: { querySelectorAll: () => els },
