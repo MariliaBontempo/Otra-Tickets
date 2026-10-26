@@ -415,6 +415,19 @@
   }
   .checkout-ticket textarea { min-height: 88px; }
   .checkout-ticket-note { color: var(--muted); font-size: 12px; }
+  .checkout-pending-delete { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--danger); border-radius: var(--radius); }
+  .checkout-pending-delete p { margin: 0; }
+  .checkout-pending-delete .status:empty { display: none; }
+  .checkout-ticket-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+  .btn.danger { border-color: var(--danger); color: var(--danger); background: transparent; }
+  .btn.danger.solid { background: var(--danger); color: #fff; }
+  .btn.danger:disabled { opacity: .45; cursor: not-allowed; }
+  .checkout-delete-panel { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--danger); border-radius: var(--radius); }
+  .checkout-delete-panel dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 0; font-size: 13px; }
+  .checkout-delete-panel dt { color: var(--muted); }
+  .checkout-delete-panel dd { margin: 0; }
+  .checkout-delete-panel .status { margin: 0; }
+  .checkout-delete-actions { display: flex; gap: 8px; flex-wrap: wrap; }
   .clone-sale-list { display: grid; gap: 10px; max-height: 280px; overflow: auto; }
   .clone-sale-row {
     display: grid;
@@ -861,6 +874,7 @@
           </div>
         </div>
       </section>
+      <div class="checkout-ticket-list" id="checkoutPendingDeletes"></div>
       <div class="checkout-ticket-list" id="checkoutTickets"></div>
       <div class="row">
         <button class="btn ghost" id="addTicketTypeBtn" type="button">+ Add ticket type</button>
@@ -1030,6 +1044,8 @@
   let existingEventSearchTimer = null;
   let draftSetupWarning = "";
   let checkoutEvent = null;
+  // Deletes done on Otra Guide whose Otra Tickets page update is still open.
+  let checkoutPendingDeletes = [];
 
   const $ = (id) => document.getElementById(id);
   const loginView = $("loginView");
@@ -1896,7 +1912,16 @@
     let ticket = rowName
       ? event.tickets.find((t) => String(t.name).trim().toLowerCase() === rowName.toLowerCase())
       : null;
-    if (!ticket) ticket = event.tickets[rowIndex];
+    // Fall back to the row position only when the page lists exactly the
+    // checkout's ticket types; after a delete (or a stale page) the Nth row
+    // can be a different ticket type.
+    if (!ticket) {
+      let pageRows = -1;
+      try {
+        pageRows = $("previewFrame").contentDocument.querySelectorAll("#evRates > div.ev-rate:not(.ev-addon)").length;
+      } catch {}
+      if (pageRows === event.tickets.length) ticket = event.tickets[rowIndex];
+    }
     if (!ticket) throw new Error("Could not match a ticket type - checkout price NOT changed.");
     const tickets = event.tickets.map((t) => ({ ...t, price: t.id === ticket.id ? price.toFixed(2) : t.price }));
     const raw = String(overrideIdForPage(selected) || "");
@@ -2705,6 +2730,8 @@
     checkoutEvent = null;
     $("checkoutMeta").textContent = `${selected.title} · Otra Guide ID ${eventId}`;
     $("checkoutTickets").innerHTML = "";
+    checkoutPendingDeletes = [];
+    renderPendingDeletes();
     $("checkoutStatus").textContent = "Loading checkout...";
     $("checkoutStatus").className = "status";
     $("saveCheckoutBtn").disabled = true;
@@ -2716,6 +2743,8 @@
       const data = await api(`/admin/api/events?id=${encodeURIComponent(eventId)}`, { headers: authHeaders() });
       checkoutEvent = data.events && data.events[0] ? data.events[0] : null;
       if (!checkoutEvent) throw new Error("Event not found on Otra Guide.");
+      checkoutPendingDeletes = Array.isArray(data.pendingDeletes) ? data.pendingDeletes : [];
+      renderPendingDeletes();
       renderCheckoutTickets(checkoutEvent.tickets || []);
       renderCheckoutDate(checkoutEvent);
       $("checkoutStatus").textContent = "";
@@ -2833,10 +2862,250 @@
         </div>
         <label>Description<textarea data-checkout-description>${esc(ticket.description || "")}</textarea></label>
         <label>Total quantity<input data-checkout-quantity type="number" min="1" step="1" required value="${esc(ticket.quantity)}" /></label>
-        ${remaining}
+        <div class="checkout-ticket-foot">
+          ${remaining || "<span></span>"}
+          <button class="btn danger" type="button" data-checkout-delete="${esc(ticket.id)}">Delete ticket type</button>
+        </div>
+        <div class="checkout-delete-panel hidden" data-checkout-delete-panel></div>
       </section>`;
     }).join("");
   }
+
+  // Issued tickets per Otra Guide's own counters (total minus remaining).
+  function checkoutSoldCount(ticket) {
+    const quantity = Number(ticket && ticket.quantity);
+    const raw = ticket && ticket.remainingQuantity;
+    const remaining = raw === null || raw === undefined || raw === "" ? NaN : Number(raw);
+    if (!Number.isSafeInteger(quantity) || !Number.isSafeInteger(remaining)) return 0;
+    return Math.max(0, quantity - remaining);
+  }
+
+  // A delete reloads every row from Otra Guide, so unsaved edits in the
+  // form would be thrown away. Ask for a Save first instead.
+  function checkoutHasUnsavedEdits() {
+    const saved = new Map(((checkoutEvent && checkoutEvent.tickets) || []).map((t) => [String(t.id), t]));
+    return [...document.querySelectorAll("[data-checkout-ticket]")].some((card) => {
+      const ticket = saved.get(card.dataset.checkoutTicket);
+      if (!ticket) return true;
+      return card.querySelector("[data-checkout-name]").value.trim() !== String(ticket.name || "").trim()
+        || Number(card.querySelector("[data-checkout-price]").value) !== Number(ticket.price)
+        || card.querySelector("[data-checkout-currency]").value !== ticket.currency
+        || card.querySelector("[data-checkout-description]").value.trim() !== String(ticket.description || "").trim()
+        || Number(card.querySelector("[data-checkout-quantity]").value) !== Number(ticket.quantity);
+    });
+  }
+
+  function closeTicketDelete(card) {
+    const panel = card && card.querySelector("[data-checkout-delete-panel]");
+    if (!panel) return;
+    panel.classList.add("hidden");
+    panel.innerHTML = "";
+    const button = card.querySelector("[data-checkout-delete]");
+    if (button) button.disabled = false;
+  }
+
+  // Step 1 shows exactly what will be deleted (name, price, Otra Guide id,
+  // sold count). Step 2 asks for the exact name before anything is sent.
+  function openTicketDelete(ticketId) {
+    const card = document.querySelector(`[data-checkout-ticket="${CSS.escape(String(ticketId))}"]`);
+    const ticket = ((checkoutEvent && checkoutEvent.tickets) || []).find((t) => String(t.id) === String(ticketId));
+    if (!card || !ticket) return;
+    document.querySelectorAll("[data-checkout-ticket]").forEach((other) => { if (other !== card) closeTicketDelete(other); });
+    const panel = card.querySelector("[data-checkout-delete-panel]");
+    const sold = checkoutSoldCount(ticket);
+    const soldText = Number.isSafeInteger(ticket.remainingQuantity)
+      ? `${sold} (${ticket.remainingQuantity} of ${ticket.quantity} remaining)`
+      : "Checked on Otra Guide before deleting. A sold ticket, or no ticket count from Otra Guide, blocks the delete.";
+    const onlyOne = (checkoutEvent.tickets || []).length <= 1;
+    const unsaved = checkoutHasUnsavedEdits();
+    let block = "";
+    if (sold > 0) block = `${ticket.name} already has ${sold} sold ticket${sold === 1 ? "" : "s"}. It can't be deleted.`;
+    else if (onlyOne) block = "A checkout needs at least one ticket type. Add the replacement and Save first, then delete this one.";
+    else if (unsaved) block = "This checkout has unsaved changes. Save or close without saving first, then delete.";
+    card.querySelector("[data-checkout-delete]").disabled = true;
+    panel.innerHTML = `
+      <strong>Delete this ticket type on Otra Guide?</strong>
+      <dl>
+        <dt>Name</dt><dd>${esc(ticket.name)}</dd>
+        <dt>Price</dt><dd>${esc(ticket.price)} ${esc(ticket.currency)}</dd>
+        <dt>Otra Guide ID</dt><dd>${esc(ticket.id)}</dd>
+        <dt>Sold</dt><dd>${esc(soldText)}</dd>
+      </dl>
+      ${block
+        ? `<p class="status error" data-checkout-delete-status>${esc(block)} Nothing was deleted.</p>
+           <div class="checkout-delete-actions"><button class="btn" type="button" data-checkout-delete-cancel>Close</button></div>`
+        : `<p class="muted" data-checkout-delete-impact>This deletes the ticket type on Otra Guide, so it leaves the Otra Guide app and website checkout. It also leaves this Otra Tickets checkout and the price list on every Otra Tickets page for this event. This can't be undone.</p>
+           <div class="checkout-delete-actions">
+             <button class="btn danger" type="button" data-checkout-delete-next>Continue</button>
+             <button class="btn" type="button" data-checkout-delete-cancel>Cancel</button>
+           </div>`}`;
+    panel.classList.remove("hidden");
+    panel.querySelector("[data-checkout-delete-cancel]").addEventListener("click", () => closeTicketDelete(card));
+    const next = panel.querySelector("[data-checkout-delete-next]");
+    if (next) next.addEventListener("click", () => confirmTicketDelete(card, ticket));
+  }
+
+  function confirmTicketDelete(card, ticket) {
+    const panel = card.querySelector("[data-checkout-delete-panel]");
+    panel.innerHTML = `
+      <strong>Type the ticket name to delete it</strong>
+      <label>Ticket name: <code>${esc(ticket.name)}</code>
+        <input data-checkout-delete-name type="text" autocomplete="off" spellcheck="false" />
+      </label>
+      <p class="status" data-checkout-delete-status></p>
+      <div class="checkout-delete-actions">
+        <button class="btn danger solid" type="button" data-checkout-delete-confirm disabled>Delete ${esc(ticket.name)} on Otra Guide</button>
+        <button class="btn" type="button" data-checkout-delete-cancel>Cancel</button>
+      </div>`;
+    const input = panel.querySelector("[data-checkout-delete-name]");
+    const confirm = panel.querySelector("[data-checkout-delete-confirm]");
+    input.addEventListener("input", () => { confirm.disabled = input.value.trim() !== String(ticket.name).trim(); });
+    panel.querySelector("[data-checkout-delete-cancel]").addEventListener("click", () => closeTicketDelete(card));
+    confirm.addEventListener("click", () => deleteCheckoutTicket(card, ticket, input.value.trim()));
+    input.focus();
+  }
+
+  async function reloadOverrideAfterDelete() {
+    try {
+      const page = await api("/admin/api/overrides?id=" + encodeURIComponent(overrideIdForPage(selected)), {
+        headers: authHeaders(),
+      });
+      fillForm(page.override);
+      await loadPageHistory();
+    } catch {
+      // A missed reload only means the next save may ask to reload first.
+    }
+  }
+
+  function renderPendingDeletes() {
+    $("checkoutPendingDeletes").innerHTML = checkoutPendingDeletes.map((item) => `
+      <section class="checkout-pending-delete" data-pending-delete="${esc(item.ticketTypeId)}">
+        <p><strong>${esc(item.name)}</strong> (ID ${esc(item.ticketTypeId)}) was deleted on Otra Guide, but its Otra Tickets page update did not finish.</p>
+        <p class="status" data-pending-delete-status>${item.running ? "The page update is running right now. Close and reopen Edit checkout in a minute." : ""}</p>
+        <div class="checkout-delete-actions">
+          <button class="btn danger" type="button" data-finish-delete="${esc(item.ticketTypeId)}"${item.running ? " disabled" : ""}>Finish page update</button>
+        </div>
+      </section>`).join("");
+  }
+
+  // Runs the rest of an earlier delete's page update. Otra Tickets checks
+  // that the type is gone from Otra Guide first; nothing is sent to Otra Guide.
+  async function finishPendingDelete(ticketTypeId) {
+    const eventId = eventIdForPage(selected);
+    const item = checkoutPendingDeletes.find((p) => String(p.ticketTypeId) === String(ticketTypeId));
+    const box = document.querySelector(`[data-pending-delete="${CSS.escape(String(ticketTypeId))}"]`);
+    if (!eventId || !item || !box) return;
+    const status = box.querySelector("[data-pending-delete-status]");
+    const button = box.querySelector("[data-finish-delete]");
+    button.disabled = true;
+    status.textContent = `Updating the Otra Tickets pages for ${item.name}...`;
+    status.className = "status";
+    try {
+      const data = await api("/admin/api/events", {
+        method: "DELETE",
+        headers: authHeaders({ "content-type": "application/json" }),
+        body: JSON.stringify({
+          eventId: Number(eventId),
+          ticketTypeId: Number(item.ticketTypeId),
+          confirmName: item.name,
+          draftId: isDraft(selected) ? selected.id : "",
+        }),
+      });
+      checkoutPendingDeletes = checkoutPendingDeletes.filter((p) => p !== item);
+      renderPendingDeletes();
+      if (data.event) {
+        checkoutEvent = data.event;
+        renderCheckoutTickets(checkoutEvent.tickets || []);
+      }
+      const message = `${item.name} (ID ${item.ticketTypeId}) was already deleted on Otra Guide. Otra Tickets pages are updated now.`
+        + (data.liveEditsNotMoved ? " The live page price rows changed order meanwhile, so their page edits were not moved. Check the price rows on the live page." : "");
+      $("checkoutStatus").textContent = message;
+      $("checkoutStatus").className = "status ok";
+      await reloadOverrideAfterDelete();
+      refreshPreview();
+      setStatus(message, "ok");
+    } catch (err) {
+      status.textContent = err.message || "No answer from Otra Tickets. Close and reopen Edit checkout to check again.";
+      status.className = "status error";
+      button.disabled = false;
+    }
+  }
+
+  $("checkoutPendingDeletes").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-finish-delete]");
+    if (button && !button.disabled) finishPendingDelete(button.dataset.finishDelete);
+  });
+
+  async function deleteCheckoutTicket(card, ticket, confirmName) {
+    const eventId = eventIdForPage(selected);
+    if (!eventId || !checkoutEvent) return;
+    const panel = card.querySelector("[data-checkout-delete-panel]");
+    const status = panel.querySelector("[data-checkout-delete-status]");
+    const buttons = panel.querySelectorAll("button");
+    buttons.forEach((b) => { b.disabled = true; });
+    $("saveCheckoutBtn").disabled = true;
+    $("addTicketTypeBtn").disabled = true;
+    status.textContent = `Deleting ${ticket.name} on Otra Guide...`;
+    status.className = "status";
+    try {
+      const data = await api("/admin/api/events", {
+        method: "DELETE",
+        headers: authHeaders({ "content-type": "application/json" }),
+        body: JSON.stringify({
+          eventId: Number(eventId),
+          ticketTypeId: Number(ticket.id),
+          confirmName,
+          draftId: isDraft(selected) ? selected.id : "",
+        }),
+      });
+      checkoutEvent = data.event;
+      renderCheckoutTickets(checkoutEvent.tickets || []);
+      const message = (data.finishedEarlierDelete
+        ? `${ticket.name} (ID ${ticket.id}) was already deleted on Otra Guide. Otra Tickets pages are updated now.`
+        : `Deleted ${ticket.name} (${ticket.price} ${ticket.currency}, ID ${ticket.id}) on Otra Guide.`)
+        + (data.liveEditsNotMoved ? " The live page price rows changed order meanwhile, so their page edits were not moved. Check the price rows on the live page." : "");
+      $("checkoutStatus").textContent = message;
+      $("checkoutStatus").className = "status ok";
+      // Page edits on later rate rows moved on the server; load the page as
+      // stored now so the next save does not start from the old version.
+      if (data.pageEditsMoved || data.finishedEarlierDelete) await reloadOverrideAfterDelete();
+      refreshPreview();
+      setStatus(message, "ok");
+    } catch (err) {
+      // Only the server's own refusals say nothing was deleted. Anything else
+      // (no answer, a timeout, an unconfirmed delete) leaves the result unknown.
+      status.textContent = /Nothing was deleted|Reload|Delete again|Finish page update|Wait a minute/.test(err.message)
+        ? err.message
+        : `${err.message || "No answer from Otra Tickets."} Close and reopen Edit checkout to see whether ${ticket.name} is still there. If it is gone, Edit checkout offers Finish page update.`;
+      status.className = "status error";
+      setStatus(err.message, "error");
+      buttons.forEach((b) => { b.disabled = false; });
+      const confirm = panel.querySelector("[data-checkout-delete-confirm]");
+      const input = panel.querySelector("[data-checkout-delete-name]");
+      if (confirm && input) confirm.disabled = input.value.trim() !== String(ticket.name).trim();
+      // Deleted on Otra Guide but the page update is still open: show the
+      // checkout as it is now and offer Finish page update right away.
+      const failed = err && err.data;
+      if (failed && failed.deletedOnGuide && failed.event && Array.isArray(failed.event.tickets)) {
+        checkoutEvent = failed.event;
+        renderCheckoutTickets(checkoutEvent.tickets);
+        if (!checkoutPendingDeletes.some((p) => String(p.ticketTypeId) === String(ticket.id))) {
+          checkoutPendingDeletes = [...checkoutPendingDeletes, { ticketTypeId: String(ticket.id), name: String(ticket.name), running: false }];
+        }
+        renderPendingDeletes();
+        $("checkoutStatus").textContent = err.message;
+        $("checkoutStatus").className = "status error";
+      }
+    } finally {
+      $("saveCheckoutBtn").disabled = false;
+      $("addTicketTypeBtn").disabled = false;
+    }
+  }
+
+  $("checkoutTickets").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-checkout-delete]");
+    if (button && !button.disabled) openTicketDelete(button.dataset.checkoutDelete);
+  });
 
   $("addTicketTypeBtn").addEventListener("click", () => {
     const card = document.createElement("section");

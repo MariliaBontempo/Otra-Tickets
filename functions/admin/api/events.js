@@ -4,7 +4,9 @@
 // Otra Guide event and hydrate its ticket types before creating an Otra Tickets
 // draft that points at that event.
 
-import { apiBase, otraGet, requireStaff, json } from "./_auth.js";
+import { apiBase, otraGet, requireStaff, staffSession, json } from "./_auth.js";
+import { actorForAudit, appendAudit } from "./_audit.js";
+import { isPublishedBound } from "../../_lib/page-override.js";
 
 const CATEGORY_ID = 339;
 const PAGE_SIZE = 12;
@@ -22,7 +24,9 @@ export async function onRequestGet(context) {
 
   if (id) {
     const event = await hydrateEvent(context, accessToken, id);
-    return event ? json({ events: [event] }) : json({ error: "event not found" }, 404);
+    if (!event) return json({ error: "event not found" }, 404);
+    const pendingDeletes = await listPendingDeletes(context.env && context.env.OVERRIDES, id, event);
+    return json({ events: [event], pendingDeletes });
   }
 
   if (query.length < 2) return json({ events: [] });
@@ -88,6 +92,663 @@ export async function onRequestPut(context) {
   } catch (error) {
     return json({ error: error.message }, 502);
   }
+}
+
+// DELETE /admin/api/events  {eventId, ticketTypeId, confirmName, draftId}
+//
+// Deletes one ticket type on Otra Guide, then drops it from every Otra
+// Tickets page bound to that event. Built to never delete the wrong thing:
+// - the ticket type must still belong to the event Otra Guide reports now
+// - the caller must retype the exact ticket name
+// - the last ticket type of a checkout is never deleted
+// - a ticket type with any sold ticket, or with no readable ticket count, is
+//   refused here, and Otra Guide refuses a sold type again on its side
+// - "Nothing was deleted" is only said when Otra Guide gave a final answer
+//   (a 4xx) and a full re-read still shows the type; a timeout, a network
+//   error, a 5xx or a partial re-read leaves the result unknown
+// - page changes are planned and saved as a pending cleanup before the Otra
+//   Guide call, so a cleanup that fails after the delete can be finished by
+//   sending the same request again
+export async function onRequestDelete(context) {
+  const session = await staffSession(context.request, context.env);
+  if (!session) return json({ error: "unauthorized" }, 401);
+  const accessToken = session.token;
+
+  let body;
+  try {
+    body = await context.request.json();
+  } catch {
+    return json({ error: "invalid json" }, 400);
+  }
+  // Exact ids only: "12abc" or "12.5" must never turn into a delete of 12.
+  const eventId = strictId(body && body.eventId);
+  const ticketTypeId = strictId(body && body.ticketTypeId);
+  if (!eventId) return json({ error: "event id is required. Nothing was deleted." }, 400);
+  if (!ticketTypeId) return json({ error: "ticket type id is required. Nothing was deleted." }, 400);
+  const kv = context.env && context.env.OVERRIDES;
+  // Without page storage the pages could never be updated after the delete.
+  if (!kv || typeof kv.get !== "function" || typeof kv.put !== "function" || typeof kv.delete !== "function") {
+    return json({ error: "Otra Tickets page storage is not available. Nothing was deleted. Try again later." }, 503);
+  }
+  const typed = String((body && body.confirmName) || "").trim();
+  const key = pendingDeleteKey(eventId, ticketTypeId);
+
+  const before = await readCheckout(context, accessToken, eventId);
+  const current = before.event;
+  if (!current || String(current.id) !== String(eventId)) return json({ error: "event not found. Nothing was deleted." }, 404);
+  const ticket = current.tickets.find((item) => String(item.id) === String(ticketTypeId));
+  if (!ticket) {
+    // The type is gone on Otra Guide. If an earlier delete of it left its page
+    // cleanup unfinished, finish that cleanup (no Otra Guide call).
+    const pending = await kv.get(key, "json").catch(() => null);
+    if (pending && String(pending.eventId) === String(eventId) && String(pending.ticketTypeId) === String(ticketTypeId)) {
+      if (!typed || typed !== String(pending.name || "").trim()) {
+        return json({ error: `Type the exact ticket name "${pending.name}" to finish updating the pages.`, code: "confirm_name" }, 409);
+      }
+      if (!trustedReread(before, pending)) {
+        return json({
+          error: `Otra Tickets could not re-read the full checkout from Otra Guide, so the pages for ${pending.name} were not updated yet. Wait a minute, then press Delete again.`,
+          code: "guide_delete_unknown",
+        }, 502);
+      }
+      // One cleanup run at a time, so two runs never move a page edit twice.
+      if (isLocked(pending)) {
+        return json({
+          error: `The page update for ${pending.name} is already running. Wait a minute, then check the checkout again. Nothing was changed by this request.`,
+          code: "delete_in_progress",
+        }, 409);
+      }
+      let claimed;
+      try {
+        claimed = await claimLock(kv, key, pending);
+      } catch {
+        return json({ error: `Otra Tickets could not start the page update for ${pending.name}. Try again.`, code: "guide_delete_unknown" }, 503);
+      }
+      if (!claimed) {
+        return json({
+          error: `The page update for ${pending.name} is already running. Wait a minute, then check the checkout again. Nothing was changed by this request.`,
+          code: "delete_in_progress",
+        }, 409);
+      }
+      return finishDeleteCleanup(context, session, kv, claimed, current, true);
+    }
+    return json({ error: "This ticket type is no longer on this event. Reload the checkout. Nothing was deleted." }, 409);
+  }
+  // Only the staff search lists every ticket type (the public fallback hides
+  // types off sale), so a delete is never sent on a partial read.
+  if (!before.complete) {
+    return json({
+      error: "Otra Tickets could not read the full checkout from Otra Guide. Nothing was deleted. Wait a minute, then try again.",
+      code: "guide_read_incomplete",
+    }, 503);
+  }
+  // On a recurring or perennial event the remaining count Otra Guide lists
+  // leaves out tickets sold on specific dates, so "0 sold" can't be trusted.
+  if (current.isRecurring || current.isPerennial) {
+    return json({
+      error: `${current.title || "This event"} repeats on several dates, so Otra Tickets can't confirm that ${ticket.name} has no sold tickets. Nothing was deleted. Delete it in the Otra Guide ticketing dashboard, which checks sold tickets itself.`,
+      code: "ticket_type_recurring",
+    }, 409);
+  }
+  if (current.tickets.length <= 1) {
+    return json({ error: "A checkout needs at least one ticket type. Add the replacement first, then delete this one. Nothing was deleted." }, 400);
+  }
+  if (!typed || typed !== String(ticket.name || "").trim()) {
+    return json({ error: `Type the exact ticket name "${ticket.name}" to confirm. Nothing was deleted.` }, 400);
+  }
+  // The staff search reports no remaining count, so read the counts from the
+  // public rate list (same list the page renders). That list also fixes the row the
+  // type sits on, so page edits pinned to later rate rows move up one.
+  const rateList = (await publicRateList(context, accessToken, eventId)) || [];
+  const rateIndex = rateList.findIndex((item) => String(item && item.id) === String(ticketTypeId));
+  const rateRow = rateIndex >= 0 ? rateIndex + 1 : 0;
+  const listed = rateIndex >= 0 ? rateList[rateIndex] : null;
+  // Both counts come from that one list (the hydrated quantity may be a 500
+  // default). A type off sale is missing from it, so its count is unknown.
+  // Fail closed: without a consistent count Otra Tickets never sends the delete.
+  const sold = listedSoldCount(listed);
+  if (sold === null) {
+    return json({
+      error: `Otra Tickets can't confirm that ${ticket.name} has no sold tickets, because Otra Guide shows no usable ticket count for it (it may not be on sale right now). Nothing was deleted. Delete it in the Otra Guide ticketing dashboard, which checks sold tickets itself.`,
+      code: "ticket_type_sold_unknown",
+    }, 409);
+  }
+  if (sold > 0) {
+    return json({
+      error: `${ticket.name} already has ${sold} sold ticket${sold === 1 ? "" : "s"}. It can't be deleted. Nothing was deleted.`,
+      code: "ticket_type_sold",
+      sold,
+    }, 409);
+  }
+
+  // Plan every page change and save it before Otra Guide is called. If that
+  // save fails, nothing is sent to Otra Guide.
+  let plan;
+  try {
+    plan = await planSiteEventCleanup(kv, { draftId: body && body.draftId, eventId, ticketTypeId });
+  } catch {
+    return json({ error: "Otra Tickets could not read its pages to plan the update. Nothing was deleted. Try again." }, 503);
+  }
+  if (plan.ambiguous.length) {
+    return json({
+      error: `The Otra Tickets page ${plan.ambiguous[0]} lists ${ticket.name} more than once, so Otra Tickets can't tell which price row to drop. Fix that page's ticket list first. Nothing was deleted.`,
+      code: "draft_ambiguous",
+    }, 409);
+  }
+  // One delete of a type at a time: a second request while one is open
+  // would move the same page edits twice.
+  const open = await kv.get(key, "json").catch(() => null);
+  if (isLocked(open)) {
+    return json({
+      error: `A delete of ${ticket.name} is already running. Wait a minute, then press Delete again with the same name. Nothing was deleted by this request.`,
+      code: "delete_in_progress",
+    }, 409);
+  }
+  let pending;
+  try {
+    pending = {
+      eventId: String(eventId),
+      ticketTypeId: String(ticketTypeId),
+      name: ticket.name,
+      price: ticket.price,
+      currency: ticket.currency,
+      guideRow: rateRow,
+      // The live page rate list order before the delete. A cleanup only moves
+      // live page edits by guideRow while the other rows still read in this order.
+      rateIds: rateList.map((item) => String(item && item.id)),
+      otherIds: current.tickets.filter((item) => String(item.id) !== String(ticketTypeId)).map((item) => String(item.id)),
+      siteKeys: plan.siteKeys,
+      draftRows: plan.draftRows,
+      liveDrafts: plan.liveDrafts,
+      auditPageId: plan.auditPageId,
+      done: [],
+      createdAt: new Date().toISOString(),
+    };
+    pending = await claimLock(kv, key, pending);
+  } catch {
+    return json({ error: "Otra Tickets could not prepare the page updates. Nothing was deleted. Try again." }, 503);
+  }
+  if (!pending) {
+    return json({
+      error: `A delete of ${ticket.name} is already running. Wait a minute, then press Delete again with the same name. Nothing was deleted by this request.`,
+      code: "delete_in_progress",
+    }, 409);
+  }
+  // Only the request that holds the lock drops or frees the record.
+  const forgetPending = () => releaseLock(kv, key, pending.lockToken, true);
+  // The request is over but the delete may still land on Otra Guide: keep
+  // the pending cleanup and let the next request run it.
+  const unlock = () => releaseLock(kv, key, pending.lockToken);
+
+  const result = await guideDeleteTicketType(context, accessToken, eventId, ticketTypeId);
+  // Re-read the checkout. It is only trusted when every other ticket type
+  // from before the delete is still listed (a failed ticket read can come
+  // back as an empty list, which must never count as "deleted").
+  const reread = await readCheckout(context, accessToken, eventId).catch(() => ({ event: null, complete: false }));
+  const after = reread.event;
+  const unknown = async (why) => {
+    await unlock();
+    return unknownReply(why);
+  };
+  const unknownReply = (why) => json({
+    error: `${why} so Otra Tickets can't tell yet whether ${ticket.name} was deleted. Otra Tickets pages were not changed. Wait a minute, then press Delete again with the same name: Otra Tickets checks Otra Guide again first and only updates its pages once ${ticket.name} is gone.`,
+    code: "guide_delete_unknown",
+  }, 502);
+  if (!trustedReread(reread, pending)) return unknown("Otra Tickets could not re-read the full checkout from Otra Guide,");
+  const stillThere = after.tickets.some((item) => String(item.id) === String(ticketTypeId));
+  if (stillThere) {
+    // A 4xx is Otra Guide's final answer: it refused, and the type is still there.
+    if (result.status >= 400 && result.status < 500) {
+      await forgetPending();
+      if (result.status === 404 || result.status === 405) {
+        return json({
+          error: "Otra Guide does not accept ticket type deletes from Otra Tickets yet. Nothing was deleted. Delete it in the Otra Guide ticketing dashboard for now.",
+          code: "guide_delete_unavailable",
+        }, 501);
+      }
+      if (result.status === 400) {
+        return json({
+          error: `${result.message || "Otra Guide refused the delete."} Nothing was deleted.`,
+          code: /sold/i.test(result.message) ? "ticket_type_sold" : "guide_refused",
+        }, 409);
+      }
+      return json({ error: `${result.message || "Otra Guide refused the delete."} Nothing was deleted.`, code: "guide_refused" }, 502);
+    }
+    // OK while still listed, no answer, a timeout or a 5xx: the delete may
+    // still finish on Otra Guide, so the pending cleanup is kept.
+    if (result.ok) return unknown("Otra Guide answered OK but the ticket type still shows on the checkout,");
+    return unknown(`Otra Guide did not give a clear answer (${result.status ? `error ${result.status}` : "no answer"}),`);
+  }
+
+  return finishDeleteCleanup(context, session, kv, pending, after);
+}
+
+// Longer than the 30 s Otra Guide timeout plus the re-read. A request holds
+// the lock while it runs and releases it when it ends; the time limit only
+// frees a lock left by a request that died.
+const PENDING_DELETE_LOCK_MS = 2 * 60 * 1000;
+
+function isLocked(record) {
+  const until = record && typeof record.lockedUntil === "string" ? Date.parse(record.lockedUntil) : NaN;
+  return Number.isFinite(until) && until > Date.now();
+}
+
+// Writes the record with a fresh lock token, then reads it back: when another
+// request wrote its own token in between, this one does not own the lock and
+// returns null (it must not call Otra Guide or touch a page).
+export async function claimLock(kv, key, record) {
+  const token = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const next = { ...record, lockToken: token, lockedUntil: new Date(Date.now() + PENDING_DELETE_LOCK_MS).toISOString() };
+  await kv.put(key, JSON.stringify(next));
+  const back = await kv.get(key, "json");
+  return back && back.lockToken === token ? next : null;
+}
+
+// Frees (or with drop, deletes) the record only while this request still owns
+// it, keeping the steps saved so far. Never throws.
+export async function releaseLock(kv, key, token, drop = false) {
+  try {
+    const saved = await kv.get(key, "json");
+    if (!saved || saved.lockToken !== token) return;
+    if (drop) await kv.delete(key);
+    else await kv.put(key, JSON.stringify({ ...saved, lockedUntil: null }));
+  } catch {}
+}
+
+// Deletes of this event whose page update is still open and whose type is
+// no longer on the checkout, so the admin can offer to finish them.
+export async function listPendingDeletes(kv, eventId, event) {
+  if (!kv || typeof kv.list !== "function") return [];
+  const listed = new Set(((event && event.tickets) || []).map((item) => String(item.id)));
+  const found = [];
+  try {
+    let cursor;
+    do {
+      const page = await kv.list({ prefix: `ticket-delete:${eventId}:`, cursor });
+      for (const key of page.keys || []) {
+        const pending = await kv.get(key.name, "json");
+        if (!pending || String(pending.eventId) !== String(eventId) || listed.has(String(pending.ticketTypeId))) continue;
+        found.push({ ticketTypeId: String(pending.ticketTypeId), name: String(pending.name || ""), running: isLocked(pending) });
+      }
+      cursor = page.list_complete ? undefined : page.cursor;
+    } while (cursor);
+  } catch {
+    return found;
+  }
+  return found;
+}
+
+export function pendingDeleteKey(eventId, ticketTypeId) {
+  return `ticket-delete:${eventId}:${ticketTypeId}`;
+}
+
+// A re-read is trusted only when the staff search answered (the public
+// fallback hides types that are off sale), it is the same event, and it lists
+// every other ticket type that was there before the delete.
+export function trustedReread(read, pending) {
+  const event = read && read.complete ? read.event : null;
+  if (!event || !Array.isArray(event.tickets) || !pending) return false;
+  if (String(event.id) !== String(pending.eventId)) return false;
+  const ids = new Set(event.tickets.map((item) => String(item.id)));
+  const others = Array.isArray(pending.otherIds) ? pending.otherIds : [];
+  return others.length > 0 && others.every((id) => ids.has(String(id)));
+}
+
+// Runs the saved page cleanup. Every step is recorded as done in the pending
+// cleanup, so sending the request again only runs what is left.
+async function finishDeleteCleanup(context, session, kv, pending, after, finishedEarlierDelete = false) {
+  const key = pendingDeleteKey(pending.eventId, pending.ticketTypeId);
+  let pagesUpdated = 0;
+  let pageEditsMoved = 0;
+  try {
+    // Decide once per delete whether live page edits may move by guideRow:
+    // only while the live rate list still shows the other rows in the order
+    // seen before the delete. A retry reuses that decision, so pages are
+    // never moved by two different rules.
+    if (typeof pending.liveRowsMatch !== "boolean") {
+      const now = await publicRateList(context, session.token, pending.eventId);
+      if (!now) throw new Error("rate list unavailable");
+      pending.liveRowsMatch = liveRowsStillMatch(pending, now);
+      await kv.put(key, JSON.stringify(pending));
+    }
+    ({ pagesUpdated, pageEditsMoved } = await runPageCleanup(kv, pending));
+    await kv.delete(key);
+  } catch {
+    // Free the lock (keeping the steps already done) so the next request can finish.
+    await releaseLock(kv, key, pending.lockToken);
+    return json({
+      error: `${pending.name} was deleted on Otra Guide, but Otra Tickets pages were not fully updated yet. Press Delete again with the same name, or reopen Edit checkout and press Finish page update, to finish updating the pages.`,
+      code: "pages_not_updated",
+      deletedOnGuide: true,
+      event: after,
+      deleted: { id: Number(pending.ticketTypeId), name: pending.name },
+    }, 500);
+  }
+  // The public page caches the event's rate list; drop it so the page and
+  // the moved page edits change together.
+  try {
+    if (typeof caches !== "undefined" && caches.default) {
+      await caches.default.delete(new Request(new URL(`/api/event-base-v2?id=${pending.eventId}`, context.request.url)));
+    }
+  } catch {}
+  await appendAudit(kv, {
+    actor: await actorForAudit(session.token, session.role, context.env),
+    action: "save",
+    pageId: pending.auditPageId || String(pending.eventId),
+    changedFields: [`ticket-type-deleted:${pending.ticketTypeId}:${pending.name}`],
+  });
+  return json({
+    event: after,
+    deleted: { id: Number(pending.ticketTypeId), name: pending.name, price: pending.price, currency: pending.currency },
+    pagesUpdated,
+    pageEditsMoved,
+    finishedEarlierDelete,
+    // The live price rows changed order since the delete started, so their
+    // page edits were left where they are for staff to check.
+    liveEditsNotMoved: Boolean(pending.guideRow) && pending.liveRowsMatch === false,
+  });
+}
+
+// True when the live rate list, read now, lists the other ticket types in the
+// same order as before the delete (whether or not it still shows the deleted
+// one), so every later row moved up exactly one.
+export function liveRowsStillMatch(pending, rateList) {
+  if (!pending || !Array.isArray(pending.rateIds) || !Array.isArray(rateList)) return false;
+  const gone = String(pending.ticketTypeId);
+  const was = pending.rateIds.map(String).filter((id) => id !== gone);
+  const now = rateList.map((item) => String(item && item.id)).filter((id) => id !== gone);
+  return was.length === now.length && was.every((id, i) => id === now[i]);
+}
+
+export async function runPageCleanup(kv, pending) {
+  if (!kv) return { pagesUpdated: 0, pageEditsMoved: 0 };
+  const key = pendingDeleteKey(pending.eventId, pending.ticketTypeId);
+  const done = new Set(Array.isArray(pending.done) ? pending.done : []);
+  const save = () => kv.put(key, JSON.stringify({ ...pending, done: [...done] }));
+  const mark = async (step) => {
+    done.add(step);
+    await save();
+  };
+  // The rows a draft shows the type on are read again from the draft as it is
+  // now, right before the type is dropped from it (it may have been edited or
+  // published since the delete was planned), and saved with the step.
+  pending.draftRows = { ...(pending.draftRows || {}) };
+  pending.liveDrafts = Array.isArray(pending.liveDrafts) ? [...pending.liveDrafts] : [];
+  let pagesUpdated = 0;
+  for (const siteKey of pending.siteKeys || []) {
+    const step = `site:${siteKey}`;
+    if (done.has(step)) continue;
+    const id = siteKey.slice("site-event:".length);
+    const project = await kv.get(siteKey, "json");
+    if (project && String(project.otraGuideId || "") === String(pending.eventId)) {
+      const next = withoutTicketType(project, pending.ticketTypeId);
+      // When the type is already gone from the draft (this cleanup dropped it
+      // and then lost its progress save) the row saved before is kept.
+      if (next && isPublishedBound(project)) {
+        delete pending.draftRows[id];
+        if (!pending.liveDrafts.includes(id)) pending.liveDrafts.push(id);
+      } else if (next) {
+        pending.liveDrafts = pending.liveDrafts.filter((item) => item !== id);
+        const row = draftRateRow(project, pending.ticketTypeId);
+        if (row) pending.draftRows[id] = row;
+        else delete pending.draftRows[id];
+      }
+      if (next) {
+        // Save the row read now before the draft loses the type, so a retry
+        // after a lost write still knows it.
+        await save();
+        await kv.put(siteKey, JSON.stringify(next));
+        pagesUpdated += 1;
+      }
+    }
+    await mark(step);
+  }
+  const draftRows = new Map(Object.entries(pending.draftRows || {}));
+  const pageEditsMoved = await shiftRateOverrides(kv, {
+    eventId: pending.eventId,
+    ticketTypeId: pending.ticketTypeId,
+    // Live page edits move only while the live rows still line up.
+    guideRow: pending.liveRowsMatch === false ? 0 : pending.guideRow,
+    draftRows,
+    liveDrafts: new Set(pending.liveDrafts),
+    // Each moved page also carries its own marker (see shiftRateOverrides),
+    // so a retry after a lost progress save never moves it twice.
+    skip: (overrideKey) => done.has(`edit:${overrideKey}`),
+    onDone: (overrideKey) => mark(`edit:${overrideKey}`),
+  });
+  return { pagesUpdated, pageEditsMoved };
+}
+
+// A count Otra Guide may leave out. null (not 0) when it is missing, so an
+// unknown remaining count never reads as "0 remaining, all sold".
+export function optionalCount(value) {
+  // Only a plain number or a digits-only string is a count. true, [], "1e2",
+  // " " or "12.5" would otherwise read as a number and could fake a 0 sold.
+  let n = NaN;
+  if (typeof value === "number") n = value;
+  else if (typeof value === "string" && /^\s*\d+\s*$/.test(value)) n = Number(value);
+  return Number.isSafeInteger(n) && n >= 0 ? n : null;
+}
+
+// Sold tickets of one public rate list row (quantity minus remaining), or
+// null when the counts are missing or inconsistent (no positive quantity, or
+// more remaining than the quantity). null always blocks the delete.
+export function listedSoldCount(listed) {
+  const quantity = optionalCount(listed && listed.quantity);
+  const remaining = optionalCount(listed && listed.remaining_quantity);
+  if (quantity === null || quantity <= 0 || remaining === null || remaining > quantity) return null;
+  return quantity - remaining;
+}
+
+async function guideDeleteTicketType(context, accessToken, eventId, ticketTypeId) {
+  let response;
+  try {
+    response = await fetch(`${apiBase(context.env)}/ticket/create/tickets/${eventId}/${ticketTypeId}/`, {
+      method: "DELETE",
+      headers: { accept: "application/json", authorization: `Bearer ${accessToken}` },
+      signal: AbortSignal.timeout(30000),
+    });
+  } catch {
+    return { ok: false, status: 0, message: "could not reach Otra Guide" };
+  }
+  const data = await response.json().catch(() => ({}));
+  const message = (data && (data.error || data.detail)) || "";
+  return { ok: response.ok, status: response.status, message: String(message) };
+}
+
+// Drop the deleted type from a page bound to the event so the page price list
+// and a later publish never bring it back. reconcileTickets pairs
+// claudeDesign.rates[i], ticketTypeIds[i] and ticketQuantities[i] by index, so
+// the same index is removed from each list that has it; every other type keeps
+// its rate and quantity. Matches on the exact ticket type id only.
+export function withoutTicketType(project, ticketTypeId) {
+  const ids = Array.isArray(project && project.ticketTypeIds) ? project.ticketTypeIds : [];
+  const index = ids.findIndex((id) => String(id) === String(ticketTypeId));
+  if (index < 0) return null;
+  const keep = (list) => (Array.isArray(list) ? list.filter((_, i) => i !== index) : list);
+  const design = project.claudeDesign && typeof project.claudeDesign === "object" ? project.claudeDesign : null;
+  const next = {
+    ...project,
+    ticketTypeIds: keep(ids),
+    ticketQuantities: keep(project.ticketQuantities),
+  };
+  if (design && Array.isArray(design.rates)) {
+    next.claudeDesign = { ...design, rates: keep(design.rates) };
+  }
+  return next;
+}
+
+// The rate row (1 based) a draft page shows this type on. A draft page renders
+// its claudeDesign.rates, and rates[i] belongs to ticketTypeIds[i]; 0 means
+// the draft shows no row for the type, so its rate rows do not move.
+export function draftRateRow(project, ticketTypeId) {
+  const ids = Array.isArray(project && project.ticketTypeIds) ? project.ticketTypeIds : [];
+  const index = ids.findIndex((id) => String(id) === String(ticketTypeId));
+  const design = project && project.claudeDesign && typeof project.claudeDesign === "object" ? project.claudeDesign : null;
+  if (index < 0 || !design || !Array.isArray(design.rates) || index >= design.rates.length) return 0;
+  return index + 1;
+}
+
+// Read only: which draft pages are bound to the event and list the type, and
+// the rate row each one shows it on.
+export async function planSiteEventCleanup(kv, { draftId, eventId, ticketTypeId }) {
+  const plan = { siteKeys: [], draftRows: {}, liveDrafts: [], ambiguous: [], auditPageId: String(eventId) };
+  if (!kv) return plan;
+  const seen = new Set();
+  const consider = async (key) => {
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    const project = await kv.get(key, "json");
+    if (!project || String(project.otraGuideId || "") !== String(eventId)) return;
+    const id = key.slice("site-event:".length);
+    // A published bound draft's edits are merged under the live page, which
+    // renders the Otra Guide rate list, so its edits move by that row.
+    const live = isPublishedBound(project);
+    if (live) plan.liveDrafts.push(id);
+    if (!withoutTicketType(project, ticketTypeId)) return;
+    const ids = Array.isArray(project.ticketTypeIds) ? project.ticketTypeIds : [];
+    if (ids.filter((id) => String(id) === String(ticketTypeId)).length > 1) {
+      plan.ambiguous.push(key.slice("site-event:".length));
+      return;
+    }
+    plan.siteKeys.push(key);
+    const row = draftRateRow(project, ticketTypeId);
+    if (row && !live) plan.draftRows[id] = row;
+  };
+  const ownDraft = /^draft-[a-zA-Z0-9-]+$/.test(String(draftId || "")) ? String(draftId) : "";
+  if (ownDraft) await consider(`site-event:${ownDraft}`);
+  let cursor;
+  do {
+    const page = await kv.list({ prefix: "site-event:", cursor });
+    for (const key of page.keys || []) await consider(key.name);
+    cursor = page.list_complete ? undefined : page.cursor;
+  } while (cursor);
+  if (ownDraft && plan.siteKeys.includes(`site-event:${ownDraft}`)) plan.auditPageId = ownDraft;
+  return plan;
+}
+
+// The public rate list, or null when Otra Guide did not answer with one.
+async function publicRateList(context, accessToken, eventId) {
+  const data = await otraJson(context, accessToken, `/ticket/purchase/tickets/${eventId}/`);
+  return data && Array.isArray(data.results) ? data.results : null;
+}
+
+// Page edits on rate rows are pinned by position (#evRates > div:nth-of-type(N)).
+// Once a type is gone every later row moves up one, so its edits must move
+// with it: drop the deleted row's edits, renumber the rows after it. Without
+// this a price edit of the next row would show on (and a later price pencil
+// sync would target) the wrong ticket type.
+const RATE_ROW_KEY_RE = /^([a-z]+:(?:main > )?#evRates > div:nth-of-type\()(\d+)(\).*)$/;
+
+export function shiftRateFields(fields, row) {
+  if (!fields || typeof fields !== "object") return { fields, changed: false };
+  const next = {};
+  let changed = false;
+  for (const [key, field] of Object.entries(fields)) {
+    const match = RATE_ROW_KEY_RE.exec(key);
+    const n = match ? Number(match[2]) : 0;
+    if (!match || n < row) {
+      next[key] = field;
+    } else if (n === row) {
+      changed = true;
+    } else {
+      next[`${match[1]}${n - 1}${match[3]}`] = field;
+      changed = true;
+    }
+  }
+  return { fields: next, changed };
+}
+
+// Each page renders its own rate list, so each moves by its own row:
+// - an unpublished draft page (event:draft-...) renders its claudeDesign.rates,
+//   so it moves only when that draft lost the type, by the row it had there;
+// - a published bound draft's edits show under the live page, which renders
+//   the Otra Guide rate list, so they move by that row;
+// - an Otra Guide event page renders the checkout event's public rate list, so
+//   it moves by that row, and only when it sells through this event.
+//
+// Versions: a published bound draft's document keeps its updatedAt, so which
+// of it and the live document is newer (coversDraft, mergeOverrideDocs) never
+// changes. Every other moved document gets the next millisecond as its
+// version, so an editor tab opened before the move is merged key by key
+// instead of saving over it, while its order against those drafts is kept.
+//
+// Every moved document records `${eventId}:${ticketTypeId}` in
+// ticketDeletesApplied in the same write, so a document is never moved twice
+// for one delete. skip/onDone let a resumed cleanup skip pages already done.
+export const TICKET_DELETE_MARKER_LIMIT = 20;
+
+export async function shiftRateOverrides(kv, { eventId, ticketTypeId, guideRow, draftRows, liveDrafts, skip, onDone }) {
+  if (!kv) return 0;
+  const rows = draftRows instanceof Map ? draftRows : new Map();
+  const live = liveDrafts instanceof Set ? liveDrafts : new Set();
+  if (!guideRow && rows.size === 0) return 0;
+  const marker = `${eventId}:${ticketTypeId}`;
+  const keys = new Set([`event:${eventId}`, ...[...rows.keys()].map((id) => `event:${id}`)]);
+  if (guideRow) {
+    for (const id of live) keys.add(`event:${id}`);
+    // A page may sell through this event without being bound to it.
+    let cursor;
+    do {
+      const page = await kv.list({ prefix: "event:", cursor });
+      for (const key of page.keys || []) keys.add(key.name);
+      cursor = page.list_complete ? undefined : page.cursor;
+    } while (cursor);
+  }
+  // Versions of the published bound drafts, which a new live version must not reach.
+  const liveStamps = new Set();
+  for (const id of live) {
+    const doc = await kv.get(`event:${id}`, "json");
+    const at = doc && typeof doc.updatedAt === "string" ? Date.parse(doc.updatedAt) : NaN;
+    if (Number.isFinite(at)) liveStamps.add(at);
+  }
+  let moved = 0;
+  for (const key of keys) {
+    if (typeof skip === "function" && skip(key)) continue;
+    const id = key.slice("event:".length);
+    const frozen = live.has(id);
+    let row = 0;
+    if (frozen || /^\d+$/.test(id)) {
+      // The checkout event decides the rates of live pages.
+      row = guideRow;
+    } else if (/^draft-/.test(id)) {
+      row = rows.get(id) || 0;
+    }
+    if (!row) continue;
+    const doc = await kv.get(key, "json");
+    if (!doc || typeof doc !== "object") continue;
+    if (/^\d+$/.test(id)) {
+      const checkout = /^\d+$/.test(String(doc.checkoutEventId || "")) ? String(doc.checkoutEventId) : id;
+      if (checkout !== String(eventId)) continue;
+    }
+    const applied = Array.isArray(doc.ticketDeletesApplied) ? doc.ticketDeletesApplied : [];
+    if (applied.includes(marker)) {
+      if (typeof onDone === "function") await onDone(key);
+      continue;
+    }
+    const { fields, changed } = shiftRateFields(doc.fields, row);
+    if (!changed) continue;
+    const next = { ...doc, fields, ticketDeletesApplied: [...applied, marker].slice(-TICKET_DELETE_MARKER_LIMIT) };
+    if (!frozen) {
+      const version = nextVersion(doc.updatedAt, liveStamps);
+      if (version) next.updatedAt = version;
+    }
+    await kv.put(key, JSON.stringify(next));
+    if (typeof onDone === "function") await onDone(key);
+    moved += 1;
+  }
+  return moved;
+}
+
+// The next millisecond after a version. Kept as is when that would reach a
+// published draft's version, and left out for a document without a version
+// when published drafts exist (any new version would be newer than them).
+export function nextVersion(updatedAt, avoid = new Set()) {
+  const at = typeof updatedAt === "string" ? Date.parse(updatedAt) : NaN;
+  if (!Number.isFinite(at)) return avoid.size ? updatedAt : new Date().toISOString();
+  return avoid.has(at + 1) ? updatedAt : new Date(at + 1).toISOString();
 }
 
 async function searchEvents(context, accessToken, query, region) {
@@ -172,12 +833,22 @@ async function scanCategoryFeed(context, accessToken, query, region) {
 }
 
 async function hydrateEvent(context, accessToken, eventId) {
+  return (await readCheckout(context, accessToken, eventId)).event;
+}
+
+// complete: the staff search answered, which lists every ticket type of the
+// event (the public fallback hides types that are off sale).
+async function readCheckout(context, accessToken, eventId) {
   const adminResults = await fetchAdminTicketedEvents(
     context,
     accessToken,
     new URLSearchParams({ id: String(eventId) })
   );
-  if (adminResults && adminResults.length) return normalizeAdminEvent(adminResults[0]);
+  if (adminResults && adminResults.length) return { event: normalizeAdminEvent(adminResults[0]), complete: true };
+  return { event: await hydrateFromPublic(context, accessToken, eventId), complete: false };
+}
+
+async function hydrateFromPublic(context, accessToken, eventId) {
 
   const [detail, ticketData] = await Promise.all([
     otraJson(context, accessToken, `/events/details/${eventId}/`),
@@ -192,7 +863,7 @@ async function hydrateEvent(context, accessToken, eventId) {
     description: ticket.description || "",
     price: ticket.price || "0.00",
     quantity: Number.isSafeInteger(Number(ticket.quantity)) && Number(ticket.quantity) > 0 ? Number(ticket.quantity) : 500,
-    remainingQuantity: Number.isSafeInteger(Number(ticket.remaining_quantity)) ? Number(ticket.remaining_quantity) : null,
+    remainingQuantity: optionalCount(ticket.remaining_quantity),
     currency: (ticket.base_currency && ticket.base_currency.code) || ticket.base_currency || "USD",
     isActive: ticket.is_active !== false && ticket.isActive !== false,
     saleStartDate: ticket.sale_start_time || ticket.saleStartDate || "",
@@ -256,7 +927,7 @@ function normalizeAdminEvent(event) {
       description: ticket.description || "",
       price: ticket.price || "0.00",
       quantity: Number.isSafeInteger(Number(ticket.quantity)) && Number(ticket.quantity) > 0 ? Number(ticket.quantity) : 500,
-      remainingQuantity: Number.isSafeInteger(Number(ticket.remainingQuantity)) ? Number(ticket.remainingQuantity) : null,
+      remainingQuantity: optionalCount(ticket.remainingQuantity),
       currency: ticket.currency || "USD",
       isActive: ticket.isActive !== false,
       saleStartDate: ticket.saleStartDate || "",
@@ -462,6 +1133,14 @@ async function syncDraftTickets(env, draftId, eventId, tickets) {
     ticketTypeIds: tickets.map((ticket) => ticket.id),
   };
   await kv.put(key, JSON.stringify(next));
+}
+
+// A positive whole id given as a number or a digits-only string, else null.
+export function strictId(value) {
+  let n = NaN;
+  if (typeof value === "number") n = value;
+  else if (typeof value === "string" && /^\d+$/.test(value.trim())) n = Number(value.trim());
+  return Number.isSafeInteger(n) && n > 0 ? n : null;
 }
 
 function cleanInteger(value) {
