@@ -8,7 +8,7 @@
 
 import fs from 'node:fs';
 import { URL } from 'node:url';
-import { draftRateRow, listPendingDeletes, listedSoldCount, nextVersion, onRequestDelete, optionalCount, shiftRateFields, shiftRateOverrides, withoutTicketType } from '../functions/admin/api/events.js';
+import { claimLock, draftRateRow, listPendingDeletes, listedSoldCount, liveRowsStillMatch, nextVersion, onRequestDelete, optionalCount, releaseLock, shiftRateFields, shiftRateOverrides, strictId, withoutTicketType } from '../functions/admin/api/events.js';
 import { coversDraft, mergeOverrideDocs } from '../functions/_lib/page-override.js';
 
 const adminHtml = fs.readFileSync(new URL('../admin/index.html', import.meta.url), 'utf8');
@@ -24,6 +24,8 @@ let guideDeleteMode;
 let downAfterDelete = false;
 let partialAfterDelete = false;
 let publicOnlyAfterDelete = false;
+let rateDown = false;
+let staffSearchDown = false;
 let calls;
 function resetGuide() {
   guide = [
@@ -37,6 +39,8 @@ function resetGuide() {
   downAfterDelete = false;
   partialAfterDelete = false;
   publicOnlyAfterDelete = false;
+  rateDown = false;
+  staffSearchDown = false;
   calls = [];
 }
 
@@ -61,6 +65,8 @@ globalThis.fetch = async (input, options = {}) => {
     offSale.add(12);
     return Response.json({ events: [] });
   }
+  if (staffSearchDown && url.includes('/events/admin-ticketed-search/')) return Response.json({ events: [] });
+  if (rateDown && url.includes('/ticket/purchase/tickets/')) return Response.json({ detail: 'down' }, { status: 503 });
   if (url.includes('/events/admin-ticketed-search/')) {
     const id = new URL(url).searchParams.get('id');
     if (id && id !== String(EVENT) && !wrongEventEcho) return Response.json({ events: [] });
@@ -125,13 +131,13 @@ function boundProject(id) {
 }
 const rateKey = (n, c = 2) => `text:main > #evRates > div:nth-of-type(${n}) > div:nth-of-type(${c})`;
 
-async function call(body, { token = 'staff', kv = makeKv() } = {}) {
+async function call(body, { token = 'staff', kv = makeKv(), noKv = false } = {}) {
   const request = new Request('https://otratickets.test/admin/api/events', {
     method: 'DELETE',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
     body: JSON.stringify(body),
   });
-  const response = await onRequestDelete({ request, env: { OVERRIDES: kv }, waitUntil() {} });
+  const response = await onRequestDelete({ request, env: noKv ? {} : { OVERRIDES: kv }, waitUntil() {} });
   return { status: response.status, data: await response.json(), kv };
 }
 const guideDeletes = () => calls.filter((c) => c.method === 'DELETE').length;
@@ -509,6 +515,149 @@ assert(read(kv, 'event:8888').fields[rateKey(2)]?.value === 'sells through', 'an
 assert(read(kv, `event:${EVENT}`).fields[rateKey(3)]?.value === 'points elsewhere', 'an event page that sells another event keeps its page edits');
 assert(await shiftRateOverrides(kv, { eventId: EVENT, guideRow: 0, draftRows: new Map() }) === 0, 'nothing moves without a known row');
 
+
+// 12. Counts and ids are read strictly: a value that only looks numeric never
+// fakes a 0 sold count and never turns into another id.
+for (const bad of [true, false, [], [5], '1e2', '12.5', ' ', 'abc', {}, NaN, Infinity, -3, 1.5]) {
+  assert(optionalCount(bad) === null, `optionalCount(${JSON.stringify(bad)}) is unknown`);
+}
+assert(optionalCount(' 7 ') === 7 && optionalCount(156) === 156, 'plain counts still read');
+assert(listedSoldCount({ quantity: true, remaining_quantity: true }) === null && listedSoldCount({ quantity: 156, remaining_quantity: [] }) === null,
+  'boolean or array counts never read as 0 sold');
+for (const bad of ['12abc', '12.5', '1e1', true, [12], 0, -12, 12.5, '', null, '7567 ']) {
+  if (bad === '7567 ') continue;
+  assert(strictId(bad) === null, `strictId(${JSON.stringify(bad)}) is refused`);
+}
+assert(strictId('12') === 12 && strictId(12) === 12, 'exact ids still read');
+for (const bad of [{ ticketTypeId: '12abc' }, { ticketTypeId: '12.5' }, { ticketTypeId: true }, { eventId: `${EVENT}x` }, { eventId: '1e6' }]) {
+  resetGuide();
+  r = await call({ ...good, ...bad });
+  assert(r.status === 400 && guideDeletes() === 0 && /Nothing was deleted/.test(r.data.error), `a loose id is refused before Otra Guide (${JSON.stringify(bad)})`);
+}
+resetGuide();
+r = await call({ ...good, ticketTypeId: '12' });
+assert(r.status === 200 && guideDeletes() === 1, `a digits-only string id still works (got ${r.status} ${JSON.stringify(r.data)})`);
+
+// 13. No page storage -> refused before Otra Guide.
+resetGuide();
+r = await call(good, { noKv: true });
+assert(r.status === 503 && guideDeletes() === 0 && /Nothing was deleted/.test(r.data.error), 'without page storage nothing is sent to Otra Guide');
+
+// 14. Only the public fallback answers before the delete -> refused (it hides types off sale).
+resetGuide();
+staffSearchDown = true;
+r = await call(good);
+assert(r.status === 503 && r.data.code === 'guide_read_incomplete' && guideDeletes() === 0, `a partial checkout read never sends a delete (got ${r.status} ${JSON.stringify(r.data)})`);
+
+// 15. Lock race: another request writes its own lock right after ours -> this
+// request backs off before Otra Guide and before any page write.
+resetGuide();
+kv = makeKv({ 'site-event:draft-qa-1': boundProject('draft-qa-1') });
+{
+  const realPut = kv.put.bind(kv);
+  kv.put = async (key, value) => {
+    await realPut(key, value);
+    if (key.startsWith('ticket-delete:')) {
+      const rec = JSON.parse(value);
+      await realPut(key, JSON.stringify({ ...rec, lockToken: 'someone-else' }));
+    }
+  };
+}
+r = await call(good, { kv });
+assert(r.status === 409 && r.data.code === 'delete_in_progress' && guideDeletes() === 0 && read(kv, 'site-event:draft-qa-1').ticketTypeIds.length === 3,
+  `a lost lock race never calls Otra Guide (got ${r.status} ${JSON.stringify(r.data)})`);
+assert(read(kv, `ticket-delete:${EVENT}:12`).lockToken === 'someone-else', 'the loser never frees or drops the winner lock');
+// releaseLock with a stale token leaves the record alone; claimLock reads back.
+kv = makeKv({ k: { lockToken: 'a', lockedUntil: new Date(Date.now() + 60000).toISOString() } });
+await releaseLock(kv, 'k', 'b');
+await releaseLock(kv, 'k', 'b', true);
+assert(read(kv, 'k').lockToken === 'a' && read(kv, 'k').lockedUntil, 'a stale token never frees or drops a lock');
+const won = await claimLock(kv, 'k2', { x: 1 });
+assert(won && won.lockToken && read(kv, 'k2').lockToken === won.lockToken, 'claimLock returns the record it wrote');
+
+// 16. A Guide 405 (no delete route) frees the record and changes nothing,
+// and the next attempt is not blocked by a stuck lock.
+resetGuide();
+guideDeleteMode = 'missing';
+kv = makeKv({ 'site-event:draft-qa-1': boundProject('draft-qa-1') });
+r = await call(good, { kv });
+r = await call(good, { kv });
+assert(r.status === 501 && guideDeletes() === 2 && !kv.store.has(`ticket-delete:${EVENT}:12`), 'a 405 never leaves a lock behind');
+// A thrown fetch or a 500 keeps the record but frees the lock.
+for (const mode of ['timeout', 'boom']) {
+  resetGuide();
+  guideDeleteMode = mode;
+  kv = makeKv({});
+  await call(good, { kv });
+  const rec = read(kv, `ticket-delete:${EVENT}:12`);
+  assert(rec.lockedUntil === null, `a Guide ${mode} frees the lock`);
+}
+
+// 17. The live rate rows change order between the delete and the finish:
+// pages still drop the type, but live page edits are left alone (never moved by a stale row).
+assert(liveRowsStillMatch({ ticketTypeId: '12', rateIds: ['11', '12', '13'] }, [{ id: 11 }, { id: 13 }]), 'same order without the deleted type matches');
+assert(liveRowsStillMatch({ ticketTypeId: '12', rateIds: ['11', '12', '13'] }, [{ id: 11 }, { id: 12 }, { id: 13 }]), 'a cached list that still shows the deleted type matches');
+assert(!liveRowsStillMatch({ ticketTypeId: '12', rateIds: ['11', '12', '13'] }, [{ id: 13 }, { id: 11 }]), 'a reordered list does not match');
+assert(!liveRowsStillMatch({ ticketTypeId: '12', rateIds: ['11', '12', '13'] }, [{ id: 11 }]), 'a shorter list does not match');
+assert(!liveRowsStillMatch({ ticketTypeId: '12' }, [{ id: 11 }]), 'an old record without the order does not match');
+resetGuide();
+guideDeleteMode = 'timeout';
+kv = makeKv({
+  'site-event:draft-qa-1': boundProject('draft-qa-1'),
+  [`event:${EVENT}`]: { fields: { [rateKey(3)]: { type: 'text', value: 'live 13' } } },
+  'event:draft-qa-1': { fields: { [rateKey(3, 1)]: { type: 'text', value: 'draft 13' } } },
+});
+r = await call(good, { kv });
+guide = [guide[2], guide[0]];
+r = await call(good, { kv });
+assert(r.status === 200 && r.data.finishedEarlierDelete === true && r.data.liveEditsNotMoved === true, `a reordered live list finishes with a warning (got ${r.status} ${JSON.stringify(r.data)})`);
+assert(read(kv, `event:${EVENT}`).fields[rateKey(3)]?.value === 'live 13', 'live page edits are not moved by a stale row');
+assert(read(kv, 'site-event:draft-qa-1').ticketTypeIds.join(',') === '11,13' && read(kv, 'event:draft-qa-1').fields[rateKey(2, 1)]?.value === 'draft 13',
+  'the draft still drops the type and moves by its own row');
+
+// 18. The rate list can't be read at finish time -> nothing is changed, the
+// lock is freed, and Delete again finishes once the list answers.
+resetGuide();
+guideDeleteMode = 'timeout';
+kv = makeKv({ 'site-event:draft-qa-1': boundProject('draft-qa-1'), [`event:${EVENT}`]: { fields: { [rateKey(3)]: { type: 'text', value: 'x' } } } });
+await call(good, { kv });
+guide = guide.filter((t) => t.id !== 12);
+rateDown = true;
+r = await call(good, { kv });
+assert(r.status === 500 && r.data.code === 'pages_not_updated' && read(kv, 'site-event:draft-qa-1').ticketTypeIds.length === 3
+  && read(kv, `event:${EVENT}`).fields[rateKey(3)]?.value === 'x' && read(kv, `ticket-delete:${EVENT}:12`).lockedUntil === null,
+  `an unreadable rate list changes no page and frees the lock (got ${r.status} ${JSON.stringify(r.data)})`);
+rateDown = false;
+r = await call(good, { kv });
+assert(r.status === 200 && read(kv, `event:${EVENT}`).fields[rateKey(2)]?.value === 'x' && !r.data.liveEditsNotMoved, 'Delete again finishes once the list answers');
+
+// 19. A draft reordered between the delete and the finish moves by the row it
+// has now, not the row it had when the delete started.
+resetGuide();
+guideDeleteMode = 'timeout';
+kv = makeKv({
+  'site-event:draft-qa-1': boundProject('draft-qa-1'),
+  'event:draft-qa-1': { fields: { [rateKey(1, 1)]: { type: 'text', value: 'row1' }, [rateKey(2, 1)]: { type: 'text', value: 'row2' }, [rateKey(3, 1)]: { type: 'text', value: 'row3' } } },
+});
+await call(good, { kv });
+const edited = boundProject('draft-qa-1');
+edited.ticketTypeIds = [12, 11, 13];
+edited.claudeDesign.rates = [{ name: 'Table of 12' }, { name: 'Single ticket' }, { name: 'Table of 10' }];
+kv.store.set('site-event:draft-qa-1', JSON.stringify(edited));
+guide = guide.filter((t) => t.id !== 12);
+r = await call(good, { kv });
+const movedDraft = read(kv, 'event:draft-qa-1').fields;
+assert(r.status === 200 && movedDraft[rateKey(1, 1)]?.value === 'row2' && movedDraft[rateKey(2, 1)]?.value === 'row3' && !(rateKey(3, 1) in movedDraft),
+  `a reordered draft moves by its current row (got ${JSON.stringify(movedDraft)})`);
+
+// 20. Finishing never touches another event's open delete.
+resetGuide();
+kv = makeKv({ [`ticket-delete:7777:12`]: { eventId: '7777', ticketTypeId: '12', name: 'Table of 12', otherIds: ['11'] } });
+guide = guide.filter((t) => t.id !== 12);
+r = await call(good, { kv });
+assert(r.status === 409 && kv.store.has('ticket-delete:7777:12') && guideDeletes() === 0, 'another event open delete is never finished from this event');
+assert((await listPendingDeletes(kv, EVENT, { tickets: guide })).length === 0, 'another event open delete is not listed here');
+
 // Admin UI wiring.
 assert(/data-checkout-delete="\$\{esc\(ticket\.id\)\}"/.test(adminHtml), 'each saved ticket row has a Delete button');
 assert(/function openTicketDelete/.test(adminHtml) && /Otra Guide ID<\/dt>/.test(adminHtml) && /<dt>Sold<\/dt>/.test(adminHtml), 'step 1 shows name, price, id and sold');
@@ -523,6 +672,9 @@ assert(/checkoutPendingDeletes = Array\.isArray\(data\.pendingDeletes\)/.test(ad
   'Edit checkout offers Finish page update for an open delete after a reload');
 assert(/function checkoutHasUnsavedEdits/.test(adminHtml), 'unsaved edits block a delete instead of being thrown away');
 assert(/pageRows === event\.tickets\.length\) ticket = event\.tickets\[rowIndex\]/.test(adminHtml), 'price pencil only falls back to row position when the page and checkout rows line up');
+
+assert(/failed\.deletedOnGuide && failed\.event[\s\S]{0,400}renderPendingDeletes\(\)/.test(adminHtml), 'a delete whose page update failed shows Finish page update right away');
+assert(/data\.liveEditsNotMoved \?/.test(adminHtml), 'the UI says when live page edits were not moved');
 
 if (failures.length) {
   console.error(`FAIL check-admin-ticket-type-delete (${failures.length})`);

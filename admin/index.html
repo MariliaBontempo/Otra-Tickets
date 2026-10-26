@@ -3017,7 +3017,8 @@
         checkoutEvent = data.event;
         renderCheckoutTickets(checkoutEvent.tickets || []);
       }
-      const message = `${item.name} (ID ${item.ticketTypeId}) was already deleted on Otra Guide. Otra Tickets pages are updated now.`;
+      const message = `${item.name} (ID ${item.ticketTypeId}) was already deleted on Otra Guide. Otra Tickets pages are updated now.`
+        + (data.liveEditsNotMoved ? " The live page price rows changed order meanwhile, so their page edits were not moved. Check the price rows on the live page." : "");
       $("checkoutStatus").textContent = message;
       $("checkoutStatus").className = "status ok";
       await reloadOverrideAfterDelete();
@@ -3059,9 +3060,10 @@
       });
       checkoutEvent = data.event;
       renderCheckoutTickets(checkoutEvent.tickets || []);
-      const message = data.finishedEarlierDelete
+      const message = (data.finishedEarlierDelete
         ? `${ticket.name} (ID ${ticket.id}) was already deleted on Otra Guide. Otra Tickets pages are updated now.`
-        : `Deleted ${ticket.name} (${ticket.price} ${ticket.currency}, ID ${ticket.id}) on Otra Guide.`;
+        : `Deleted ${ticket.name} (${ticket.price} ${ticket.currency}, ID ${ticket.id}) on Otra Guide.`)
+        + (data.liveEditsNotMoved ? " The live page price rows changed order meanwhile, so their page edits were not moved. Check the price rows on the live page." : "");
       $("checkoutStatus").textContent = message;
       $("checkoutStatus").className = "status ok";
       // Page edits on later rate rows moved on the server; load the page as
@@ -3081,6 +3083,19 @@
       const confirm = panel.querySelector("[data-checkout-delete-confirm]");
       const input = panel.querySelector("[data-checkout-delete-name]");
       if (confirm && input) confirm.disabled = input.value.trim() !== String(ticket.name).trim();
+      // Deleted on Otra Guide but the page update is still open: show the
+      // checkout as it is now and offer Finish page update right away.
+      const failed = err && err.data;
+      if (failed && failed.deletedOnGuide && failed.event && Array.isArray(failed.event.tickets)) {
+        checkoutEvent = failed.event;
+        renderCheckoutTickets(checkoutEvent.tickets);
+        if (!checkoutPendingDeletes.some((p) => String(p.ticketTypeId) === String(ticket.id))) {
+          checkoutPendingDeletes = [...checkoutPendingDeletes, { ticketTypeId: String(ticket.id), name: String(ticket.name), running: false }];
+        }
+        renderPendingDeletes();
+        $("checkoutStatus").textContent = err.message;
+        $("checkoutStatus").className = "status error";
+      }
     } finally {
       $("saveCheckoutBtn").disabled = false;
       $("addTicketTypeBtn").disabled = false;

@@ -120,12 +120,18 @@ export async function onRequestDelete(context) {
   } catch {
     return json({ error: "invalid json" }, 400);
   }
-  const eventId = cleanInteger(body && body.eventId);
-  const ticketTypeId = cleanInteger(body && body.ticketTypeId);
-  if (!eventId) return json({ error: "event id is required" }, 400);
-  if (!ticketTypeId) return json({ error: "ticket type id is required" }, 400);
+  // Exact ids only: "12abc" or "12.5" must never turn into a delete of 12.
+  const eventId = strictId(body && body.eventId);
+  const ticketTypeId = strictId(body && body.ticketTypeId);
+  if (!eventId) return json({ error: "event id is required. Nothing was deleted." }, 400);
+  if (!ticketTypeId) return json({ error: "ticket type id is required. Nothing was deleted." }, 400);
   const kv = context.env && context.env.OVERRIDES;
+  // Without page storage the pages could never be updated after the delete.
+  if (!kv || typeof kv.get !== "function" || typeof kv.put !== "function" || typeof kv.delete !== "function") {
+    return json({ error: "Otra Tickets page storage is not available. Nothing was deleted. Try again later." }, 503);
+  }
   const typed = String((body && body.confirmName) || "").trim();
+  const key = pendingDeleteKey(eventId, ticketTypeId);
 
   const before = await readCheckout(context, accessToken, eventId);
   const current = before.event;
@@ -134,7 +140,7 @@ export async function onRequestDelete(context) {
   if (!ticket) {
     // The type is gone on Otra Guide. If an earlier delete of it left its page
     // cleanup unfinished, finish that cleanup (no Otra Guide call).
-    const pending = kv ? await kv.get(pendingDeleteKey(eventId, ticketTypeId), "json").catch(() => null) : null;
+    const pending = await kv.get(key, "json").catch(() => null);
     if (pending && String(pending.eventId) === String(eventId) && String(pending.ticketTypeId) === String(ticketTypeId)) {
       if (!typed || typed !== String(pending.name || "").trim()) {
         return json({ error: `Type the exact ticket name "${pending.name}" to finish updating the pages.`, code: "confirm_name" }, 409);
@@ -152,15 +158,29 @@ export async function onRequestDelete(context) {
           code: "delete_in_progress",
         }, 409);
       }
+      let claimed;
       try {
-        pending.lockedUntil = new Date(Date.now() + PENDING_DELETE_LOCK_MS).toISOString();
-        await kv.put(pendingDeleteKey(eventId, ticketTypeId), JSON.stringify(pending));
+        claimed = await claimLock(kv, key, pending);
       } catch {
         return json({ error: `Otra Tickets could not start the page update for ${pending.name}. Try again.`, code: "guide_delete_unknown" }, 503);
       }
-      return finishDeleteCleanup(context, session, kv, pending, current, true);
+      if (!claimed) {
+        return json({
+          error: `The page update for ${pending.name} is already running. Wait a minute, then check the checkout again. Nothing was changed by this request.`,
+          code: "delete_in_progress",
+        }, 409);
+      }
+      return finishDeleteCleanup(context, session, kv, claimed, current, true);
     }
     return json({ error: "This ticket type is no longer on this event. Reload the checkout. Nothing was deleted." }, 409);
+  }
+  // Only the staff search lists every ticket type (the public fallback hides
+  // types off sale), so a delete is never sent on a partial read.
+  if (!before.complete) {
+    return json({
+      error: "Otra Tickets could not read the full checkout from Otra Guide. Nothing was deleted. Wait a minute, then try again.",
+      code: "guide_read_incomplete",
+    }, 503);
   }
   if (current.tickets.length <= 1) {
     return json({ error: "A checkout needs at least one ticket type. Add the replacement first, then delete this one. Nothing was deleted." }, 400);
@@ -171,7 +191,7 @@ export async function onRequestDelete(context) {
   // The staff search reports no remaining count, so read the counts from the
   // public rate list (same list the page renders). That list also fixes the row the
   // type sits on, so page edits pinned to later rate rows move up one.
-  const rateList = await publicRateList(context, accessToken, eventId);
+  const rateList = (await publicRateList(context, accessToken, eventId)) || [];
   const rateIndex = rateList.findIndex((item) => String(item && item.id) === String(ticketTypeId));
   const rateRow = rateIndex >= 0 ? rateIndex + 1 : 0;
   const listed = rateIndex >= 0 ? rateList[rateIndex] : null;
@@ -209,7 +229,7 @@ export async function onRequestDelete(context) {
   }
   // One delete of a type at a time: a second request while one is open
   // would move the same page edits twice.
-  const open = kv ? await kv.get(pendingDeleteKey(eventId, ticketTypeId), "json").catch(() => null) : null;
+  const open = await kv.get(key, "json").catch(() => null);
   if (isLocked(open)) {
     return json({
       error: `A delete of ${ticket.name} is already running. Wait a minute, then press Delete again with the same name. Nothing was deleted by this request.`,
@@ -225,6 +245,9 @@ export async function onRequestDelete(context) {
       price: ticket.price,
       currency: ticket.currency,
       guideRow: rateRow,
+      // The live page rate list order before the delete. A cleanup only moves
+      // live page edits by guideRow while the other rows still read in this order.
+      rateIds: rateList.map((item) => String(item && item.id)),
       otherIds: current.tickets.filter((item) => String(item.id) !== String(ticketTypeId)).map((item) => String(item.id)),
       siteKeys: plan.siteKeys,
       draftRows: plan.draftRows,
@@ -232,20 +255,22 @@ export async function onRequestDelete(context) {
       auditPageId: plan.auditPageId,
       done: [],
       createdAt: new Date().toISOString(),
-      lockedUntil: new Date(Date.now() + PENDING_DELETE_LOCK_MS).toISOString(),
     };
-    if (kv) await kv.put(pendingDeleteKey(eventId, ticketTypeId), JSON.stringify(pending));
+    pending = await claimLock(kv, key, pending);
   } catch {
     return json({ error: "Otra Tickets could not prepare the page updates. Nothing was deleted. Try again." }, 503);
   }
-  const forgetPending = async () => {
-    if (kv && typeof kv.delete === "function") await kv.delete(pendingDeleteKey(eventId, ticketTypeId)).catch(() => {});
-  };
+  if (!pending) {
+    return json({
+      error: `A delete of ${ticket.name} is already running. Wait a minute, then press Delete again with the same name. Nothing was deleted by this request.`,
+      code: "delete_in_progress",
+    }, 409);
+  }
+  // Only the request that holds the lock drops or frees the record.
+  const forgetPending = () => releaseLock(kv, key, pending.lockToken, true);
   // The request is over but the delete may still land on Otra Guide: keep
   // the pending cleanup and let the next request run it.
-  const releaseLock = async () => {
-    if (kv) await kv.put(pendingDeleteKey(eventId, ticketTypeId), JSON.stringify({ ...pending, lockedUntil: null })).catch(() => {});
-  };
+  const unlock = () => releaseLock(kv, key, pending.lockToken);
 
   const result = await guideDeleteTicketType(context, accessToken, eventId, ticketTypeId);
   // Re-read the checkout. It is only trusted when every other ticket type
@@ -254,7 +279,7 @@ export async function onRequestDelete(context) {
   const reread = await readCheckout(context, accessToken, eventId).catch(() => ({ event: null, complete: false }));
   const after = reread.event;
   const unknown = async (why) => {
-    await releaseLock();
+    await unlock();
     return unknownReply(why);
   };
   const unknownReply = (why) => json({
@@ -300,6 +325,30 @@ function isLocked(record) {
   return Number.isFinite(until) && until > Date.now();
 }
 
+// Writes the record with a fresh lock token, then reads it back: when another
+// request wrote its own token in between, this one does not own the lock and
+// returns null (it must not call Otra Guide or touch a page).
+export async function claimLock(kv, key, record) {
+  const token = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const next = { ...record, lockToken: token, lockedUntil: new Date(Date.now() + PENDING_DELETE_LOCK_MS).toISOString() };
+  await kv.put(key, JSON.stringify(next));
+  const back = await kv.get(key, "json");
+  return back && back.lockToken === token ? next : null;
+}
+
+// Frees (or with drop, deletes) the record only while this request still owns
+// it, keeping the steps saved so far. Never throws.
+export async function releaseLock(kv, key, token, drop = false) {
+  try {
+    const saved = await kv.get(key, "json");
+    if (!saved || saved.lockToken !== token) return;
+    if (drop) await kv.delete(key);
+    else await kv.put(key, JSON.stringify({ ...saved, lockedUntil: null }));
+  } catch {}
+}
+
 // Deletes of this event whose page update is still open and whose type is
 // no longer on the checkout, so the admin can offer to finish them.
 export async function listPendingDeletes(kv, eventId, event) {
@@ -342,18 +391,25 @@ export function trustedReread(read, pending) {
 // Runs the saved page cleanup. Every step is recorded as done in the pending
 // cleanup, so sending the request again only runs what is left.
 async function finishDeleteCleanup(context, session, kv, pending, after, finishedEarlierDelete = false) {
+  const key = pendingDeleteKey(pending.eventId, pending.ticketTypeId);
   let pagesUpdated = 0;
   let pageEditsMoved = 0;
   try {
+    // Decide once per delete whether live page edits may move by guideRow:
+    // only while the live rate list still shows the other rows in the order
+    // seen before the delete. A retry reuses that decision, so pages are
+    // never moved by two different rules.
+    if (typeof pending.liveRowsMatch !== "boolean") {
+      const now = await publicRateList(context, session.token, pending.eventId);
+      if (!now) throw new Error("rate list unavailable");
+      pending.liveRowsMatch = liveRowsStillMatch(pending, now);
+      await kv.put(key, JSON.stringify(pending));
+    }
     ({ pagesUpdated, pageEditsMoved } = await runPageCleanup(kv, pending));
-    if (kv && typeof kv.delete === "function") await kv.delete(pendingDeleteKey(pending.eventId, pending.ticketTypeId));
+    await kv.delete(key);
   } catch {
     // Free the lock (keeping the steps already done) so the next request can finish.
-    if (kv) {
-      const key = pendingDeleteKey(pending.eventId, pending.ticketTypeId);
-      const saved = await kv.get(key, "json").catch(() => null);
-      await kv.put(key, JSON.stringify({ ...(saved || pending), lockedUntil: null })).catch(() => {});
-    }
+    await releaseLock(kv, key, pending.lockToken);
     return json({
       error: `${pending.name} was deleted on Otra Guide, but Otra Tickets pages were not fully updated yet. Press Delete again with the same name, or reopen Edit checkout and press Finish page update, to finish updating the pages.`,
       code: "pages_not_updated",
@@ -381,7 +437,21 @@ async function finishDeleteCleanup(context, session, kv, pending, after, finishe
     pagesUpdated,
     pageEditsMoved,
     finishedEarlierDelete,
+    // The live price rows changed order since the delete started, so their
+    // page edits were left where they are for staff to check.
+    liveEditsNotMoved: Boolean(pending.guideRow) && pending.liveRowsMatch === false,
   });
+}
+
+// True when the live rate list, read now, lists the other ticket types in the
+// same order as before the delete (whether or not it still shows the deleted
+// one), so every later row moved up exactly one.
+export function liveRowsStillMatch(pending, rateList) {
+  if (!pending || !Array.isArray(pending.rateIds) || !Array.isArray(rateList)) return false;
+  const gone = String(pending.ticketTypeId);
+  const was = pending.rateIds.map(String).filter((id) => id !== gone);
+  const now = rateList.map((item) => String(item && item.id)).filter((id) => id !== gone);
+  return was.length === now.length && was.every((id, i) => id === now[i]);
 }
 
 export async function runPageCleanup(kv, pending) {
@@ -393,14 +463,34 @@ export async function runPageCleanup(kv, pending) {
     done.add(step);
     await save();
   };
+  // The rows a draft shows the type on are read again from the draft as it is
+  // now, right before the type is dropped from it (it may have been edited or
+  // published since the delete was planned), and saved with the step.
+  pending.draftRows = { ...(pending.draftRows || {}) };
+  pending.liveDrafts = Array.isArray(pending.liveDrafts) ? [...pending.liveDrafts] : [];
   let pagesUpdated = 0;
   for (const siteKey of pending.siteKeys || []) {
     const step = `site:${siteKey}`;
     if (done.has(step)) continue;
+    const id = siteKey.slice("site-event:".length);
     const project = await kv.get(siteKey, "json");
     if (project && String(project.otraGuideId || "") === String(pending.eventId)) {
       const next = withoutTicketType(project, pending.ticketTypeId);
+      // When the type is already gone from the draft (this cleanup dropped it
+      // and then lost its progress save) the row saved before is kept.
+      if (next && isPublishedBound(project)) {
+        delete pending.draftRows[id];
+        if (!pending.liveDrafts.includes(id)) pending.liveDrafts.push(id);
+      } else if (next) {
+        pending.liveDrafts = pending.liveDrafts.filter((item) => item !== id);
+        const row = draftRateRow(project, pending.ticketTypeId);
+        if (row) pending.draftRows[id] = row;
+        else delete pending.draftRows[id];
+      }
       if (next) {
+        // Save the row read now before the draft loses the type, so a retry
+        // after a lost write still knows it.
+        await save();
         await kv.put(siteKey, JSON.stringify(next));
         pagesUpdated += 1;
       }
@@ -411,9 +501,10 @@ export async function runPageCleanup(kv, pending) {
   const pageEditsMoved = await shiftRateOverrides(kv, {
     eventId: pending.eventId,
     ticketTypeId: pending.ticketTypeId,
-    guideRow: pending.guideRow,
+    // Live page edits move only while the live rows still line up.
+    guideRow: pending.liveRowsMatch === false ? 0 : pending.guideRow,
     draftRows,
-    liveDrafts: new Set(Array.isArray(pending.liveDrafts) ? pending.liveDrafts : []),
+    liveDrafts: new Set(pending.liveDrafts),
     // Each moved page also carries its own marker (see shiftRateOverrides),
     // so a retry after a lost progress save never moves it twice.
     skip: (overrideKey) => done.has(`edit:${overrideKey}`),
@@ -425,8 +516,11 @@ export async function runPageCleanup(kv, pending) {
 // A count Otra Guide may leave out. null (not 0) when it is missing, so an
 // unknown remaining count never reads as "0 remaining, all sold".
 export function optionalCount(value) {
-  if (value === null || value === undefined || value === "") return null;
-  const n = Number(value);
+  // Only a plain number or a digits-only string is a count. true, [], "1e2",
+  // " " or "12.5" would otherwise read as a number and could fake a 0 sold.
+  let n = NaN;
+  if (typeof value === "number") n = value;
+  else if (typeof value === "string" && /^\s*\d+\s*$/.test(value)) n = Number(value);
   return Number.isSafeInteger(n) && n >= 0 ? n : null;
 }
 
@@ -527,9 +621,10 @@ export async function planSiteEventCleanup(kv, { draftId, eventId, ticketTypeId 
   return plan;
 }
 
+// The public rate list, or null when Otra Guide did not answer with one.
 async function publicRateList(context, accessToken, eventId) {
   const data = await otraJson(context, accessToken, `/ticket/purchase/tickets/${eventId}/`);
-  return data && Array.isArray(data.results) ? data.results : [];
+  return data && Array.isArray(data.results) ? data.results : null;
 }
 
 // Page edits on rate rows are pinned by position (#evRates > div:nth-of-type(N)).
@@ -1030,6 +1125,14 @@ async function syncDraftTickets(env, draftId, eventId, tickets) {
     ticketTypeIds: tickets.map((ticket) => ticket.id),
   };
   await kv.put(key, JSON.stringify(next));
+}
+
+// A positive whole id given as a number or a digits-only string, else null.
+export function strictId(value) {
+  let n = NaN;
+  if (typeof value === "number") n = value;
+  else if (typeof value === "string" && /^\d+$/.test(value.trim())) n = Number(value.trim());
+  return Number.isSafeInteger(n) && n > 0 ? n : null;
 }
 
 function cleanInteger(value) {
