@@ -1475,33 +1475,46 @@ html[data-presidente-event="8088"] .btn-metal:hover { background: #4cba57; box-s
       }
 
       // ----- PRACTICAL INFO -----
-      const cells = [];
-      if (Array.isArray(design.practicalInfo) && design.practicalInfo.length) {
-        cells.push(...design.practicalInfo.map((item) => [item.key, item.value]));
-      } else if (start && !ev.isPerennial) {
-        cells.push(["Date", start.full]);
-      }
-      if (start && !ev.isPerennial) {
-        cells.push(["Time", end && end.time ? start.time + " — " + end.time : start.time]);
-      }
-      if (!cells.length && ev.isPerennial) cells.push(["Availability", "Flexible dates"]);
-      if (!design.practicalInfo && ev.isPerennial) cells.push(["Location", "Curaçao"]);
-      // "From" quotes what can be bought now; with nothing on sale yet, the
-      // tiers still to open. Tiers whose sale ended never set it (a past page
-      // keeps its record of every tier).
-      const priced = !hasTickets ? [] : isPast ? ev.tickets
-        : ev.tickets.some((t) => t.sale === "on_sale") ? ev.tickets.filter((t) => t.sale === "on_sale")
-        : ev.tickets.filter((t) => t.sale !== "ended");
-      if (priced.length) {
-        const min = Math.min(...priced.map((t) => Number(t.price) || 0));
-        const code = priced[0].currency;
-        cells.push(["Tickets", "From " + cur(code) + money(min)]);
-      }
-      if (cells.length) {
+      const practical = practicalInfoCells({ design, ev, start, end, hasTickets, isPast, cur, money });
+      if (practical.show) {
         if (design.practicalTitle) $("evInfoSection").querySelector(".ev-h2").textContent = design.practicalTitle;
         const grid = $("evInfoGrid");
-        grid.innerHTML = infoCellMarkup(cells);
+        grid.innerHTML = infoCellMarkup(practical.cells);
         $("evInfoSection").hidden = false;
+      }
+
+      // Before You Go cells. Returns { cells, show }.
+      // The automatic "Tickets — From …" cell only repeats the price list,
+      // so it never opens Before You Go on its own: with no authored
+      // practicalInfo and no Date / Time / Availability / Location cell
+      // (a page whose staff cleared Before You Go, e.g. Strange Bird with
+      // no dates on the page) the section stays hidden. When the section
+      // has real cells the Tickets cell still closes the grid as before.
+      function practicalInfoCells({ design, ev, start, end, hasTickets, isPast, cur, money }) {
+        const cells = [];
+        if (Array.isArray(design.practicalInfo) && design.practicalInfo.length) {
+          cells.push(...design.practicalInfo.map((item) => [item.key, item.value]));
+        } else if (start && !ev.isPerennial) {
+          cells.push(["Date", start.full]);
+        }
+        if (start && !ev.isPerennial) {
+          cells.push(["Time", end && end.time ? start.time + " — " + end.time : start.time]);
+        }
+        if (!cells.length && ev.isPerennial) cells.push(["Availability", "Flexible dates"]);
+        if (!design.practicalInfo && ev.isPerennial) cells.push(["Location", "Curaçao"]);
+        const show = cells.length > 0;
+        // "From" quotes what can be bought now; with nothing on sale yet, the
+        // tiers still to open. Tiers whose sale ended never set it (a past page
+        // keeps its record of every tier).
+        const priced = !hasTickets ? [] : isPast ? ev.tickets
+          : ev.tickets.some((t) => t.sale === "on_sale") ? ev.tickets.filter((t) => t.sale === "on_sale")
+          : ev.tickets.filter((t) => t.sale !== "ended");
+        if (show && priced.length) {
+          const min = Math.min(...priced.map((t) => Number(t.price) || 0));
+          const code = priced[0].currency;
+          cells.push(["Tickets", "From " + cur(code) + money(min)]);
+        }
+        return { cells, show };
       }
 
       // ----- RATES -----
