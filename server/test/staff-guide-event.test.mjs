@@ -85,6 +85,10 @@ test("public events include mapped add-ons, request choice add-ons, and are stil
     const body = await res.json();
     assert.deepEqual(body.addons, [{ name: "Lounge Package", description: "Table for six", price: 25, currency: "USD" }]);
     assert.equal(puts.length, 1);
+    // The server side base cache keeps its 10 minute TTL while the browser
+    // answer revalidates on every load.
+    assert.equal(puts[0][1].headers.get("cache-control"), "public, max-age=600");
+    assert.equal(res.headers.get("cache-control"), "public, max-age=0, must-revalidate");
     assert.equal(body.staffPreview, undefined);
     assert.ok(calls.some(c => c.path === "/api/ticket/purchase/tickets/9000/" && c.search === "?include_choice_addons=1"));
   } finally { restore(); }

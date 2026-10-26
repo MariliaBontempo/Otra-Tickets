@@ -219,7 +219,9 @@ async function getBasePayload(context, id, url, project) {
   };
 
   if (staffView) return { ...base, staffView: true };
-  if (!project) context.waitUntil(cache.put(cacheKey, json(base, 200, EDGE_TTL).clone()));
+  // Internal server cache entry only (never sent to a browser): it keeps its
+  // own 10 minute TTL, apart from the revalidate header of public answers.
+  if (!project) context.waitUntil(cache.put(cacheKey, edgeEntry(base)));
   return base;
 }
 
@@ -363,6 +365,12 @@ function json(obj, status = 200, cacheable = false) {
   if (cacheable) headers.set("cache-control", REVALIDATE);
   else setNoStore(headers);
   return new Response(JSON.stringify(obj), { status, headers });
+}
+
+function edgeEntry(obj) {
+  return new Response(JSON.stringify(obj), {
+    headers: { "content-type": "application/json; charset=utf-8", "cache-control": `public, max-age=${EDGE_TTL}` },
+  });
 }
 
 // The detail fetch also reports the status, so a 404 is told apart from an
