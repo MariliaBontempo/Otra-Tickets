@@ -138,6 +138,8 @@ export async function onRequestDelete(context) {
   const rateIndex = rateList.findIndex((item) => String(item && item.id) === String(ticketTypeId));
   const rateRow = rateIndex >= 0 ? rateIndex + 1 : 0;
   const listed = rateIndex >= 0 ? rateList[rateIndex] : null;
+  // A type off sale is missing from that list, so its count can be unknown.
+  // Then Otra Guide's own locked check (issued tickets, open checkouts) decides.
   const sold = soldCount({
     quantity: ticket.quantity,
     remainingQuantity: ticket.remainingQuantity ?? optionalCount(listed && listed.remaining_quantity),
@@ -157,8 +159,16 @@ export async function onRequestDelete(context) {
       code: /sold/i.test(result.message) ? "ticket_type_sold" : "guide_refused",
     }, 409);
   }
-  const after = await hydrateEvent(context, accessToken, eventId);
-  const stillThere = !after || after.tickets.some((item) => String(item.id) === String(ticketTypeId));
+  // "Nothing was deleted" is only said after re-reading the checkout. If that
+  // read fails the result is unknown, so say so and change no page.
+  const after = await hydrateEvent(context, accessToken, eventId).catch(() => null);
+  if (!after || !Array.isArray(after.tickets)) {
+    return json({
+      error: `Otra Tickets could not re-read the checkout from Otra Guide, so it can't tell whether ${ticket.name} was deleted. Otra Tickets pages were not changed. Reload and check before trying again.`,
+      code: "guide_delete_unknown",
+    }, 502);
+  }
+  const stillThere = after.tickets.some((item) => String(item.id) === String(ticketTypeId));
   if (!result.ok) {
     if ((result.status === 404 || result.status === 405) && stillThere) {
       return json({

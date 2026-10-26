@@ -19,6 +19,7 @@ let guide;
 let publicRemaining;
 let wrongEventEcho = false;
 let guideDeleteMode;
+let downAfterDelete = false;
 let calls;
 function resetGuide() {
   guide = [
@@ -28,6 +29,7 @@ function resetGuide() {
   ];
   publicRemaining = {};
   guideDeleteMode = 'ok';
+  downAfterDelete = false;
   calls = [];
 }
 
@@ -37,6 +39,9 @@ globalThis.fetch = async (input, options = {}) => {
   calls.push({ url, method });
   if (url.endsWith('/users/user-role/')) {
     return Response.json({ is_staff_or_admin: options.headers?.authorization === 'Bearer staff' });
+  }
+  if (downAfterDelete && calls.some((c) => c.method === 'DELETE') && method === 'GET' && !url.includes('/users/')) {
+    return Response.json({ detail: 'down' }, { status: 503 });
   }
   if (url.includes('/events/admin-ticketed-search/')) {
     const id = new URL(url).searchParams.get('id');
@@ -205,6 +210,19 @@ guideDeleteMode = 'boom';
 r = await call(good);
 assert(r.status === 502 && /Nothing was deleted/.test(r.data.error), 'a Guide failure is a 502 that says nothing was deleted');
 
+// 8b. Otra Guide drops the delete answer and then can't be re-read -> the result is unknown, no page changes.
+for (const mode of ['boom', 'ok']) {
+  resetGuide();
+  guideDeleteMode = mode;
+  downAfterDelete = true;
+  kv = makeKv({ 'site-event:draft-qa-1': boundProject('draft-qa-1'), [`event:${EVENT}`]: { fields: { [rateKey(3)]: { type: 'text', value: 'x' } } } });
+  r = await call(good, { kv });
+  assert(r.status === 502 && r.data.code === 'guide_delete_unknown' && !/Nothing was deleted/.test(r.data.error) && /Reload/.test(r.data.error),
+    `a failed re-read after Guide ${mode} never claims nothing was deleted (got ${r.status} ${JSON.stringify(r.data)})`);
+  assert(read(kv, 'site-event:draft-qa-1').ticketTypeIds.length === 3 && read(kv, `event:${EVENT}`).fields[rateKey(3)]?.value === 'x',
+    `a failed re-read after Guide ${mode} changes no page`);
+}
+
 // 9. Success.
 resetGuide();
 kv = makeKv({
@@ -271,7 +289,7 @@ assert(/data-checkout-delete-confirm disabled/.test(adminHtml) && /confirm\.disa
 assert(/method: "DELETE"[\s\S]{0,200}ticketTypeId/.test(adminHtml), 'the UI calls DELETE /admin/api/events');
 assert(/function deleteCheckoutTicket[\s\S]*renderCheckoutTickets\(checkoutEvent\.tickets[\s\S]*refreshPreview\(\)/.test(adminHtml), 'success re-renders rows and refreshes the page and embed');
 assert(/data-checkout-delete-impact>[^<]*Otra Guide app and website checkout[^<]*Otra Tickets checkout/.test(adminHtml), 'step 1 states the Otra Guide and Otra Tickets impact');
-assert(/code === "guide_delete_unconfirmed"/.test(adminHtml), 'an unconfirmed delete is not reported as nothing deleted');
+assert(/\/Nothing was deleted\|Reload\/\.test\(err\.message\)\s*\?\s*err\.message\s*:\s*`\$\{err\.message \|\| "No answer from Otra Tickets\."\} Reload the checkout/.test(adminHtml) && !/`\$\{err\.message\} Nothing was deleted\.`/.test(adminHtml), 'only server refusals say nothing was deleted; an unknown result asks for a reload');
 assert(/function checkoutHasUnsavedEdits/.test(adminHtml), 'unsaved edits block a delete instead of being thrown away');
 assert(/pageRows === event\.tickets\.length\) ticket = event\.tickets\[rowIndex\]/.test(adminHtml), 'price pencil only falls back to row position when the page and checkout rows line up');
 

@@ -2985,10 +2985,11 @@
       refreshPreview();
       setStatus(message, "ok");
     } catch (err) {
-      const code = err.data && err.data.code;
-      status.textContent = /Nothing was deleted/.test(err.message) || code === "guide_delete_unconfirmed"
+      // Only the server's own refusals say nothing was deleted. Anything else
+      // (no answer, a timeout, an unconfirmed delete) leaves the result unknown.
+      status.textContent = /Nothing was deleted|Reload/.test(err.message)
         ? err.message
-        : `${err.message} Nothing was deleted.`;
+        : `${err.message || "No answer from Otra Tickets."} Reload the checkout to see whether ${ticket.name} is still there before trying again.`;
       status.className = "status error";
       setStatus(err.message, "error");
       buttons.forEach((b) => { b.disabled = false; });
