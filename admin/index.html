@@ -2955,6 +2955,18 @@
     input.focus();
   }
 
+  async function reloadOverrideAfterDelete() {
+    try {
+      const page = await api("/admin/api/overrides?id=" + encodeURIComponent(overrideIdForPage(selected)), {
+        headers: authHeaders(),
+      });
+      fillForm(page.override);
+      await loadPageHistory();
+    } catch {
+      // A missed reload only means the next save may ask to reload first.
+    }
+  }
+
   async function deleteCheckoutTicket(card, ticket, confirmName) {
     const eventId = eventIdForPage(selected);
     if (!eventId || !checkoutEvent) return;
@@ -2979,15 +2991,20 @@
       });
       checkoutEvent = data.event;
       renderCheckoutTickets(checkoutEvent.tickets || []);
-      const message = `Deleted ${ticket.name} (${ticket.price} ${ticket.currency}, ID ${ticket.id}) on Otra Guide.`;
+      const message = data.finishedEarlierDelete
+        ? `${ticket.name} (ID ${ticket.id}) was already deleted on Otra Guide. Otra Tickets pages are updated now.`
+        : `Deleted ${ticket.name} (${ticket.price} ${ticket.currency}, ID ${ticket.id}) on Otra Guide.`;
       $("checkoutStatus").textContent = message;
       $("checkoutStatus").className = "status ok";
+      // Page edits on later rate rows moved on the server; load the page as
+      // stored now so the next save does not start from the old version.
+      if (data.pageEditsMoved) await reloadOverrideAfterDelete();
       refreshPreview();
       setStatus(message, "ok");
     } catch (err) {
       // Only the server's own refusals say nothing was deleted. Anything else
       // (no answer, a timeout, an unconfirmed delete) leaves the result unknown.
-      status.textContent = /Nothing was deleted|Reload/.test(err.message)
+      status.textContent = /Nothing was deleted|Reload|Delete again/.test(err.message)
         ? err.message
         : `${err.message || "No answer from Otra Tickets."} Reload the checkout to see whether ${ticket.name} is still there before trying again.`;
       status.className = "status error";
