@@ -10,6 +10,7 @@ import { requestToken } from "../_lib/session.js";
 import { findBoundProjects, resolvePageOverride } from "../_lib/page-override.js";
 import { readHiddenPageIds } from "../_lib/hidden-pages.js";
 import { isServableUnlisted, isUnlistedProject } from "../_lib/unlisted.js";
+import { isUnlistedLink } from "../_lib/homepage-feed.js";
 import { hasEnded } from "../_lib/event-ended.js";
 import { heroMetaItems } from "../_lib/hero-meta-text.js";
 import { ticketSaleState, withSaleState } from "../_lib/ticket-sale-state.js";
@@ -114,6 +115,10 @@ export async function onRequestGet(context) {
     const listedSlug = listedPage && typeof listedPage.frozenSlug === "string" ? listedPage.frozenSlug.trim() : "";
     if (listedSlug) payload.slug = listedSlug;
     else delete payload.slug;
+  }
+  // A listed page never points visitors at another page's unlisted link.
+  if (!payload.unlisted && payload.slug && (await isUnlistedLink(context.env, payload.slug))) {
+    delete payload.slug;
   }
   if (staffPreview) payload.staffPreview = true;
   // Worked out per response (the base payload is edge cached), so a page

@@ -14,7 +14,7 @@ import { onRequestGet as sitemapRoute } from "../functions/sitemap.xml.js";
 import { onRequestGet as llmsRoute } from "../functions/llms.txt.js";
 import { onRequestGet as homepageEventsRoute } from "../functions/api/homepage-events.js";
 import { onRequestGet as eventRoute } from "../functions/api/event.js";
-import { onRequestPost as projectsPost } from "../functions/admin/api/projects.js";
+import { avoidUnlistedLinks, onRequestPost as projectsPost } from "../functions/admin/api/projects.js";
 import { onRequestGet as pagesGet } from "../functions/admin/api/pages.js";
 
 const failures = [];
@@ -331,6 +331,52 @@ try {
     void keep;
     const normalized = kv.store.get("site-event:draft-secret");
     assert(normalized.unlisted === true, "other admin actions keep the unlisted flag");
+  }
+
+  // ── 5b. Listed pages keep their links next to unlisted ones ──
+  {
+    const post = async (kv, query) => {
+      const response = await projectsPost({
+        ...ctx(kv, "/admin/api/projects?" + query),
+        request: new Request("https://otratickets.com/admin/api/projects?" + query, { method: "POST", headers: { authorization: "Bearer t" } }),
+      });
+      return { status: response.status, body: await response.json() };
+    };
+    const records = baseProjects();
+    // Two published listed pages for one Otra Guide event, same link.
+    records["site-event:draft-sib-old"] = {
+      id: "draft-sib-old", otraGuideId: "7670", otraGuideSlug: "7670", title: "Sib Party", status: "published",
+      publishedAt: "2026-10-01T12:00:00.000Z", frozenSlug: "sib-party", startDate: "2999-07-01T20:00:00-04:00",
+      claudeDesign: rates, createdAt: "2026-10-01T10:00:00.000Z",
+    };
+    records["site-event:draft-sib-new"] = {
+      id: "draft-sib-new", otraGuideId: "7670", otraGuideSlug: "7670", title: "Sib Party", status: "published",
+      publishedAt: "2026-10-09T12:00:00.000Z", frozenSlug: "sib-party", startDate: "2999-07-01T20:00:00-04:00",
+      claudeDesign: rates, createdAt: "2026-10-09T10:00:00.000Z",
+    };
+    // A listed page of another event whose link equals an unlisted link.
+    records["site-event:draft-clash"] = {
+      id: "draft-clash", otraGuideId: "8000", otraGuideSlug: "8000", title: "Strange Bird Gala Secret", status: "published",
+      publishedAt: "2026-10-09T12:00:00.000Z", frozenSlug: "strange-bird-gala-secret", startDate: "2999-08-01T20:00:00-04:00",
+      claudeDesign: rates, createdAt: "2026-10-09T11:00:00.000Z",
+    };
+    const kv = makeKv(records);
+    const sib = await post(kv, "action=set-unlisted&id=draft-sib-new&value=true");
+    assert(sib.status === 200 && sib.body.project.frozenSlug !== "sib-party", "unlisting one of two pages never takes the other listed page's link: " + sib.body.project.frozenSlug);
+    const { events } = await buildHomepageFeed(ctx(kv), {});
+    const sibCard = events.find((e) => String(e.id) === "7670");
+    assert(sibCard && sibCard.slug === "sib-party", "the still listed page keeps its link on the feed: " + (sibCard && sibCard.slug));
+    const sibEvent = await (await eventRoute(ctx(kv, "/api/event?id=7670"))).json();
+    assert(!sibEvent.unlisted && sibEvent.slug === "sib-party", "the still listed page keeps its link and stays indexable: " + JSON.stringify({ u: sibEvent.unlisted, s: sibEvent.slug }));
+
+    const clash = await (await eventRoute(ctx(kv, "/api/event?id=8000"))).json();
+    assert(!clash.unlisted && clash.slug !== "strange-bird-gala-secret", "a listed page never points at another page's unlisted link: " + clash.slug);
+    const opened = await findUnlistedSiteEvent(ctx(kv), "strange-bird-gala-secret");
+    assert(opened && String(opened.id) === "7600", "the unlisted link still opens its own page");
+    const relinked = await avoidUnlistedLinks(kv, kv.store.get("site-event:draft-clash"));
+    assert(relinked === "strange-bird-gala-secret-2", "publishing a listed page moves it off an unlisted link: " + relinked);
+    const untouched = await avoidUnlistedLinks(kv, kv.store.get("site-event:draft-public"));
+    assert(untouched === "listed-party", "a listed page with a free link keeps it: " + untouched);
   }
 
   // ── 6. Admin list: a live page carries its draft's switch ──

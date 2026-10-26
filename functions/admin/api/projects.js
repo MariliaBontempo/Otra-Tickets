@@ -310,6 +310,7 @@ export async function onRequestPost(context) {
     if (!project) return json({ error: "draft not found" }, 404);
     const next = { ...project, adminOnly: url.searchParams.get("value") === "true" };
     await putProject(kv, next);
+    if (isUnlistedProject(next)) dropUnlistedIndex(kv);
     return json({ project: next });
   }
 
@@ -396,6 +397,10 @@ export async function onRequestPost(context) {
       if (isUnlistedProject(next)) {
         const picked = await resolveUnlistedSlug(context, kv, next, "");
         if (!picked.error) next.frozenSlug = picked.slug;
+      } else {
+        // A listed page never takes another page's unlisted link: the feed
+        // would move its card anyway, so it goes live at a free counter (-2).
+        next.frozenSlug = await avoidUnlistedLinks(kv, next);
       }
       await putProject(kv, next);
       if (isUnlistedProject(next)) await dropFeedSnapshot(kv);
@@ -823,22 +828,60 @@ async function dropFeedSnapshot(kv) {
   }
 }
 
+function isListedLivePage(project) {
+  return !!project && project.status === "published" && !project.archivedAt &&
+    !isUnlistedProject(project) && project.adminOnly !== true;
+}
+
 // Every link already in use, mapped to the title using it: listed pages from
-// the public feed and other unlisted pages. The page's own link is free.
+// the public feed, other published listed pages and other unlisted pages. The
+// page's own link is free. When another listed page is live for the same
+// Otra Guide event, that event's feed card belongs to it, so its link is taken.
 async function takenSlugs(context, kv, project) {
-  const own = new Set([String(project.id), String(project.otraGuideId || "")].filter(Boolean));
+  const projects = await listProjects(kv);
+  const guideId = String(project.otraGuideId || "");
+  const listedSibling = !!guideId && projects.some(
+    (other) => other.id !== project.id && String(other.otraGuideId || "") === guideId && isListedLivePage(other)
+  );
+  const own = new Set([String(project.id)]);
+  if (guideId && !listedSibling) own.add(guideId);
   const taken = new Map();
   const feed = await getPublicHomepageFeed(context);
   for (const event of (feed && feed.events) || []) {
     if (!event || !event.slug || own.has(String(event.id))) continue;
     taken.set(String(event.slug), String(event.title || ""));
   }
-  for (const other of await listProjects(kv)) {
-    if (other.id === project.id || !isUnlistedProject(other)) continue;
+  for (const other of projects) {
+    if (other.id === project.id) continue;
+    if (!isUnlistedProject(other) && !isListedLivePage(other)) continue;
     const slug = persistedFrozenSlug(other);
     if (slug && !taken.has(slug)) taken.set(slug, other.title);
   }
   return taken;
+}
+
+// The link a listed page goes live at: its own, or the first free counter
+// when another page already uses it as an unlisted link.
+export async function avoidUnlistedLinks(kv, project) {
+  const base = persistedFrozenSlug(project);
+  if (!base) return project.frozenSlug;
+  let reserved;
+  try {
+    reserved = new Set(
+      (await listProjects(kv))
+        .filter((other) => other.id !== project.id && isUnlistedProject(other))
+        .map((other) => persistedFrozenSlug(other))
+        .filter(Boolean)
+    );
+  } catch {
+    return project.frozenSlug;
+  }
+  if (!reserved.has(base)) return project.frozenSlug;
+  for (let n = 2; n < 100; n += 1) {
+    const candidate = `${base}-${n}`;
+    if (!reserved.has(candidate)) return candidate;
+  }
+  return project.frozenSlug;
 }
 
 async function resolveUnlistedSlug(context, kv, project, requested) {

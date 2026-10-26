@@ -733,6 +733,19 @@ export async function findUnlistedSiteEvent(context, slug) {
 const UNLISTED_INDEX_TTL_MS = 30_000;
 const unlistedIndex = new WeakMap();
 
+// True when /<slug> is the short link of an unlisted page. A listed page
+// whose own link collides never moves its URL there (the feed already moved
+// its card), so /api/event keeps it on /event?id=.
+export async function isUnlistedLink(env, slug) {
+  const wanted = String(slug || "").trim();
+  if (!wanted || !env || !env.OVERRIDES) return false;
+  try {
+    return (await servableUnlistedSlugs(env.OVERRIDES)).has(wanted);
+  } catch {
+    return false;
+  }
+}
+
 export function dropUnlistedIndex(kv) {
   if (kv && typeof kv === "object") unlistedIndex.delete(kv);
 }

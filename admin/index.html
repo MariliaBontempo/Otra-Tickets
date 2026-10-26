@@ -3779,7 +3779,8 @@
       selected.frozenSlug || ""
     );
     if (next === null) return;
-    const slug = next.trim().replace(/^\/+/, "");
+    // A pasted full link keeps only its path.
+    const slug = next.trim().replace(/^https?:\/\/[^/]+/i, "").replace(/^\/+/, "").replace(/[?#].*$/, "").replace(/\/+$/, "");
     if (!slug || slug === selected.frozenSlug) return;
     await setUnlisted(true, slug);
   }
