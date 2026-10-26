@@ -4,7 +4,8 @@
 // Otra Guide event and hydrate its ticket types before creating an Otra Tickets
 // draft that points at that event.
 
-import { apiBase, otraGet, requireStaff, json } from "./_auth.js";
+import { apiBase, otraGet, requireStaff, staffSession, json } from "./_auth.js";
+import { actorForAudit, appendAudit } from "./_audit.js";
 
 const CATEGORY_ID = 339;
 const PAGE_SIZE = 12;
@@ -88,6 +89,255 @@ export async function onRequestPut(context) {
   } catch (error) {
     return json({ error: error.message }, 502);
   }
+}
+
+// DELETE /admin/api/events  {eventId, ticketTypeId, confirmName, draftId}
+//
+// Deletes one ticket type on Otra Guide, then drops it from every Otra
+// Tickets page bound to that event. Built to never delete the wrong thing:
+// - the ticket type must still belong to the event Otra Guide reports now
+// - the caller must retype the exact ticket name
+// - the last ticket type of a checkout is never deleted
+// - a ticket type with any sold ticket is refused here, and Otra Guide
+//   refuses it again on its side (it counts issued tickets)
+// - a 404/405 from Otra Guide means its delete route is not live; nothing
+//   is touched on Otra Tickets and the caller gets a clear message
+export async function onRequestDelete(context) {
+  const session = await staffSession(context.request, context.env);
+  if (!session) return json({ error: "unauthorized" }, 401);
+  const accessToken = session.token;
+
+  let body;
+  try {
+    body = await context.request.json();
+  } catch {
+    return json({ error: "invalid json" }, 400);
+  }
+  const eventId = cleanInteger(body && body.eventId);
+  const ticketTypeId = cleanInteger(body && body.ticketTypeId);
+  if (!eventId) return json({ error: "event id is required" }, 400);
+  if (!ticketTypeId) return json({ error: "ticket type id is required" }, 400);
+
+  const current = await hydrateEvent(context, accessToken, eventId);
+  if (!current || String(current.id) !== String(eventId)) return json({ error: "event not found. Nothing was deleted." }, 404);
+  const ticket = current.tickets.find((item) => String(item.id) === String(ticketTypeId));
+  if (!ticket) {
+    return json({ error: "This ticket type is no longer on this event. Reload the checkout. Nothing was deleted." }, 409);
+  }
+  if (current.tickets.length <= 1) {
+    return json({ error: "A checkout needs at least one ticket type. Add the replacement first, then delete this one. Nothing was deleted." }, 400);
+  }
+  const typed = String((body && body.confirmName) || "").trim();
+  if (!typed || typed !== String(ticket.name || "").trim()) {
+    return json({ error: `Type the exact ticket name "${ticket.name}" to confirm. Nothing was deleted.` }, 400);
+  }
+  // The staff search reports no remaining count, so read it from the public
+  // rate list (same list the page renders). That list also fixes the row the
+  // type sits on, so page edits pinned to later rate rows move up one.
+  const rateList = await publicRateList(context, accessToken, eventId);
+  const rateIndex = rateList.findIndex((item) => String(item && item.id) === String(ticketTypeId));
+  const rateRow = rateIndex >= 0 ? rateIndex + 1 : 0;
+  const listed = rateIndex >= 0 ? rateList[rateIndex] : null;
+  const sold = soldCount({
+    quantity: ticket.quantity,
+    remainingQuantity: ticket.remainingQuantity ?? optionalCount(listed && listed.remaining_quantity),
+  });
+  if (sold > 0) {
+    return json({
+      error: `${ticket.name} already has ${sold} sold ticket${sold === 1 ? "" : "s"}. It can't be deleted. Nothing was deleted.`,
+      code: "ticket_type_sold",
+      sold,
+    }, 409);
+  }
+
+  const result = await guideDeleteTicketType(context, accessToken, eventId, ticketTypeId);
+  if (result.status === 400) {
+    return json({
+      error: `${result.message || "Otra Guide refused the delete."} Nothing was deleted.`,
+      code: /sold/i.test(result.message) ? "ticket_type_sold" : "guide_refused",
+    }, 409);
+  }
+  const after = await hydrateEvent(context, accessToken, eventId);
+  const stillThere = !after || after.tickets.some((item) => String(item.id) === String(ticketTypeId));
+  if (!result.ok) {
+    if ((result.status === 404 || result.status === 405) && stillThere) {
+      return json({
+        error: "Otra Guide does not accept ticket type deletes from Otra Tickets yet. Nothing was deleted. Delete it in the Otra Guide ticketing dashboard for now.",
+        code: "guide_delete_unavailable",
+      }, 501);
+    }
+    if (stillThere) {
+      return json({ error: `${result.message || "Otra Guide could not delete the ticket type."} Nothing was deleted.` }, 502);
+    }
+  } else if (stillThere) {
+    return json({
+      error: "Otra Guide answered OK but the ticket type still shows on the checkout. Otra Tickets pages were not changed. Reload and check before trying again.",
+      code: "guide_delete_unconfirmed",
+    }, 502);
+  }
+
+  const kv = context.env && context.env.OVERRIDES;
+  const { updated: pagesUpdated, draftIds } = await removeTicketFromSiteEvents(kv, {
+    draftId: body && body.draftId,
+    eventId,
+    ticketTypeId,
+  });
+  const pageEditsMoved = rateRow ? await shiftRateOverrides(kv, { eventId, draftIds, row: rateRow }) : 0;
+  // The public page caches the event's rate list; drop it so the page and
+  // the moved page edits change together.
+  try {
+    if (typeof caches !== "undefined" && caches.default) {
+      await caches.default.delete(new Request(new URL(`/api/event-base-v2?id=${eventId}`, context.request.url)));
+    }
+  } catch {}
+  const auditPage = /^draft-[a-zA-Z0-9-]+$/.test(String((body && body.draftId) || "")) ? String(body.draftId) : String(eventId);
+  await appendAudit(kv, {
+    actor: await actorForAudit(session.token, session.role, context.env),
+    action: "save",
+    pageId: auditPage,
+    changedFields: [`ticket-type-deleted:${ticketTypeId}:${ticket.name}`],
+  });
+  return json({
+    event: after,
+    deleted: { id: ticketTypeId, name: ticket.name, price: ticket.price, currency: ticket.currency },
+    pagesUpdated,
+    pageEditsMoved,
+  });
+}
+
+// A count Otra Guide may leave out. null (not 0) when it is missing, so an
+// unknown remaining count never reads as "0 remaining, all sold".
+export function optionalCount(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(value);
+  return Number.isSafeInteger(n) && n >= 0 ? n : null;
+}
+
+// Issued tickets according to Otra Guide's own counters. Unknown remaining
+// counts as 0 sold here; Otra Guide still refuses a sold type on its side.
+export function soldCount(ticket) {
+  const quantity = optionalCount(ticket && ticket.quantity);
+  const remaining = optionalCount(ticket && ticket.remainingQuantity);
+  if (quantity === null || remaining === null) return 0;
+  return Math.max(0, quantity - remaining);
+}
+
+async function guideDeleteTicketType(context, accessToken, eventId, ticketTypeId) {
+  let response;
+  try {
+    response = await fetch(`${apiBase(context.env)}/ticket/create/tickets/${eventId}/${ticketTypeId}/`, {
+      method: "DELETE",
+      headers: { accept: "application/json", authorization: `Bearer ${accessToken}` },
+      signal: AbortSignal.timeout(30000),
+    });
+  } catch {
+    return { ok: false, status: 0, message: "could not reach Otra Guide" };
+  }
+  const data = await response.json().catch(() => ({}));
+  const message = (data && (data.error || data.detail)) || "";
+  return { ok: response.ok, status: response.status, message: String(message) };
+}
+
+// Drop the deleted type from every Otra Tickets page bound to the event so
+// the page price list and a later publish (reconcileTickets PATCHes by id)
+// never bring it back. Matches on the exact ticket type id only.
+export function withoutTicketType(project, ticketTypeId) {
+  const ids = Array.isArray(project && project.ticketTypeIds) ? project.ticketTypeIds : [];
+  const index = ids.findIndex((id) => String(id) === String(ticketTypeId));
+  if (index < 0) return null;
+  const keep = (list) => (Array.isArray(list) ? list.filter((_, i) => i !== index) : list);
+  const design = project.claudeDesign && typeof project.claudeDesign === "object" ? project.claudeDesign : null;
+  const next = {
+    ...project,
+    ticketTypeIds: keep(ids),
+    ticketQuantities: keep(project.ticketQuantities),
+  };
+  if (design && Array.isArray(design.rates) && design.rates.length === ids.length) {
+    next.claudeDesign = { ...design, rates: keep(design.rates) };
+  }
+  return next;
+}
+
+export async function removeTicketFromSiteEvents(kv, { draftId, eventId, ticketTypeId }) {
+  const draftIds = new Set();
+  if (!kv) return { updated: 0, draftIds: [] };
+  const seen = new Set();
+  const touched = new Set();
+  const updateKey = async (key) => {
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    const project = await kv.get(key, "json");
+    if (!project || String(project.otraGuideId || "") !== String(eventId)) return;
+    draftIds.add(key.slice("site-event:".length));
+    const next = withoutTicketType(project, ticketTypeId);
+    if (!next) return;
+    await kv.put(key, JSON.stringify(next));
+    touched.add(key);
+  };
+  if (/^draft-[a-zA-Z0-9-]+$/.test(String(draftId || ""))) await updateKey(`site-event:${draftId}`);
+  let cursor;
+  do {
+    const page = await kv.list({ prefix: "site-event:", cursor });
+    for (const key of page.keys || []) await updateKey(key.name);
+    cursor = page.list_complete ? undefined : page.cursor;
+  } while (cursor);
+  return { updated: touched.size, draftIds: [...draftIds] };
+}
+
+async function publicRateList(context, accessToken, eventId) {
+  const data = await otraJson(context, accessToken, `/ticket/purchase/tickets/${eventId}/`);
+  return data && Array.isArray(data.results) ? data.results : [];
+}
+
+// Page edits on rate rows are pinned by position (#evRates > div:nth-of-type(N)).
+// Once a type is gone every later row moves up one, so its edits must move
+// with it: drop the deleted row's edits, renumber the rows after it. Without
+// this a price edit of the next row would show on (and a later price pencil
+// sync would target) the wrong ticket type.
+const RATE_ROW_KEY_RE = /^([a-z]+:(?:main > )?#evRates > div:nth-of-type\()(\d+)(\).*)$/;
+
+export function shiftRateFields(fields, row) {
+  if (!fields || typeof fields !== "object") return { fields, changed: false };
+  const next = {};
+  let changed = false;
+  for (const [key, field] of Object.entries(fields)) {
+    const match = RATE_ROW_KEY_RE.exec(key);
+    const n = match ? Number(match[2]) : 0;
+    if (!match || n < row) {
+      next[key] = field;
+    } else if (n === row) {
+      changed = true;
+    } else {
+      next[`${match[1]}${n - 1}${match[3]}`] = field;
+      changed = true;
+    }
+  }
+  return { fields: next, changed };
+}
+
+export async function shiftRateOverrides(kv, { eventId, draftIds, row }) {
+  if (!kv || !row) return 0;
+  const ids = new Set([String(eventId), `draft-prod-${eventId}`, ...(draftIds || []).map(String)]);
+  const keys = new Set([...ids].map((id) => `event:${id}`));
+  // A page may sell through this event without being bound to it.
+  let cursor;
+  do {
+    const page = await kv.list({ prefix: "event:", cursor });
+    for (const key of page.keys || []) keys.add(key.name);
+    cursor = page.list_complete ? undefined : page.cursor;
+  } while (cursor);
+  let moved = 0;
+  for (const key of keys) {
+    const doc = await kv.get(key, "json");
+    if (!doc || typeof doc !== "object") continue;
+    const bound = ids.has(key.slice("event:".length)) || String(doc.checkoutEventId || "") === String(eventId);
+    if (!bound) continue;
+    const { fields, changed } = shiftRateFields(doc.fields, row);
+    if (!changed) continue;
+    await kv.put(key, JSON.stringify({ ...doc, fields, updatedAt: new Date().toISOString() }));
+    moved += 1;
+  }
+  return moved;
 }
 
 async function searchEvents(context, accessToken, query, region) {
@@ -192,7 +442,7 @@ async function hydrateEvent(context, accessToken, eventId) {
     description: ticket.description || "",
     price: ticket.price || "0.00",
     quantity: Number.isSafeInteger(Number(ticket.quantity)) && Number(ticket.quantity) > 0 ? Number(ticket.quantity) : 500,
-    remainingQuantity: Number.isSafeInteger(Number(ticket.remaining_quantity)) ? Number(ticket.remaining_quantity) : null,
+    remainingQuantity: optionalCount(ticket.remaining_quantity),
     currency: (ticket.base_currency && ticket.base_currency.code) || ticket.base_currency || "USD",
     isActive: ticket.is_active !== false && ticket.isActive !== false,
     saleStartDate: ticket.sale_start_time || ticket.saleStartDate || "",
@@ -256,7 +506,7 @@ function normalizeAdminEvent(event) {
       description: ticket.description || "",
       price: ticket.price || "0.00",
       quantity: Number.isSafeInteger(Number(ticket.quantity)) && Number(ticket.quantity) > 0 ? Number(ticket.quantity) : 500,
-      remainingQuantity: Number.isSafeInteger(Number(ticket.remainingQuantity)) ? Number(ticket.remainingQuantity) : null,
+      remainingQuantity: optionalCount(ticket.remainingQuantity),
       currency: ticket.currency || "USD",
       isActive: ticket.isActive !== false,
       saleStartDate: ticket.saleStartDate || "",

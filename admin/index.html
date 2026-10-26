@@ -415,6 +415,16 @@
   }
   .checkout-ticket textarea { min-height: 88px; }
   .checkout-ticket-note { color: var(--muted); font-size: 12px; }
+  .checkout-ticket-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+  .btn.danger { border-color: var(--danger); color: var(--danger); background: transparent; }
+  .btn.danger.solid { background: var(--danger); color: #fff; }
+  .btn.danger:disabled { opacity: .45; cursor: not-allowed; }
+  .checkout-delete-panel { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--danger); border-radius: var(--radius); }
+  .checkout-delete-panel dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 0; font-size: 13px; }
+  .checkout-delete-panel dt { color: var(--muted); }
+  .checkout-delete-panel dd { margin: 0; }
+  .checkout-delete-panel .status { margin: 0; }
+  .checkout-delete-actions { display: flex; gap: 8px; flex-wrap: wrap; }
   .clone-sale-list { display: grid; gap: 10px; max-height: 280px; overflow: auto; }
   .clone-sale-row {
     display: grid;
@@ -1896,7 +1906,16 @@
     let ticket = rowName
       ? event.tickets.find((t) => String(t.name).trim().toLowerCase() === rowName.toLowerCase())
       : null;
-    if (!ticket) ticket = event.tickets[rowIndex];
+    // Fall back to the row position only when the page lists exactly the
+    // checkout's ticket types; after a delete (or a stale page) the Nth row
+    // can be a different ticket type.
+    if (!ticket) {
+      let pageRows = -1;
+      try {
+        pageRows = $("previewFrame").contentDocument.querySelectorAll("#evRates > div.ev-rate:not(.ev-addon)").length;
+      } catch {}
+      if (pageRows === event.tickets.length) ticket = event.tickets[rowIndex];
+    }
     if (!ticket) throw new Error("Could not match a ticket type - checkout price NOT changed.");
     const tickets = event.tickets.map((t) => ({ ...t, price: t.id === ticket.id ? price.toFixed(2) : t.price }));
     const raw = String(overrideIdForPage(selected) || "");
@@ -2833,10 +2852,159 @@
         </div>
         <label>Description<textarea data-checkout-description>${esc(ticket.description || "")}</textarea></label>
         <label>Total quantity<input data-checkout-quantity type="number" min="1" step="1" required value="${esc(ticket.quantity)}" /></label>
-        ${remaining}
+        <div class="checkout-ticket-foot">
+          ${remaining || "<span></span>"}
+          <button class="btn danger" type="button" data-checkout-delete="${esc(ticket.id)}">Delete ticket type</button>
+        </div>
+        <div class="checkout-delete-panel hidden" data-checkout-delete-panel></div>
       </section>`;
     }).join("");
   }
+
+  // Issued tickets per Otra Guide's own counters (total minus remaining).
+  function checkoutSoldCount(ticket) {
+    const quantity = Number(ticket && ticket.quantity);
+    const raw = ticket && ticket.remainingQuantity;
+    const remaining = raw === null || raw === undefined || raw === "" ? NaN : Number(raw);
+    if (!Number.isSafeInteger(quantity) || !Number.isSafeInteger(remaining)) return 0;
+    return Math.max(0, quantity - remaining);
+  }
+
+  // A delete reloads every row from Otra Guide, so unsaved edits in the
+  // form would be thrown away. Ask for a Save first instead.
+  function checkoutHasUnsavedEdits() {
+    const saved = new Map(((checkoutEvent && checkoutEvent.tickets) || []).map((t) => [String(t.id), t]));
+    return [...document.querySelectorAll("[data-checkout-ticket]")].some((card) => {
+      const ticket = saved.get(card.dataset.checkoutTicket);
+      if (!ticket) return true;
+      return card.querySelector("[data-checkout-name]").value.trim() !== String(ticket.name || "").trim()
+        || Number(card.querySelector("[data-checkout-price]").value) !== Number(ticket.price)
+        || card.querySelector("[data-checkout-currency]").value !== ticket.currency
+        || card.querySelector("[data-checkout-description]").value.trim() !== String(ticket.description || "").trim()
+        || Number(card.querySelector("[data-checkout-quantity]").value) !== Number(ticket.quantity);
+    });
+  }
+
+  function closeTicketDelete(card) {
+    const panel = card && card.querySelector("[data-checkout-delete-panel]");
+    if (!panel) return;
+    panel.classList.add("hidden");
+    panel.innerHTML = "";
+    const button = card.querySelector("[data-checkout-delete]");
+    if (button) button.disabled = false;
+  }
+
+  // Step 1 shows exactly what will be deleted (name, price, Otra Guide id,
+  // sold count). Step 2 asks for the exact name before anything is sent.
+  function openTicketDelete(ticketId) {
+    const card = document.querySelector(`[data-checkout-ticket="${CSS.escape(String(ticketId))}"]`);
+    const ticket = ((checkoutEvent && checkoutEvent.tickets) || []).find((t) => String(t.id) === String(ticketId));
+    if (!card || !ticket) return;
+    document.querySelectorAll("[data-checkout-ticket]").forEach((other) => { if (other !== card) closeTicketDelete(other); });
+    const panel = card.querySelector("[data-checkout-delete-panel]");
+    const sold = checkoutSoldCount(ticket);
+    const soldText = Number.isSafeInteger(ticket.remainingQuantity)
+      ? `${sold} (${ticket.remainingQuantity} of ${ticket.quantity} remaining)`
+      : "Checked on Otra Guide before deleting. Any sold ticket blocks the delete.";
+    const onlyOne = (checkoutEvent.tickets || []).length <= 1;
+    const unsaved = checkoutHasUnsavedEdits();
+    let block = "";
+    if (sold > 0) block = `${ticket.name} already has ${sold} sold ticket${sold === 1 ? "" : "s"}. It can't be deleted.`;
+    else if (onlyOne) block = "A checkout needs at least one ticket type. Add the replacement and Save first, then delete this one.";
+    else if (unsaved) block = "This checkout has unsaved changes. Save or close without saving first, then delete.";
+    card.querySelector("[data-checkout-delete]").disabled = true;
+    panel.innerHTML = `
+      <strong>Delete this ticket type on Otra Guide?</strong>
+      <dl>
+        <dt>Name</dt><dd>${esc(ticket.name)}</dd>
+        <dt>Price</dt><dd>${esc(ticket.price)} ${esc(ticket.currency)}</dd>
+        <dt>Otra Guide ID</dt><dd>${esc(ticket.id)}</dd>
+        <dt>Sold</dt><dd>${esc(soldText)}</dd>
+      </dl>
+      ${block
+        ? `<p class="status error" data-checkout-delete-status>${esc(block)} Nothing was deleted.</p>
+           <div class="checkout-delete-actions"><button class="btn" type="button" data-checkout-delete-cancel>Close</button></div>`
+        : `<p class="muted" data-checkout-delete-impact>This deletes the ticket type on Otra Guide, so it leaves the Otra Guide app and website checkout. It also leaves this Otra Tickets checkout and the price list on every Otra Tickets page for this event. This can't be undone.</p>
+           <div class="checkout-delete-actions">
+             <button class="btn danger" type="button" data-checkout-delete-next>Continue</button>
+             <button class="btn" type="button" data-checkout-delete-cancel>Cancel</button>
+           </div>`}`;
+    panel.classList.remove("hidden");
+    panel.querySelector("[data-checkout-delete-cancel]").addEventListener("click", () => closeTicketDelete(card));
+    const next = panel.querySelector("[data-checkout-delete-next]");
+    if (next) next.addEventListener("click", () => confirmTicketDelete(card, ticket));
+  }
+
+  function confirmTicketDelete(card, ticket) {
+    const panel = card.querySelector("[data-checkout-delete-panel]");
+    panel.innerHTML = `
+      <strong>Type the ticket name to delete it</strong>
+      <label>Ticket name: <code>${esc(ticket.name)}</code>
+        <input data-checkout-delete-name type="text" autocomplete="off" spellcheck="false" />
+      </label>
+      <p class="status" data-checkout-delete-status></p>
+      <div class="checkout-delete-actions">
+        <button class="btn danger solid" type="button" data-checkout-delete-confirm disabled>Delete ${esc(ticket.name)} on Otra Guide</button>
+        <button class="btn" type="button" data-checkout-delete-cancel>Cancel</button>
+      </div>`;
+    const input = panel.querySelector("[data-checkout-delete-name]");
+    const confirm = panel.querySelector("[data-checkout-delete-confirm]");
+    input.addEventListener("input", () => { confirm.disabled = input.value.trim() !== String(ticket.name).trim(); });
+    panel.querySelector("[data-checkout-delete-cancel]").addEventListener("click", () => closeTicketDelete(card));
+    confirm.addEventListener("click", () => deleteCheckoutTicket(card, ticket, input.value.trim()));
+    input.focus();
+  }
+
+  async function deleteCheckoutTicket(card, ticket, confirmName) {
+    const eventId = eventIdForPage(selected);
+    if (!eventId || !checkoutEvent) return;
+    const panel = card.querySelector("[data-checkout-delete-panel]");
+    const status = panel.querySelector("[data-checkout-delete-status]");
+    const buttons = panel.querySelectorAll("button");
+    buttons.forEach((b) => { b.disabled = true; });
+    $("saveCheckoutBtn").disabled = true;
+    $("addTicketTypeBtn").disabled = true;
+    status.textContent = `Deleting ${ticket.name} on Otra Guide...`;
+    status.className = "status";
+    try {
+      const data = await api("/admin/api/events", {
+        method: "DELETE",
+        headers: authHeaders({ "content-type": "application/json" }),
+        body: JSON.stringify({
+          eventId: Number(eventId),
+          ticketTypeId: Number(ticket.id),
+          confirmName,
+          draftId: isDraft(selected) ? selected.id : "",
+        }),
+      });
+      checkoutEvent = data.event;
+      renderCheckoutTickets(checkoutEvent.tickets || []);
+      const message = `Deleted ${ticket.name} (${ticket.price} ${ticket.currency}, ID ${ticket.id}) on Otra Guide.`;
+      $("checkoutStatus").textContent = message;
+      $("checkoutStatus").className = "status ok";
+      refreshPreview();
+      setStatus(message, "ok");
+    } catch (err) {
+      const code = err.data && err.data.code;
+      status.textContent = /Nothing was deleted/.test(err.message) || code === "guide_delete_unconfirmed"
+        ? err.message
+        : `${err.message} Nothing was deleted.`;
+      status.className = "status error";
+      setStatus(err.message, "error");
+      buttons.forEach((b) => { b.disabled = false; });
+      const confirm = panel.querySelector("[data-checkout-delete-confirm]");
+      const input = panel.querySelector("[data-checkout-delete-name]");
+      if (confirm && input) confirm.disabled = input.value.trim() !== String(ticket.name).trim();
+    } finally {
+      $("saveCheckoutBtn").disabled = false;
+      $("addTicketTypeBtn").disabled = false;
+    }
+  }
+
+  $("checkoutTickets").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-checkout-delete]");
+    if (button && !button.disabled) openTicketDelete(button.dataset.checkoutDelete);
+  });
 
   $("addTicketTypeBtn").addEventListener("click", () => {
     const card = document.createElement("section");
