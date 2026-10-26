@@ -453,12 +453,12 @@ try {
     const secret = await open("strange-bird-gala-secret");
     assert(secret.status === 200 && secret.headers.get("cache-control") === "no-store", "an unlisted page is sent no-store: " + secret.headers.get("cache-control"));
     const listed = await open("listed-party");
-    assert(/max-age=60/.test(listed.headers.get("cache-control") || ""), "a listed page keeps its short cache");
+    assert(listed.headers.get("cache-control") === "public, max-age=0, must-revalidate", "a listed page revalidates on every load: " + listed.headers.get("cache-control"));
     const api = async (id) => (await eventRoute(ctx(kv, "/api/event?id=" + id))).headers.get("cache-control");
     assert((await api("7600")) === "no-store", "/api/event for a live unlisted page is no-store");
     assert((await api("7610")) === "no-store", "/api/event for an event with an unlisted draft is no-store");
     assert((await api("7630")) === "no-store", "/api/event for a hidden unlisted page is no-store");
-    assert(/max-age=60/.test((await api("7999")) || ""), "/api/event for a listed page keeps its cache");
+    assert((await api("7999")) === "public, max-age=0, must-revalidate", "/api/event for a listed page revalidates on every load");
 
     const onlySecret = makeKv({ "site-event:draft-secret": baseProjects()["site-event:draft-secret"] });
     const feedRes = await homepageEventsRoute(ctx(onlySecret));

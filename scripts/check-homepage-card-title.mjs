@@ -537,7 +537,7 @@ const overridesSrc = readFileSync(
 );
 const snapKey = "_" + "_homepage_feed_snapshot__";
 assert(
-  overridesSrc.includes(snapKey) && overridesSrc.includes("kv.delete("),
+  overridesSrc.includes("invalidatePublicFeed(kv)") || (overridesSrc.includes(snapKey) && overridesSrc.includes("kv.delete(")),
   "override PUT must delete the homepage feed snapshot so titles/photos refresh"
 );
 

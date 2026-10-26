@@ -126,7 +126,7 @@ test("staff get the same 8088 published-design fallback as the public, and Beare
     const staff = await staffRes.json();
     assert.deepEqual(staff, anon);
     assert.equal(anon.title, "Finish Line Party");
-    assert.equal(staffRes.headers.get("cache-control"), "public, max-age=60");
+    assert.equal(staffRes.headers.get("cache-control"), "public, max-age=0, must-revalidate");
 
     const bearer = await onRequestGet({
       request: new Request("https://tickets.test/api/event?id=8257", { headers: { authorization: "Bearer staff-jwt" } }),
