@@ -15,6 +15,7 @@ const CHECK_TIMEOUT_MS = 4000;
 export const HIDDEN_DETAIL_EXCEPTIONS = Object.freeze({
   "8088": "draft-1791253678425-26c548a5",
   "8266": "draft-1792794458964-79d36de9",
+  "8267": "draft-1792794492337-315e4c35",
 });
 
 export function guideApiBase(env) {
