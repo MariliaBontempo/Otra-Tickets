@@ -44,6 +44,12 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 html { scroll-behavior: smooth; }
+/* Full bleed sections use 100vw, which counts a classic scrollbar (desktop
+   browsers, some Android browsers), so the page gained a sideways scroll and
+   looked cut on the right. Clip the extra width at the root; clip (unlike
+   hidden) keeps position: sticky working where it is supported. */
+html { overflow-x: hidden; }
+@supports (overflow-x: clip) { html { overflow-x: clip; } }
 
 body {
   font-family: var(--font-body);
@@ -547,6 +553,15 @@ main.detail { padding: 0; padding-top: var(--header-h); } /* hero starts below t
    A band without text keeps its centered heading, so published pages look
    the same as before. */
 .ev-band:has(#evBandText:not([hidden])) { align-items: flex-start; }
+/* Same layout through classes site-overrides.js sets, for browsers without
+   :has() (older Android Chrome, Samsung Internet, Firefox before 121). There
+   the whole :has() rule is dropped and a text band stayed a 16:9 box with
+   overflow hidden, cutting off most of its text on a phone. */
+.ev-band.ev-band--grow { aspect-ratio: auto; min-height: 620px; padding: 80px 0; }
+.ev-band.ev-band--text { align-items: flex-start; }
+@supports not selector(:has(a)) {
+  .ev-band { aspect-ratio: auto; min-height: 56.25vw; }
+}
 .ev-like .nm { font-family: var(--font-display); font-weight: 700; font-size: 16px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--rnb-text); line-height: 1.3; text-wrap: balance; }
 .ev-like .ds { font-size: clamp(16px, 1.5vw, 21px); line-height: 1.5; color: #d6dade; text-wrap: pretty; }
 .ev-band--cards .ev-band-veil { background: rgba(7, 8, 10, 0.90); }
