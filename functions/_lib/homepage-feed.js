@@ -709,6 +709,9 @@ export async function findUnlistedSiteEvent(context, slug) {
   const env = context && context.env;
   const wanted = String(slug || "");
   if (!wanted || !env || !env.OVERRIDES) return null;
+  // Unknown slugs (typos, bots) answer from a short lived index of the
+  // servable unlisted links instead of a full site event scan each time.
+  if (!(await servableUnlistedSlugs(env.OVERRIDES)).has(wanted)) return null;
   const [cards, hiddenIds] = await Promise.all([
     buildPublishedSiteEvents(env, { unlistedOnly: true, slug: wanted }),
     readHiddenPageIds(env),
@@ -721,6 +724,40 @@ export async function findUnlistedSiteEvent(context, slug) {
   if (!visible.length) return null;
   const [event] = await applyOverrides([visible[0]], env);
   return { ...event, slug: wanted, unlisted: true };
+}
+
+// Links of the servable unlisted pages, per KV store, kept for a short while.
+// Admin changes to unlisted pages drop it (dropUnlistedIndex) so a new or
+// edited link opens right away; archive and hide are still checked on every
+// hit by the full lookup above.
+const UNLISTED_INDEX_TTL_MS = 30_000;
+const unlistedIndex = new WeakMap();
+
+export function dropUnlistedIndex(kv) {
+  if (kv && typeof kv === "object") unlistedIndex.delete(kv);
+}
+
+async function servableUnlistedSlugs(kv) {
+  const now = Date.now();
+  const cached = unlistedIndex.get(kv);
+  if (cached && now - cached.at < UNLISTED_INDEX_TTL_MS) return cached.slugs;
+  const slugs = new Set();
+  let cursor;
+  do {
+    const page = await kv.list({ prefix: "site-event:", cursor });
+    for (const key of page.keys || []) {
+      let project;
+      try {
+        project = await kv.get(key.name, "json");
+      } catch {
+        project = null;
+      }
+      if (isServableUnlisted(project)) slugs.add(persistedFrozenSlug(project));
+    }
+    cursor = page.list_complete ? undefined : page.cursor;
+  } while (cursor);
+  unlistedIndex.set(kv, { at: now, slugs });
+  return slugs;
 }
 
 async function fetchJson(url, authToken = "") {

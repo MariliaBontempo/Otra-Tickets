@@ -8,7 +8,7 @@ import { apiBase, requireStaff, staffSession, json } from "./_auth.js";
 import { actorForAudit, appendAudit } from "./_audit.js";
 import { mintFrozenSlug, liveSlugBase, persistedFrozenSlug } from "../../_lib/event-slug.js";
 import { defaultUnlistedSlug, isUnlistedProject, pickUnlistedSlug } from "../../_lib/unlisted.js";
-import { getPublicHomepageFeed } from "../../_lib/homepage-feed.js";
+import { dropUnlistedIndex, getPublicHomepageFeed } from "../../_lib/homepage-feed.js";
 import { normalizeCloneSaleWindows, shiftCloneEventDay, toDay } from "../../_lib/clone-sale-windows.js";
 import { rewriteProjectDate } from "./events.js";
 import { contentSnapshot, validateContentPatch } from "./_draft-content.js";
@@ -815,6 +815,7 @@ async function otraFetch(context, accessToken, path, options = {}) {
 }
 
 async function dropFeedSnapshot(kv) {
+  dropUnlistedIndex(kv);
   try {
     await kv.delete("__homepage_feed_snapshot__");
   } catch {

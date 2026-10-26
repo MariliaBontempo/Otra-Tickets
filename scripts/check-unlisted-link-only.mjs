@@ -7,7 +7,7 @@
 // Run: node scripts/check-unlisted-link-only.mjs
 
 import { readFileSync } from "node:fs";
-import { buildHomepageFeed, buildPublishedSiteEvents, findUnlistedSiteEvent } from "../functions/_lib/homepage-feed.js";
+import { buildHomepageFeed, buildPublishedSiteEvents, dropUnlistedIndex, findUnlistedSiteEvent } from "../functions/_lib/homepage-feed.js";
 import { cleanUnlistedSlug, defaultUnlistedSlug, pickUnlistedSlug, UNLISTED_SLUG_MAX } from "../functions/_lib/unlisted.js";
 import { onRequestGet as slugRoute } from "../functions/[slug].js";
 import { onRequestGet as sitemapRoute } from "../functions/sitemap.xml.js";
@@ -94,7 +94,9 @@ function makeKv(records) {
     },
     async put(key, value) { store.set(key, typeof value === "string" ? JSON.parse(value) : value); },
     async delete(key) { deleted.push(key); store.delete(key); },
+    lists: 0,
     async list({ prefix } = {}) {
+      this.lists += 1;
       return { keys: [...store.keys()].filter((name) => !prefix || name.startsWith(prefix)).map((name) => ({ name })), list_complete: true };
     },
     store,
@@ -219,6 +221,24 @@ try {
     assert(found && found.unlisted === true && found.title, "findUnlistedSiteEvent returns a card with a title");
   }
 
+  // ── 3b. Unknown slugs use the short lived index, not a scan each time ──
+  {
+    const kv = makeKv(baseProjects());
+    assert(await findUnlistedSiteEvent(ctx(kv), "strange-bird-gala-secret"), "a servable unlisted link is found");
+    const before = kv.lists;
+    for (let i = 0; i < 20; i += 1) assert((await findUnlistedSiteEvent(ctx(kv), "bot-typo-" + i)) === null, "an unknown slug answers null");
+    assert(kv.lists === before, "unknown slugs do not rescan the site events, scans: " + (kv.lists - before));
+    kv.store.set("site-event:draft-late", {
+      id: "draft-late", otraGuideId: "7670", otraGuideSlug: "7670", title: "Late Secret", status: "published",
+      publishedAt: "2026-10-09T12:00:00.000Z", frozenSlug: "late-secret", unlisted: true,
+      startDate: "2999-07-01T20:00:00-04:00", claudeDesign: rates, createdAt: "2026-10-09T10:00:00.000Z",
+    });
+    dropUnlistedIndex(kv);
+    assert(await findUnlistedSiteEvent(ctx(kv), "late-secret"), "a new unlisted link opens once the index is dropped");
+    const archived = await findUnlistedSiteEvent(ctx(kv), "archived-secret");
+    assert(archived === null, "an archived unlisted link stays closed even if indexed");
+  }
+
   // ── 4. /api/event: short link only when it opens ──
   {
     const kv = makeKv(baseProjects());
@@ -294,6 +314,12 @@ try {
     assert(typedBad.status === 400, "typing a site path is refused");
     const typedOk = await post(kv, "action=set-unlisted&id=draft-new&value=true&slug=" + encodeURIComponent("Strange Bird Afterparty"));
     assert(typedOk.status === 200 && typedOk.body.project.frozenSlug === "strange-bird-afterparty", "a typed free link is cleaned and saved");
+    // Warm the index, then a link change by the admin must open at once.
+    await findUnlistedSiteEvent(ctx(kv), "warm-index");
+    const secretNew = await post(kv, "action=set-unlisted&id=draft-secret&value=true&slug=strange-bird-new-link");
+    assert(secretNew.status === 200 && secretNew.body.project.frozenSlug === "strange-bird-new-link", "a live unlisted page link can be edited");
+    assert(await findUnlistedSiteEvent(ctx(kv), "strange-bird-new-link"), "the edited link opens right away (index dropped)");
+    assert((await findUnlistedSiteEvent(ctx(kv), "strange-bird-gala-secret")) === null, "the old link stops opening");
 
     const own = await post(kv, "action=set-unlisted&id=draft-public&value=true");
     assert(own.status === 200 && own.body.project.frozenSlug === "listed-party", "a listed page made unlisted keeps its own link");
