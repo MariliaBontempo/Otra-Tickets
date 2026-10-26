@@ -233,7 +233,7 @@ function extractFunction(name, source) {
   const get = adminApi.slice(adminApi.indexOf('export async function onRequestGet'), adminApi.indexOf('export async function onRequestPut'));
   const put = adminApi.slice(adminApi.indexOf('export async function onRequestPut'), adminApi.indexOf('function photoSignature'));
   assert(/allowsDraftOnlyRemovals\(kv, id\)\)\) override\.fields = withoutDraftOnlyRemovals/.test(get), 'admin GET must drop the hide on live pages');
-  assert(/allowsDraftOnlyRemovals\(kv, id\)\)\) override\.fields = withoutDraftOnlyRemovals[\s\S]*kv\.put\(KEY\(id\)/.test(put), 'admin PUT must drop the hide before storing a live page');
+  assert(/const draftOnlyRemovalsOk = await allowsDraftOnlyRemovals\(kv, id\);[\s\S]*if \(!draftOnlyRemovalsOk\) override\.fields = withoutDraftOnlyRemovals\(override\.fields\);[\s\S]*kv\.put\(KEY\(id\)/.test(put), 'admin PUT must drop the hide before storing a live page');
 
   // site-overrides.js hides Before You Go only when the server allows it, by
   // id or through a wrapper selector.

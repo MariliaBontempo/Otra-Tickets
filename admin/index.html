@@ -1014,6 +1014,11 @@
   let pages = [];
   let selected = null;
   let currentOverride = null;
+  // The override exactly as the server last sent it. Saves send its version
+  // and the before value of every key they change, so the server can refuse
+  // or merge a save made on top of someone else's newer edit.
+  let loadedOverride = null;
+  const OVERRIDE_TOP_LEVEL_KEYS = ["description", "image", "checkoutEventId", "accentColor"];
   let modalMode = "";
   let activeField = null;
   let mediaUploadBusy = false;
@@ -1516,7 +1521,33 @@
     openEditor("rename");
   });
   let draftContentProject = null;
+  let draftContentOpened = {};
   let draftPhotoUploading = false;
+  // Draft content fields that also have a pencil on the page. A pencil edit
+  // is drawn over the draft content, so a new wording saved here would not
+  // show while an older pencil edit of the same element is still stored.
+  const DRAFT_CONTENT_PENCIL_TARGETS = {
+    bandEyebrow: { input: "draftContentEyebrow", selector: "#evBandEyebrow", label: "section label" },
+    bandTitle: { input: "draftContentHeading", selector: "#evBandTitle", label: "section heading" },
+    bandText: { input: "draftContentBandText", selector: "#evBandText", label: "section text" },
+  };
+  function draftContentPencilValues() {
+    return Object.fromEntries(Object.entries(DRAFT_CONTENT_PENCIL_TARGETS).map(([name, target]) => [name, $(target.input).value]));
+  }
+  // Stored pencil keys for an element, including the older main > #id form.
+  function pencilTextKeys(selector, fields) {
+    return ["text:" + selector, "text:main > " + selector].filter((key) => fields && fields[key]);
+  }
+  // Clears the pencil edits of the draft content fields this save changed,
+  // so the saved wording is what the page shows. Returns the labels cleared.
+  async function clearPencilEditsFor(changedNames) {
+    const fields = currentOverride && currentOverride.fields;
+    const targets = changedNames.map((name) => DRAFT_CONTENT_PENCIL_TARGETS[name]).filter((target) => pencilTextKeys(target.selector, fields).length);
+    if (!targets.length) return [];
+    const keys = targets.flatMap((target) => pencilTextKeys(target.selector, fields));
+    await persistOverrideFields((next) => keys.forEach((key) => delete next[key]));
+    return targets.map((target) => target.label);
+  }
   $("editDraftContentBtn").addEventListener("click", async () => {
     if (!selected) return;
     const id = selected.id;
@@ -1539,6 +1570,7 @@
       updateSponsorTextVisibility();
       $("draftContentItems").replaceChildren();
       (design.appreciates || []).forEach(item => addDraftContentItem(typeof item === "string" ? { name: item, description: "" } : item));
+      draftContentOpened = draftContentPencilValues();
       $("draftContentStatus").textContent = "";
       $("draftContentModal").classList.remove("hidden");
     } catch (error) { setStatus(error.message, "error"); }
@@ -1602,9 +1634,7 @@
     try {
       const patch = {
         description: $("draftContentStory").value,
-        bandEyebrow: $("draftContentEyebrow").value,
-        bandTitle: $("draftContentHeading").value,
-        bandText: $("draftContentBandText").value,
+        ...draftContentPencilValues(),
         perkLayout: $("draftContentPerkLayout").value,
         appreciates: [...$("draftContentItems").children].map(row => ({ name: row.querySelector("[data-content-name]").value, description: row.querySelector("[data-content-description]").value, image: row.querySelector("[data-content-image]").value })),
         sponsorTitle: $("draftContentSponsorTitle").value,
@@ -1616,10 +1646,19 @@
         method: "POST", headers: authHeaders({ "content-type": "application/json" }),
         body: JSON.stringify({ expectedProject: project, expected: { description: project.description || "", claudeDesign: project.claudeDesign || null }, patch }),
       });
+      const opened = draftContentOpened;
+      const changedNames = Object.keys(DRAFT_CONTENT_PENCIL_TARGETS).filter((name) => patch[name] !== opened[name]);
       $("draftContentModal").classList.add("hidden");
       await loadPages(project.id);
+      try {
+        const cleared = await clearPencilEditsFor(changedNames);
+        setStatus(cleared.length
+          ? `Draft content saved. Removed the older pencil edit on the ${cleared.join(", ")} so the new wording shows.`
+          : "Draft content saved. Review the preview and any existing text overrides.", "ok");
+      } catch (error) {
+        setStatus(`Draft content saved, but the older pencil edit still shows over it: ${error.message}`, "error");
+      }
       refreshPreview();
-      setStatus("Draft content saved. Review the preview and any existing text overrides.", "ok");
     } catch (error) { $("draftContentStatus").textContent = error.message; }
     finally { $("draftContentSave").disabled = false; $("draftContentCancel").disabled = false; }
   });
@@ -2214,40 +2253,58 @@
     fields[imageKey] = { type: "image", value };
   }
 
-  // Write an override that only mutates the field map, preserving everything
-  // else. Used by the video section so a video and its poster live in separate
-  // fields and neither upload clobbers the other.
-  async function persistOverrideFields(mutate) {
-    const next = {
-      description: currentOverride && currentOverride.description ? currentOverride.description : "",
-      image: currentOverride && currentOverride.image ? currentOverride.image : "",
-      checkoutEventId: currentOverride && currentOverride.checkoutEventId ? currentOverride.checkoutEventId : "",
-      accentColor: currentOverride && currentOverride.accentColor ? currentOverride.accentColor : "",
-      fields: Object.assign({}, currentOverride && currentOverride.fields ? currentOverride.fields : {}),
+  // The override to save, starting from what the editor shows now.
+  function overrideToSave() {
+    const from = currentOverride || {};
+    return {
+      description: from.description || "",
+      image: from.image || "",
+      checkoutEventId: from.checkoutEventId || "",
+      accentColor: from.accentColor || "",
+      fields: Object.assign({}, from.fields || {}),
       // Tells the server this save started from the merged draft view.
-      draftEditsFrom: currentOverride && currentOverride.draftEditsFrom ? currentOverride.draftEditsFrom : "",
+      draftEditsFrom: from.draftEditsFrom || "",
     };
-    mutate(next.fields);
+  }
+
+  // The loaded version plus the before value of each key this save changes.
+  function overrideSaveBase(next) {
+    const loaded = loadedOverride || {};
+    const loadedFields = loaded.fields || {};
+    const same = (a, b) => JSON.stringify(a == null ? null : a) === JSON.stringify(b == null ? null : b);
+    const top = {};
+    OVERRIDE_TOP_LEVEL_KEYS.forEach((key) => {
+      if (!same(loaded[key] || "", next[key] || "")) top[key] = loaded[key] || "";
+    });
+    const fields = {};
+    new Set([...Object.keys(loadedFields), ...Object.keys(next.fields)]).forEach((key) => {
+      if (!same(loadedFields[key], next.fields[key])) fields[key] = loadedFields[key] || null;
+    });
+    return { updatedAt: loaded.updatedAt || null, top, fields };
+  }
+
+  async function putOverride(next) {
     const data = await api("/admin/api/overrides?id=" + encodeURIComponent(overrideIdForPage(selected)), {
       method: "PUT",
       headers: authHeaders({ "content-type": "application/json" }),
-      body: JSON.stringify(next),
+      body: JSON.stringify(Object.assign({}, next, { base: overrideSaveBase(next) })),
     });
     fillForm(data.override);
     await loadPageHistory();
     return data;
   }
 
+  // Write an override that only mutates the field map, preserving everything
+  // else. Used by the video section so a video and its poster live in separate
+  // fields and neither upload clobbers the other.
+  async function persistOverrideFields(mutate) {
+    const next = overrideToSave();
+    mutate(next.fields);
+    return putOverride(next);
+  }
+
   async function persistCurrentOverride() {
-    const next = {
-      description: currentOverride && currentOverride.description ? currentOverride.description : "",
-      image: currentOverride && currentOverride.image ? currentOverride.image : "",
-      checkoutEventId: currentOverride && currentOverride.checkoutEventId ? currentOverride.checkoutEventId : "",
-      accentColor: currentOverride && currentOverride.accentColor ? currentOverride.accentColor : "",
-      fields: Object.assign({}, currentOverride && currentOverride.fields ? currentOverride.fields : {}),
-      // Tells the server this save started from the merged draft view.
-      draftEditsFrom: currentOverride && currentOverride.draftEditsFrom ? currentOverride.draftEditsFrom : "",
-    };
+    const next = overrideToSave();
     if (activeField) {
       const storageKey = activeField.storageKey || activeField.key;
       if (activeField.emptyInfoCell || activeField.infoCellPart) {
@@ -2281,15 +2338,7 @@
     } else if (modalMode === "checkout") {
       next.checkoutEventId = $("checkoutEventId").value.trim();
     }
-
-    const data = await api("/admin/api/overrides?id=" + encodeURIComponent(overrideIdForPage(selected)), {
-      method: "PUT",
-      headers: authHeaders({ "content-type": "application/json" }),
-      body: JSON.stringify(next),
-    });
-    fillForm(data.override);
-    await loadPageHistory();
-    return data;
+    return putOverride(next);
   }
 
   function deleteLegacyInfoCellFields(fields, storageKey) {
@@ -3367,6 +3416,7 @@
   }
 
   function fillForm(override) {
+    loadedOverride = override ? JSON.parse(JSON.stringify(override)) : null;
     currentOverride = override || null;
     if (currentOverride && !currentOverride.fields) currentOverride.fields = {};
     $("description").value = override && override.description ? override.description : "";

@@ -8,6 +8,7 @@ import { actorForAudit, appendAudit, changedOverrideFields } from "./_audit.js";
 import { resyncPublishedProjectPhotos } from "./projects.js";
 import { allowsDraftOnlyRemovals, withoutDraftOnlyRemovals } from "../../_lib/draft-only-sections.js";
 import { PAGE_EDITS_VERSION, TOP_LEVEL_KEYS, isLegacyDoc, isPublishedBound, isOtraGuideId, resolvePageOverride } from "../../_lib/page-override.js";
+import { OVERRIDE_CONFLICT_MESSAGE, mergeOverrideSave } from "../../_lib/override-conflict.js";
 
 const KEY = (id) => `event:${id}`;
 
@@ -60,12 +61,11 @@ export async function onRequestPut(context) {
     return json({ error: "invalid body" }, 400);
   }
 
-  const description = typeof body.description === "string" ? body.description.trim() : "";
-  const image = typeof body.image === "string" ? body.image.trim() : "";
+  const description = normalizeTopValue("description", body.description);
+  const image = normalizeTopValue("image", body.image);
   const rawCheckoutEventId = String(body.checkoutEventId ?? "").trim();
-  const checkoutEventId = normalizeCheckoutEventId(rawCheckoutEventId);
-  const rawAccentColor = typeof body.accentColor === "string" ? body.accentColor.trim() : "";
-  const accentColor = /^#[0-9A-Fa-f]{6}$/.test(rawAccentColor) ? rawAccentColor.toLowerCase() : "";
+  const checkoutEventId = normalizeTopValue("checkoutEventId", body.checkoutEventId);
+  const accentColor = normalizeTopValue("accentColor", body.accentColor);
   const fields = normalizeFields(body.fields);
   if (description.length > 20000) return json({ error: "description is too long" }, 400);
   if (image && !isAllowedImageUrl(image)) return json({ error: "invalid image url" }, 400);
@@ -80,13 +80,17 @@ export async function onRequestPut(context) {
   }
 
   const { override: previous, draftId, fromDraft, coversThisDraft, legacyAsIs } = await readOverride(kv, id);
+  const draftOnlyRemovalsOk = await allowsDraftOnlyRemovals(kv, id);
+  // Compare against what the editor GET served, so a hide the editor never
+  // saw does not count as a change made by someone else.
+  const served = previous && !draftOnlyRemovalsOk ? { ...previous, fields: withoutDraftOnlyRemovals(previous.fields) } : previous;
+  const saved = mergeOverrideSave(served, { description, image, checkoutEventId, accentColor, fields }, normalizeBase(body.base));
+  if (saved.conflictKeys) {
+    return json({ error: OVERRIDE_CONFLICT_MESSAGE, conflict: true, conflictKeys: saved.conflictKeys, override: served }, 409);
+  }
   const override = {
     id,
-    description,
-    image,
-    checkoutEventId,
-    accentColor,
-    fields,
+    ...saved.override,
     updatedAt: new Date().toISOString(),
   };
   if (draftId && fromDraft) {
@@ -108,7 +112,7 @@ export async function onRequestPut(context) {
   // while any other draft published later is merged.
   // Before You Go is hidden only on unpublished drafts; a save on a live page
   // or published draft drops that hide instead of storing it.
-  if (!(await allowsDraftOnlyRemovals(kv, id))) override.fields = withoutDraftOnlyRemovals(override.fields);
+  if (!draftOnlyRemovalsOk) override.fields = withoutDraftOnlyRemovals(override.fields);
   if (draftId && (fromDraft || coversThisDraft)) override.draftEditsFrom = draftId;
   else if (legacyAsIs) override.draftEditsHidden = draftId;
   if (isOtraGuideId(id)) override.pageEditsVersion = PAGE_EDITS_VERSION;
@@ -196,6 +200,27 @@ function normalizeFields(raw) {
     }
   }
   return fields;
+}
+
+// The version and the before values of the keys the editor changed. A
+// client that sends no base (an editor tab opened before this check) gets
+// null and its save is applied as sent.
+function normalizeBase(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const rawTop = raw.top && typeof raw.top === "object" ? raw.top : {};
+  const rawFields = raw.fields && typeof raw.fields === "object" && !Array.isArray(raw.fields) ? raw.fields : {};
+  const top = {};
+  for (const key of TOP_LEVEL_KEYS) if (key in rawTop) top[key] = normalizeTopValue(key, rawTop[key]);
+  const fields = {};
+  for (const [key, field] of Object.entries(rawFields)) fields[key] = normalizeFields({ [key]: field })[key] || null;
+  return { updatedAt: typeof raw.updatedAt === "string" && raw.updatedAt ? raw.updatedAt : null, top, fields };
+}
+
+function normalizeTopValue(key, value) {
+  if (key === "checkoutEventId") return normalizeCheckoutEventId(value);
+  const text = typeof value === "string" ? value.trim() : "";
+  if (key === "accentColor") return /^#[0-9A-Fa-f]{6}$/.test(text) ? text.toLowerCase() : "";
+  return text;
 }
 
 function getId(request) {
