@@ -14,6 +14,7 @@ const CHECK_TIMEOUT_MS = 4000;
 // detail is hidden, as long as its public ticket feed is live.
 export const HIDDEN_DETAIL_EXCEPTIONS = Object.freeze({
   "8088": "draft-1791253678425-26c548a5",
+  "8266": "draft-1792794458964-79d36de9",
 });
 
 export function guideApiBase(env) {
