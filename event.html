@@ -588,11 +588,11 @@ main.detail { padding: 0; padding-top: var(--header-h); } /* hero starts below t
 
 /* ---- RATES ---- */
 .ev-rates { margin-top: 48px; display: grid; grid-template-columns: repeat(auto-fit, minmax(208px, 1fr)); gap: 18px; }
-/* A price amount stays on one line; 18cqi shrinks it to fit a narrow card (plain clamp is the fallback). */
-.ev-rate { container-type: inline-size; border: 2px solid var(--rnb-soft); background: var(--ink-2); padding: 34px 30px 36px; transition: border-color .3s ease, background .3s ease, transform .3s var(--ease, cubic-bezier(.22,1,.36,1)), box-shadow .3s ease; }
+/* A price amount stays on one line; site-overrides.js shrinks one that is wider than its card. */
+.ev-rate { min-width: 0; border: 2px solid var(--rnb-soft); background: var(--ink-2); padding: 34px 30px 36px; transition: border-color .3s ease, background .3s ease, transform .3s var(--ease, cubic-bezier(.22,1,.36,1)), box-shadow .3s ease; }
 .ev-rate:hover { border-color: var(--steel-soft); background: var(--ink-3); }
 .ev-rate .rk { font-size: 13px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--fog); }
-.ev-rate .rp { margin-top: 18px; white-space: nowrap; font-family: var(--font-display); font-weight: 800; font-size: clamp(40px, 4.4vw, 60px); font-size: min(clamp(40px, 4.4vw, 60px), 18cqi); line-height: 1; background: var(--metal); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+.ev-rate .rp { margin-top: 18px; white-space: nowrap; font-family: var(--font-display); font-weight: 800; font-size: clamp(40px, 4.4vw, 60px); line-height: 1; background: var(--metal); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
 .ev-rate .rn { margin-top: 14px; font-size: 14.5px; color: var(--fog); line-height: 1.5; }
 .ev-rate .rcur { font-size: 0.5em; vertical-align: super; -webkit-text-fill-color: var(--fog); margin-right: 2px; }
 .ev-rates-foot { margin-top: 22px; font-family: var(--font-display); font-style: italic; font-size: clamp(16px,1.6vw,21px); color: var(--fog); }

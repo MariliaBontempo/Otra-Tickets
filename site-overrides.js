@@ -2,13 +2,30 @@
   const INFO_CELL_VALUE_PREFIX = "otra-info-cell:";
   // Same separator as functions/_lib/hero-meta-text.js META_SEPARATOR.
   const INLINE_DOT = " · ";
+  // One price fit per task, however many triggers fire (see fitPriceAmounts).
+  let fitQueued = false;
+  let priceCardObserver = null;
   // event.html renderMeta() calls this after it builds the hero line, and
   // this script runs it again after every pass of page edits.
   if (typeof window !== "undefined") window.otraTidyMetaLine = tidyMetaLine;
   tidyMetaLine();
   if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
     document.addEventListener("otra:event-rendered", () => tidyMetaLine());
+    document.addEventListener("otra:event-rendered", queueFitPriceAmounts);
+    document.addEventListener("DOMContentLoaded", queueFitPriceAmounts);
+    document.addEventListener("input", (e) => {
+      if (e.target && e.target.closest && e.target.closest(".ev-rate .rp")) queueFitPriceAmounts();
+    });
+    // Price widths change when the display font arrives.
+    if (document.fonts && typeof document.fonts.addEventListener === "function") {
+      document.fonts.addEventListener("loadingdone", queueFitPriceAmounts);
+    }
   }
+  if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+    window.addEventListener("load", queueFitPriceAmounts);
+    window.addEventListener("resize", queueFitPriceAmounts);
+  }
+  queueFitPriceAmounts();
   const id = inferOverrideId();
   if (!id) return;
   // Set from the server answer: true only on an unpublished draft page.
@@ -167,6 +184,7 @@
     }
 
     tidyMetaLine();
+    queueFitPriceAmounts();
     const remaining = Object.keys(fields).filter((k) => !applied.has(k));
     if (remaining.length > 0 && attempt < 30) {
       setTimeout(() => applyFieldOverrides(fields, attempt + 1, applied), 250);
@@ -387,6 +405,33 @@
   // text override becomes a space so currency and number never split.
   function isPriceAmount(el) {
     return !!(el && el.classList && el.classList.contains("rp") && el.closest && el.closest(".ev-rate"));
+  }
+
+  // Price card amounts never wrap (CSS nowrap). One wider than its card, like
+  // "XCG 10,000" in a narrow four card row, gets just enough smaller to fit;
+  // amounts that already fit keep the page's size.
+  function fitPriceAmounts() {
+    if (!priceCardObserver && typeof ResizeObserver === "function") {
+      priceCardObserver = new ResizeObserver(queueFitPriceAmounts);
+    }
+    document.querySelectorAll(".ev-rate .rp").forEach((el) => {
+      // Refit whenever a card changes width (layout, viewport, editor frame).
+      if (priceCardObserver && el.parentElement) priceCardObserver.observe(el.parentElement);
+      if (el.style.fontSize) el.style.fontSize = "";
+      const room = el.clientWidth;
+      if (!room || el.scrollWidth <= room) return;
+      const size = parseFloat(getComputedStyle(el).fontSize);
+      el.style.fontSize = Math.floor((size * (room - 1)) / el.scrollWidth) + "px";
+    });
+  }
+
+  function queueFitPriceAmounts() {
+    if (fitQueued || typeof document === "undefined" || typeof document.querySelectorAll !== "function") return;
+    fitQueued = true;
+    setTimeout(() => {
+      fitQueued = false;
+      fitPriceAmounts();
+    }, 0);
   }
 
   function isDescriptionBody(el) {
