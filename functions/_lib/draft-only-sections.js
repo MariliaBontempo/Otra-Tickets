@@ -7,6 +7,11 @@
 // a draft id whose site event is still an unpublished draft. A live page
 // (Otra Guide id, or a published draft) merges the draft edits and still
 // shows Before You Go.
+//
+// Separate from this hide: event.html never opens Before You Go when its
+// only cell would be the automatic "Tickets — From …" price (no authored
+// cells, no dates). That is a page with nothing to say there, not a hidden
+// section, and a staff edit to any of its cells opens it again.
 
 export const DRAFT_ONLY_SECTION_ID = "evInfoSection";
 export const DRAFT_ONLY_REMOVE_KEYS = Object.freeze([
