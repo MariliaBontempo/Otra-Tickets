@@ -177,12 +177,12 @@ export async function onRequestDelete(context) {
   }
 
   const kv = context.env && context.env.OVERRIDES;
-  const { updated: pagesUpdated, draftIds } = await removeTicketFromSiteEvents(kv, {
+  const { updated: pagesUpdated, draftRows } = await removeTicketFromSiteEvents(kv, {
     draftId: body && body.draftId,
     eventId,
     ticketTypeId,
   });
-  const pageEditsMoved = rateRow ? await shiftRateOverrides(kv, { eventId, draftIds, row: rateRow }) : 0;
+  const pageEditsMoved = await shiftRateOverrides(kv, { eventId, guideRow: rateRow, draftRows });
   // The public page caches the event's rate list; drop it so the page and
   // the moved page edits change together.
   try {
@@ -252,15 +252,26 @@ export function withoutTicketType(project, ticketTypeId) {
     ticketTypeIds: keep(ids),
     ticketQuantities: keep(project.ticketQuantities),
   };
-  if (design && Array.isArray(design.rates) && design.rates.length === ids.length) {
+  if (draftRateRow(project, ticketTypeId)) {
     next.claudeDesign = { ...design, rates: keep(design.rates) };
   }
   return next;
 }
 
+// The rate row (1 based) a draft page shows this type on. A draft page renders
+// its claudeDesign.rates, so the row is only known when those rates line up
+// with ticketTypeIds; 0 means the page's rate rows do not move.
+export function draftRateRow(project, ticketTypeId) {
+  const ids = Array.isArray(project && project.ticketTypeIds) ? project.ticketTypeIds : [];
+  const index = ids.findIndex((id) => String(id) === String(ticketTypeId));
+  const design = project && project.claudeDesign && typeof project.claudeDesign === "object" ? project.claudeDesign : null;
+  if (index < 0 || !design || !Array.isArray(design.rates) || design.rates.length !== ids.length) return 0;
+  return index + 1;
+}
+
 export async function removeTicketFromSiteEvents(kv, { draftId, eventId, ticketTypeId }) {
-  const draftIds = new Set();
-  if (!kv) return { updated: 0, draftIds: [] };
+  const draftRows = new Map();
+  if (!kv) return { updated: 0, draftRows };
   const seen = new Set();
   const touched = new Set();
   const updateKey = async (key) => {
@@ -268,11 +279,12 @@ export async function removeTicketFromSiteEvents(kv, { draftId, eventId, ticketT
     seen.add(key);
     const project = await kv.get(key, "json");
     if (!project || String(project.otraGuideId || "") !== String(eventId)) return;
-    draftIds.add(key.slice("site-event:".length));
     const next = withoutTicketType(project, ticketTypeId);
     if (!next) return;
+    const row = draftRateRow(project, ticketTypeId);
     await kv.put(key, JSON.stringify(next));
     touched.add(key);
+    if (row) draftRows.set(key.slice("site-event:".length), row);
   };
   if (/^draft-[a-zA-Z0-9-]+$/.test(String(draftId || ""))) await updateKey(`site-event:${draftId}`);
   let cursor;
@@ -281,7 +293,7 @@ export async function removeTicketFromSiteEvents(kv, { draftId, eventId, ticketT
     for (const key of page.keys || []) await updateKey(key.name);
     cursor = page.list_complete ? undefined : page.cursor;
   } while (cursor);
-  return { updated: touched.size, draftIds: [...draftIds] };
+  return { updated: touched.size, draftRows };
 }
 
 async function publicRateList(context, accessToken, eventId) {
@@ -315,23 +327,42 @@ export function shiftRateFields(fields, row) {
   return { fields: next, changed };
 }
 
-export async function shiftRateOverrides(kv, { eventId, draftIds, row }) {
-  if (!kv || !row) return 0;
-  const ids = new Set([String(eventId), `draft-prod-${eventId}`, ...(draftIds || []).map(String)]);
-  const keys = new Set([...ids].map((id) => `event:${id}`));
+// Each page renders its own rate list, so each moves by its own row:
+// - a draft page (event:draft-...) renders its claudeDesign.rates, so it moves
+//   only when that draft lost the type, by the row it had there;
+// - an Otra Guide event page renders the checkout event's public rate list, so
+//   it moves by that row, and only when it sells through this event.
+export async function shiftRateOverrides(kv, { eventId, guideRow, draftRows }) {
+  if (!kv) return 0;
+  const rows = draftRows instanceof Map ? draftRows : new Map();
+  if (!guideRow && rows.size === 0) return 0;
+  const keys = new Set([`event:${eventId}`, ...[...rows.keys()].map((id) => `event:${id}`)]);
   // A page may sell through this event without being bound to it.
-  let cursor;
-  do {
-    const page = await kv.list({ prefix: "event:", cursor });
-    for (const key of page.keys || []) keys.add(key.name);
-    cursor = page.list_complete ? undefined : page.cursor;
-  } while (cursor);
+  if (guideRow) {
+    let cursor;
+    do {
+      const page = await kv.list({ prefix: "event:", cursor });
+      for (const key of page.keys || []) keys.add(key.name);
+      cursor = page.list_complete ? undefined : page.cursor;
+    } while (cursor);
+  }
   let moved = 0;
   for (const key of keys) {
+    const id = key.slice("event:".length);
+    let row = 0;
+    if (/^draft-/.test(id)) {
+      row = rows.get(id) || 0;
+    } else if (/^\d+$/.test(id)) {
+      // Read the doc only for event pages; the checkout event decides the rates.
+      row = guideRow;
+    }
+    if (!row) continue;
     const doc = await kv.get(key, "json");
     if (!doc || typeof doc !== "object") continue;
-    const bound = ids.has(key.slice("event:".length)) || String(doc.checkoutEventId || "") === String(eventId);
-    if (!bound) continue;
+    if (!/^draft-/.test(id)) {
+      const checkout = /^\d+$/.test(String(doc.checkoutEventId || "")) ? String(doc.checkoutEventId) : id;
+      if (checkout !== String(eventId)) continue;
+    }
     const { fields, changed } = shiftRateFields(doc.fields, row);
     if (!changed) continue;
     await kv.put(key, JSON.stringify({ ...doc, fields, updatedAt: new Date().toISOString() }));

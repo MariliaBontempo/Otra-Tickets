@@ -8,7 +8,7 @@
 
 import fs from 'node:fs';
 import { URL } from 'node:url';
-import { onRequestDelete, optionalCount, shiftRateFields, soldCount, withoutTicketType } from '../functions/admin/api/events.js';
+import { draftRateRow, onRequestDelete, optionalCount, shiftRateFields, shiftRateOverrides, soldCount, withoutTicketType } from '../functions/admin/api/events.js';
 
 const adminHtml = fs.readFileSync(new URL('../admin/index.html', import.meta.url), 'utf8');
 const failures = [];
@@ -236,6 +236,32 @@ assert(audit.length >= 1 && [...kv.store.entries()].some(([k, v]) => k.startsWit
 // 10. Already gone after a lost response -> request is refused clearly, nothing else deleted.
 r = await call(good, { kv });
 assert(r.status === 409 && guideDeletes() === 1, 'repeating a finished delete is refused without calling Otra Guide');
+
+// 11. Each page moves by its own rate row, never by another page's.
+assert(draftRateRow({ ticketTypeIds: [13, 11, 12], claudeDesign: { rates: [{}, {}, {}] } }, 12) === 3, 'draft row comes from the draft own order');
+assert(draftRateRow({ ticketTypeIds: [11, 12, 13], claudeDesign: { rates: [{}, {}] } }, 12) === 0, 'draft rates that do not line up never move');
+assert(draftRateRow({ ticketTypeIds: [11, 12, 13] }, 12) === 0, 'a draft without rates never moves');
+resetGuide();
+kv = makeKv({
+  'site-event:draft-reordered': { ...boundProject('draft-reordered'), ticketTypeIds: [13, 11, 12] },
+  'site-event:draft-uneven': { ...boundProject('draft-uneven'), claudeDesign: { rates: [{ name: 'Only one' }] } },
+  'event:draft-reordered': { fields: { [rateKey(2)]: { type: 'text', value: 'second' }, [rateKey(3)]: { type: 'text', value: 'deleted row' } } },
+  'event:draft-uneven': { fields: { [rateKey(3)]: { type: 'text', value: 'uneven keep' } } },
+  'event:draft-foreign': { checkoutEventId: String(EVENT), fields: { [rateKey(3)]: { type: 'text', value: 'foreign draft keep' } } },
+  'event:8888': { checkoutEventId: String(EVENT), fields: { [rateKey(3)]: { type: 'text', value: 'sells through' } } },
+  [`event:${EVENT}`]: { checkoutEventId: '9999', fields: { [rateKey(3)]: { type: 'text', value: 'points elsewhere' } } },
+});
+r = await call(good, { kv });
+assert(r.status === 200, `reordered success returns 200 (got ${r.status} ${JSON.stringify(r.data)})`);
+const reordered = read(kv, 'event:draft-reordered').fields;
+assert(reordered[rateKey(2)]?.value === 'second' && !(rateKey(3) in reordered), 'a reordered draft drops its own row 3, not the Guide row 2');
+assert(read(kv, 'site-event:draft-reordered').ticketTypeIds.join(',') === '13,11', 'reordered draft ids spliced');
+assert(read(kv, 'site-event:draft-uneven').ticketTypeIds.join(',') === '11,13', 'uneven draft ids still spliced');
+assert(read(kv, 'event:draft-uneven').fields[rateKey(3)]?.value === 'uneven keep', 'a draft whose rates do not line up keeps its page edits');
+assert(read(kv, 'event:draft-foreign').fields[rateKey(3)]?.value === 'foreign draft keep', 'a draft not bound to the event keeps its page edits');
+assert(read(kv, 'event:8888').fields[rateKey(2)]?.value === 'sells through', 'an event page that sells through this event moves by the Guide row');
+assert(read(kv, `event:${EVENT}`).fields[rateKey(3)]?.value === 'points elsewhere', 'an event page that sells another event keeps its page edits');
+assert(await shiftRateOverrides(kv, { eventId: EVENT, guideRow: 0, draftRows: new Map() }) === 0, 'nothing moves without a known row');
 
 // Admin UI wiring.
 assert(/data-checkout-delete="\$\{esc\(ticket\.id\)\}"/.test(adminHtml), 'each saved ticket row has a Delete button');
