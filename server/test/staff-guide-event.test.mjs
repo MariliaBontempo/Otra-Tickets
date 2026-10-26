@@ -85,6 +85,10 @@ test("public events include mapped add-ons, request choice add-ons, and are stil
     const body = await res.json();
     assert.deepEqual(body.addons, [{ name: "Lounge Package", description: "Table for six", price: 25, currency: "USD" }]);
     assert.equal(puts.length, 1);
+    // The server side base cache keeps its 10 minute TTL while the browser
+    // answer revalidates on every load.
+    assert.equal(puts[0][1].headers.get("cache-control"), "public, max-age=600");
+    assert.equal(res.headers.get("cache-control"), "public, max-age=0, must-revalidate");
     assert.equal(body.staffPreview, undefined);
     assert.ok(calls.some(c => c.path === "/api/ticket/purchase/tickets/9000/" && c.search === "?include_choice_addons=1"));
   } finally { restore(); }
@@ -126,7 +130,7 @@ test("staff get the same 8088 published-design fallback as the public, and Beare
     const staff = await staffRes.json();
     assert.deepEqual(staff, anon);
     assert.equal(anon.title, "Finish Line Party");
-    assert.equal(staffRes.headers.get("cache-control"), "public, max-age=60");
+    assert.equal(staffRes.headers.get("cache-control"), "public, max-age=0, must-revalidate");
 
     const bearer = await onRequestGet({
       request: new Request("https://tickets.test/api/event?id=8257", { headers: { authorization: "Bearer staff-jwt" } }),

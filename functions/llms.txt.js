@@ -1,4 +1,5 @@
 import { onRequestGet as getHomepageEvents } from "./api/homepage-events.js";
+import { setNoStore } from "./_lib/no-store.js";
 
 const SITE_ORIGIN = "https://otratickets.com";
 const SPECIAL_EVENT_PATHS = {
@@ -36,10 +37,9 @@ export async function onRequestGet(context) {
   ];
 
   return new Response(lines.join("\n"), {
-    headers: {
-      "content-type": "text/plain; charset=utf-8",
-      "cache-control": "public, max-age=300, stale-while-revalidate=3600",
-    },
+    // Built from the public feed, which is never stored (an unlisted page
+    // must drop out on the next request), so this answer is not either.
+    headers: setNoStore(new Headers({ "content-type": "text/plain; charset=utf-8" })),
   });
 }
 

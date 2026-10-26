@@ -8,6 +8,10 @@ import { eventSlug } from "../_lib/event-slug.js";
 import { checkStaff } from "../admin/api/_auth.js";
 import { requestToken } from "../_lib/session.js";
 import { findBoundProjects, resolvePageOverride } from "../_lib/page-override.js";
+import { readHiddenPageIds } from "../_lib/hidden-pages.js";
+import { isServableUnlisted, isUnlistedProject } from "../_lib/unlisted.js";
+import { isUnlistedLink } from "../_lib/homepage-feed.js";
+import { setNoStore } from "../_lib/no-store.js";
 import { hasEnded } from "../_lib/event-ended.js";
 import { heroMetaItems } from "../_lib/hero-meta-text.js";
 import { ticketSaleState, withSaleState } from "../_lib/ticket-sale-state.js";
@@ -24,6 +28,9 @@ const PROJECT_DATES = Symbol("projectDates");
 // Otra Guide failed (5xx, 429, timeout) rather than answering 404: the page
 // shows its error state, never "not found", and nothing is cached.
 const UPSTREAM_FAILED = Symbol("upstreamFailed");
+// A draft id (draft-...) whose own project is unlisted: kept off the JSON
+// like PROJECT_DATES; the response is then marked unlisted and never cached.
+const DRAFT_UNLISTED = Symbol("draftUnlisted");
 
 const ACCENT_OVERRIDES = {
   "6113": "#1fa9a0", // Clearboat — turquoise from the original handoff design
@@ -94,13 +101,47 @@ export async function onRequestGet(context) {
     : { state: Array.isArray(payload.tickets) && payload.tickets.length ? "on_sale" : "none", opensAt: null };
   delete payload.ticketsUnknown;
   payload.slug = project && project.frozenSlug ? project.frozenSlug : eventSlug(payload.title);
+  // Unlisted (link only): the live page decides, the same way the homepage
+  // feed does. A page is unlisted only when its newest published page is
+  // unlisted and no listed page for the same event is published. The page
+  // only moves to its short link when /<slug> really opens it; otherwise it
+  // keeps /event?id=. A not yet live unlisted draft never moves the live page
+  // to its link and never marks it noindex.
+  const livePage = bound ? bound.published : null;
+  const listedPage = bound ? bound.listedPublished : null;
+  if (isUnlistedProject(livePage) && !listedPage) {
+    payload.unlisted = true;
+    const hidden = await readHiddenPageIds(context.env);
+    const servable = isServableUnlisted(livePage) && !hidden.has(id) && !hidden.has(String(livePage.id || ""));
+    if (servable) payload.slug = livePage.frozenSlug.trim();
+    else delete payload.slug;
+  } else if (isUnlistedProject(project)) {
+    const listedSlug = listedPage && typeof listedPage.frozenSlug === "string" ? listedPage.frozenSlug.trim() : "";
+    if (listedSlug) payload.slug = listedSlug;
+    else delete payload.slug;
+  }
+  // A listed page never points visitors at another page's unlisted link.
+  // A draft id has no bound project; its own unlisted flag decides. Its URL
+  // stays /event?id=draft-... (never moved to a link) and it is noindex.
+  if (isDraftId(id) && base[DRAFT_UNLISTED] === true) {
+    payload.unlisted = true;
+    delete payload.slug;
+  }
+  let touchesUnlisted = payload.unlisted === true || isUnlistedProject(project) || isUnlistedProject(livePage);
+  if (!payload.unlisted && payload.slug && (await isUnlistedLink(context.env, payload.slug))) {
+    delete payload.slug;
+    touchesUnlisted = true;
+  }
   if (staffPreview) payload.staffPreview = true;
   // Worked out per response (the base payload is edge cached), so a page
   // stops offering checkout as soon as its event is over.
   // An override can point checkout at another Guide event (a newer edition
   // still on sale), so only the page's own checkout follows its dates.
   payload.isPast = isPastPayload(payload, base.checkoutEventId);
-  return json(payload, 200, staffPreview || override ? 0 : 60);
+  // Anything shaped by an unlisted page is never stored, so a toggle or link
+  // change shows on the next request. Everything else revalidates on every
+  // load, so a copy taken before a page was unlisted is never reused.
+  return json(payload, 200, !(staffPreview || override || touchesUnlisted));
 }
 
 async function getBasePayload(context, id, url, project) {
@@ -178,7 +219,9 @@ async function getBasePayload(context, id, url, project) {
   };
 
   if (staffView) return { ...base, staffView: true };
-  if (!project) context.waitUntil(cache.put(cacheKey, json(base, 200, EDGE_TTL).clone()));
+  // Internal server cache entry only (never sent to a browser): it keeps its
+  // own 10 minute TTL, apart from the revalidate header of public answers.
+  if (!project) context.waitUntil(cache.put(cacheKey, edgeEntry(base)));
   return base;
 }
 
@@ -257,6 +300,7 @@ async function getDraftPayload(env, id) {
     status: draft.status === "published" ? "published" : "draft",
     design: draft.claudeDesign && typeof draft.claudeDesign === "object" ? draft.claudeDesign : null,
     adminOnly: draft.adminOnly === true,
+    [DRAFT_UNLISTED]: isUnlistedProject(draft),
     [PROJECT_DATES]: {
       startDate: typeof draft.startDate === "string" ? draft.startDate : "",
       endDate: typeof draft.endDate === "string" ? draft.endDate : "",
@@ -312,13 +356,20 @@ function isDraftId(id) {
   return /^draft-[a-zA-Z0-9-]+$/.test(id);
 }
 
-function json(obj, status = 200, maxAge = 0) {
+// Errors, staff, override and unlisted answers are no-store (see
+// no-store.js). A plain listed answer may be stored but is revalidated on
+// every load: it never has a public max-age a browser or CDN could reuse.
+export const REVALIDATE = "public, max-age=0, must-revalidate";
+function json(obj, status = 200, cacheable = false) {
+  const headers = new Headers({ "content-type": "application/json; charset=utf-8" });
+  if (cacheable) headers.set("cache-control", REVALIDATE);
+  else setNoStore(headers);
+  return new Response(JSON.stringify(obj), { status, headers });
+}
+
+function edgeEntry(obj) {
   return new Response(JSON.stringify(obj), {
-    status,
-    headers: {
-      "content-type": "application/json; charset=utf-8",
-      "cache-control": maxAge ? `public, max-age=${maxAge}` : "no-store",
-    },
+    headers: { "content-type": "application/json; charset=utf-8", "cache-control": `public, max-age=${EDGE_TTL}` },
   });
 }
 

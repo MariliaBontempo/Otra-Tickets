@@ -1243,6 +1243,13 @@ html[data-presidente-event="8088"] .btn-metal:hover { background: #4cba57; box-s
         if (!resp.ok) throw new Error("HTTP " + resp.status);
         ev = await resp.json();
         if (!ev || ev.error) throw new Error(ev && ev.error ? ev.error : "no data");
+        // Unlisted (link only) pages stay out of search engines on every URL.
+        if (ev.unlisted && !document.querySelector('meta[name="robots"]')) {
+          const robots = document.createElement("meta");
+          robots.name = "robots";
+          robots.content = "noindex, nofollow";
+          document.head.appendChild(robots);
+        }
         if (/^\d+$/.test(String(id)) && ev.slug && !ev.staffPreview) {
           const canonicalPath = "/" + ev.slug;
           let canonical = document.querySelector('link[rel="canonical"]');

@@ -1,6 +1,8 @@
 import { eventSlug } from "./_lib/event-slug.js";
 import { SLUG_ALIASES } from "./_lib/slug-aliases.js";
 import { onRequestGet as getHomepageEvents } from "./api/homepage-events.js";
+import { findUnlistedSiteEvent } from "./_lib/homepage-feed.js";
+import { setNoStore } from "./_lib/no-store.js";
 
 const STATIC_PATHS = new Set([
   "admin",
@@ -70,6 +72,24 @@ export async function onRequestGet(context) {
     feedHealthy = false;
     aliasTargetPresent = false;
   }
+  // Unlisted (link only) pages are on no feed. A listed page always wins its
+  // slug; only a slug no listed page uses is looked up among unlisted pages.
+  let unlisted = false;
+  if (!event) {
+    try {
+      const findUnlisted = typeof context.findUnlistedEvent === "function"
+        ? context.findUnlistedEvent
+        : findUnlistedSiteEvent;
+      const found = await findUnlisted(context, slug);
+      if (found) {
+        event = found;
+        unlisted = true;
+      }
+    } catch {
+      event = null;
+      unlisted = false;
+    }
+  }
   if (event) {
     // serve below
   } else if (feedHealthy && aliasTarget && aliasTargetPresent) {
@@ -81,7 +101,14 @@ export async function onRequestGet(context) {
   const id = String(event.id || "");
   const assetPath = SPECIAL_EVENT_ASSETS[id] || "/event";
   const assetResponse = await context.env.ASSETS.fetch(new URL(assetPath, context.request.url));
-  if (!assetResponse.ok || assetPath !== "/event") return assetResponse;
+  if (!assetResponse.ok || assetPath !== "/event") {
+    // A special page (Clearboat, R&B) or an asset error reached through an
+    // unlisted link must not carry the asset's own cacheable headers.
+    if (!unlisted) return assetResponse;
+    const headers = setNoStore(new Headers(assetResponse.headers));
+    headers.set("x-robots-tag", "noindex, nofollow");
+    return new Response(assetResponse.body, { status: assetResponse.status, headers });
+  }
 
   const html = await assetResponse.text();
   const body = injectEventHead(
@@ -91,11 +118,23 @@ export async function onRequestGet(context) {
     ),
     event,
     context.request.url,
+    { unlisted },
   );
   const headers = new Headers(assetResponse.headers);
   headers.set("content-type", "text/html; charset=utf-8");
-  headers.set("cache-control", "public, max-age=60");
+  // Link only pages are never stored anywhere, so unlisting, relisting or a
+  // link change applies on the next request. A listed page revalidates on
+  // every load (the _headers HTML rule) so a copy taken before it was
+  // unlisted cannot be reused either.
+  if (unlisted) setNoStore(headers);
+  else {
+    headers.set("cache-control", "public, max-age=0, must-revalidate");
+    headers.delete("etag");
+    headers.delete("last-modified");
+  }
   headers.set("link", `</${slug}>; rel="canonical"`);
+  // Link only: keep it out of search engines too.
+  if (unlisted) headers.set("x-robots-tag", "noindex, nofollow");
   return new Response(body, { status: assetResponse.status, headers });
 }
 
@@ -109,7 +148,7 @@ export function injectOverrideId(html, id) {
   );
 }
 
-function injectEventHead(html, event, requestUrl) {
+function injectEventHead(html, event, requestUrl, { unlisted = false } = {}) {
   const seo = eventSeo(event, requestUrl);
   const jsonLd = safeJson({
     "@context": "https://schema.org",
@@ -146,6 +185,7 @@ function injectEventHead(html, event, requestUrl) {
   const injectedHead = [
     `<title>${escapeHtml(seo.title)}</title>`,
     `<meta name="description" content="${escapeAttribute(seo.description)}" />`,
+    unlisted ? `<meta name="robots" content="noindex, nofollow" />` : "",
     `<link rel="canonical" href="${escapeAttribute(seo.canonical)}" />`,
     `<meta property="og:type" content="event" />`,
     `<meta property="og:site_name" content="${SITE_NAME}" />`,
@@ -157,7 +197,8 @@ function injectEventHead(html, event, requestUrl) {
     `<meta name="twitter:title" content="${escapeAttribute(seo.title)}" />`,
     `<meta name="twitter:description" content="${escapeAttribute(seo.description)}" />`,
     seo.image ? `<meta name="twitter:image" content="${escapeAttribute(seo.image)}" />` : "",
-    `<script type="application/ld+json">${jsonLd}</script>`,
+    // No Event rich result for a link only page.
+    unlisted ? "" : `<script type="application/ld+json">${jsonLd}</script>`,
   ].filter(Boolean).join("\n");
 
   if (/<title[^>]*>[\s\S]*?<\/title>/i.test(html)) {
@@ -246,14 +287,16 @@ function permanentRedirect(location) {
 function aliasRedirect(location) {
   return new Response(null, {
     status: 302,
-    headers: { location, "cache-control": "no-store" },
+    headers: setNoStore(new Headers({ location })),
   });
 }
 
+// no-store: a slug that 404s now may become an unlisted link (or the other
+// way round) on the next admin change.
 function notFound() {
   return new Response("Not found", {
     status: 404,
-    headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" },
+    headers: setNoStore(new Headers({ "content-type": "text/plain; charset=utf-8" })),
   });
 }
 
