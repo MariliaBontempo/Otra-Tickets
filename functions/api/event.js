@@ -8,6 +8,8 @@ import { eventSlug } from "../_lib/event-slug.js";
 import { checkStaff } from "../admin/api/_auth.js";
 import { requestToken } from "../_lib/session.js";
 import { findBoundProjects, resolvePageOverride } from "../_lib/page-override.js";
+import { readHiddenPageIds } from "../_lib/hidden-pages.js";
+import { isServableUnlisted, isUnlistedProject } from "../_lib/unlisted.js";
 import { hasEnded } from "../_lib/event-ended.js";
 import { heroMetaItems } from "../_lib/hero-meta-text.js";
 import { ticketSaleState, withSaleState } from "../_lib/ticket-sale-state.js";
@@ -94,6 +96,25 @@ export async function onRequestGet(context) {
     : { state: Array.isArray(payload.tickets) && payload.tickets.length ? "on_sale" : "none", opensAt: null };
   delete payload.ticketsUnknown;
   payload.slug = project && project.frozenSlug ? project.frozenSlug : eventSlug(payload.title);
+  // Unlisted (link only): the live page decides, the same way the homepage
+  // feed does. A page is unlisted only when its newest published page is
+  // unlisted and no listed page for the same event is published. The page
+  // only moves to its short link when /<slug> really opens it; otherwise it
+  // keeps /event?id=. A not yet live unlisted draft never moves the live page
+  // to its link and never marks it noindex.
+  const livePage = bound ? bound.published : null;
+  const listedPage = bound ? bound.listedPublished : null;
+  if (isUnlistedProject(livePage) && !listedPage) {
+    payload.unlisted = true;
+    const hidden = await readHiddenPageIds(context.env);
+    const servable = isServableUnlisted(livePage) && !hidden.has(id) && !hidden.has(String(livePage.id || ""));
+    if (servable) payload.slug = livePage.frozenSlug.trim();
+    else delete payload.slug;
+  } else if (isUnlistedProject(project)) {
+    const listedSlug = listedPage && typeof listedPage.frozenSlug === "string" ? listedPage.frozenSlug.trim() : "";
+    if (listedSlug) payload.slug = listedSlug;
+    else delete payload.slug;
+  }
   if (staffPreview) payload.staffPreview = true;
   // Worked out per response (the base payload is edge cached), so a page
   // stops offering checkout as soon as its event is over.

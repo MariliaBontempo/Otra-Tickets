@@ -1,6 +1,7 @@
 import { eventSlug } from "./_lib/event-slug.js";
 import { SLUG_ALIASES } from "./_lib/slug-aliases.js";
 import { onRequestGet as getHomepageEvents } from "./api/homepage-events.js";
+import { findUnlistedSiteEvent } from "./_lib/homepage-feed.js";
 
 const STATIC_PATHS = new Set([
   "admin",
@@ -70,6 +71,24 @@ export async function onRequestGet(context) {
     feedHealthy = false;
     aliasTargetPresent = false;
   }
+  // Unlisted (link only) pages are on no feed. A listed page always wins its
+  // slug; only a slug no listed page uses is looked up among unlisted pages.
+  let unlisted = false;
+  if (!event) {
+    try {
+      const findUnlisted = typeof context.findUnlistedEvent === "function"
+        ? context.findUnlistedEvent
+        : findUnlistedSiteEvent;
+      const found = await findUnlisted(context, slug);
+      if (found) {
+        event = found;
+        unlisted = true;
+      }
+    } catch {
+      event = null;
+      unlisted = false;
+    }
+  }
   if (event) {
     // serve below
   } else if (feedHealthy && aliasTarget && aliasTargetPresent) {
@@ -91,11 +110,14 @@ export async function onRequestGet(context) {
     ),
     event,
     context.request.url,
+    { unlisted },
   );
   const headers = new Headers(assetResponse.headers);
   headers.set("content-type", "text/html; charset=utf-8");
   headers.set("cache-control", "public, max-age=60");
   headers.set("link", `</${slug}>; rel="canonical"`);
+  // Link only: keep it out of search engines too.
+  if (unlisted) headers.set("x-robots-tag", "noindex, nofollow");
   return new Response(body, { status: assetResponse.status, headers });
 }
 
@@ -109,7 +131,7 @@ export function injectOverrideId(html, id) {
   );
 }
 
-function injectEventHead(html, event, requestUrl) {
+function injectEventHead(html, event, requestUrl, { unlisted = false } = {}) {
   const seo = eventSeo(event, requestUrl);
   const jsonLd = safeJson({
     "@context": "https://schema.org",
@@ -146,6 +168,7 @@ function injectEventHead(html, event, requestUrl) {
   const injectedHead = [
     `<title>${escapeHtml(seo.title)}</title>`,
     `<meta name="description" content="${escapeAttribute(seo.description)}" />`,
+    unlisted ? `<meta name="robots" content="noindex, nofollow" />` : "",
     `<link rel="canonical" href="${escapeAttribute(seo.canonical)}" />`,
     `<meta property="og:type" content="event" />`,
     `<meta property="og:site_name" content="${SITE_NAME}" />`,
@@ -157,7 +180,8 @@ function injectEventHead(html, event, requestUrl) {
     `<meta name="twitter:title" content="${escapeAttribute(seo.title)}" />`,
     `<meta name="twitter:description" content="${escapeAttribute(seo.description)}" />`,
     seo.image ? `<meta name="twitter:image" content="${escapeAttribute(seo.image)}" />` : "",
-    `<script type="application/ld+json">${jsonLd}</script>`,
+    // No Event rich result for a link only page.
+    unlisted ? "" : `<script type="application/ld+json">${jsonLd}</script>`,
   ].filter(Boolean).join("\n");
 
   if (/<title[^>]*>[\s\S]*?<\/title>/i.test(html)) {

@@ -605,6 +605,12 @@
           <input id="adminOnlyToggle" type="checkbox" />
           <span>Admin only</span>
         </label>
+        <label class="admin-only-toggle hidden" id="unlistedWrap" title="Link only: stays off the homepage, search and sitemap. Anyone with the link can open the page and buy tickets. Not a password: share the link only with your guests.">
+          <input id="unlistedToggle" type="checkbox" />
+          <span>Unlisted (link only)</span>
+        </label>
+        <button class="btn ghost hidden" id="copyUnlistedLinkBtn" type="button" title="Copy the short link of this unlisted page">Copy link</button>
+        <button class="btn ghost hidden" id="editUnlistedLinkBtn" type="button" title="Change the short link of this unlisted page">Edit link</button>
         <button class="btn hidden" id="editCheckoutBtn" type="button">Edit checkout</button>
         <button class="btn hidden" id="clonePageBtn" type="button">Clone</button>
         <button class="btn ghost hidden" id="renameDraftBtn" type="button">Rename</button>
@@ -836,6 +842,7 @@
         <span>Also list it on Otra Guide (otraguide.com). Leave this off to sell on Otra Tickets only — the event stays off the Otra Guide calendar.</span>
       </label>
 
+      <p class="hidden" id="publishUnlistedNote"></p>
       <div class="status" id="publishStatus"></div>
       <div class="row split">
         <button class="btn ghost" id="cancelPublishBtn" type="button">Cancel</button>
@@ -1529,6 +1536,9 @@
 
   $("pageSelect").addEventListener("change", () => selectPage($("pageSelect").value));
   $("adminOnlyToggle").addEventListener("change", setAdminOnly);
+  $("unlistedToggle").addEventListener("change", () => setUnlisted($("unlistedToggle").checked));
+  $("copyUnlistedLinkBtn").addEventListener("click", copyUnlistedLink);
+  $("editUnlistedLinkBtn").addEventListener("click", editUnlistedLink);
   $("editCheckoutBtn").addEventListener("click", openCheckoutModal);
   $("archivePageBtn").addEventListener("click", archiveSelectedPage);
   $("clonePageBtn").addEventListener("click", cloneSelectedPage);
@@ -2705,6 +2715,7 @@
     $("publishDraftBtn").classList.toggle("hidden", !isDraft(selected) || selected.status === "published");
     $("adminOnlyWrap").classList.toggle("hidden", !isDraft(selected));
     $("adminOnlyToggle").checked = !!(selected && selected.adminOnly);
+    renderUnlistedControls();
     $("previewFrame").src = selected.url;
     $("description").value = "";
     $("imageInput").value = "";
@@ -3179,6 +3190,11 @@
     // Default OFF: publishing lists on Otra Tickets only, not Otra Guide. Pre-
     // check it only when this event is already live on Otra Guide.
     $("publishOtraGuideChk").checked = selected.otraGuidePublished === true;
+    $("publishUnlistedNote").textContent = selected.unlisted
+      ? "Unlisted: it stays off the homepage, search and sitemap. Anyone with the link " +
+        unlistedLink(selected) + " can open it and buy tickets. Leave Otra Guide off to keep it off otraguide.com too."
+      : "";
+    $("publishUnlistedNote").classList.toggle("hidden", !selected.unlisted);
     $("publishModal").classList.remove("hidden");
   }
 
@@ -3687,6 +3703,85 @@
 
   function isDraft(page) {
     return !!page && (page.isDraft || page.status === "draft" || /^draft-/.test(page.id));
+  }
+
+  // Unlisted (link only): off the homepage, search and sitemap, but anyone
+  // with the short link /<slug> can open the page and buy tickets.
+  function unlistedLink(page) {
+    return page && page.frozenSlug ? location.origin + "/" + page.frozenSlug : "";
+  }
+
+  // A published page shows under its Otra Guide id; projectId is the live
+  // draft behind it, so the switch works there too.
+  function unlistedProjectId(page) {
+    if (!page) return "";
+    if (page.projectId) return page.projectId;
+    return isDraft(page) ? page.id : "";
+  }
+
+  function isLiveUnlistedPage(page) {
+    return !!page && (page.status === "published" || !!page.projectId);
+  }
+
+  function renderUnlistedControls() {
+    const show = !!unlistedProjectId(selected);
+    const on = !!(show && selected.unlisted);
+    $("unlistedWrap").classList.toggle("hidden", !show);
+    $("unlistedToggle").checked = on;
+    $("copyUnlistedLinkBtn").classList.toggle("hidden", !on || !selected.frozenSlug);
+    $("editUnlistedLinkBtn").classList.toggle("hidden", !on);
+  }
+
+  function unlistedStatusText(page) {
+    const link = unlistedLink(page);
+    if (!isLiveUnlistedPage(page)) return "Unlisted. The link " + link + " starts working after Publish.";
+    return "Unlisted. Off the homepage and search. Anyone with " + link + " can open it and buy.";
+  }
+
+  async function setUnlisted(value, slug) {
+    const projectId = unlistedProjectId(selected);
+    if (!projectId) return;
+    const page = selected;
+    $("unlistedToggle").disabled = true;
+    setStatus(value ? "Making the page link only..." : "Listing the page again...");
+    try {
+      const params = new URLSearchParams({ action: "set-unlisted", id: projectId, value: String(!!value) });
+      if (slug) params.set("slug", slug);
+      const data = await api("/admin/api/projects?" + params.toString(), { method: "POST", headers: authHeaders() });
+      page.unlisted = !!(data.project && data.project.unlisted);
+      page.frozenSlug = (data.project && data.project.frozenSlug) || page.frozenSlug || "";
+      if (selected === page) renderUnlistedControls();
+      setStatus(page.unlisted ? unlistedStatusText(page) : "Listed again: the page shows on the homepage and search.", "ok");
+    } catch (err) {
+      if (selected === page) renderUnlistedControls();
+      setStatus(err.message, "error");
+    } finally {
+      $("unlistedToggle").disabled = false;
+    }
+  }
+
+  async function copyUnlistedLink() {
+    if (!selected || !selected.unlisted || !selected.frozenSlug) return;
+    const link = unlistedLink(selected);
+    try {
+      await navigator.clipboard.writeText(link);
+      setStatus("Copied " + link + (isLiveUnlistedPage(selected) ? "" : ". It starts working after Publish."), "ok");
+    } catch {
+      window.prompt("Copy this link:", link);
+    }
+  }
+
+  async function editUnlistedLink() {
+    if (!selected || !selected.unlisted) return;
+    const next = window.prompt(
+      "Short link for this page (letters, numbers and dashes, for example strange-bird-gala-secret)." +
+        (isLiveUnlistedPage(selected) ? " The old link stops working." : ""),
+      selected.frozenSlug || ""
+    );
+    if (next === null) return;
+    const slug = next.trim().replace(/^\/+/, "");
+    if (!slug || slug === selected.frozenSlug) return;
+    await setUnlisted(true, slug);
   }
 
   async function setAdminOnly() {

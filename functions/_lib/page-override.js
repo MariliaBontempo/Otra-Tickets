@@ -58,8 +58,10 @@ export function isPublishedBound(project) {
 // Site events bound to an Otra Guide id, archived ones skipped. Returns the
 // most recently created one (the design an event page renders) and the most
 // recently created published one (whose draft edits feed the live page).
+// listedPublished is the newest published public page that is not unlisted
+// (what the homepage feed lists for this id, if anything).
 export async function findBoundProjects(kv, id) {
-  const found = { latest: null, published: null };
+  const found = { latest: null, published: null, listedPublished: null };
   if (!kv || typeof kv.list !== "function" || !isOtraGuideId(id)) return found;
   const newer = (a, b) => !b || String(a.createdAt || "") > String(b.createdAt || "");
   let cursor;
@@ -72,6 +74,10 @@ export async function findBoundProjects(kv, id) {
       if (!project.id) project.id = key.name.replace(/^site-event:/, "");
       if (newer(project, found.latest)) found.latest = project;
       if (project.status === "published" && newer(project, found.published)) found.published = project;
+      if (
+        project.status === "published" && project.unlisted !== true && project.adminOnly !== true &&
+        newer(project, found.listedPublished)
+      ) found.listedPublished = project;
     }
     cursor = page.list_complete ? undefined : page.cursor;
   } while (cursor);

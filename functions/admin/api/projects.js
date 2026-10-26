@@ -6,7 +6,9 @@
 
 import { apiBase, requireStaff, staffSession, json } from "./_auth.js";
 import { actorForAudit, appendAudit } from "./_audit.js";
-import { mintFrozenSlug, liveSlugBase } from "../../_lib/event-slug.js";
+import { mintFrozenSlug, liveSlugBase, persistedFrozenSlug } from "../../_lib/event-slug.js";
+import { defaultUnlistedSlug, isUnlistedProject, pickUnlistedSlug } from "../../_lib/unlisted.js";
+import { getPublicHomepageFeed } from "../../_lib/homepage-feed.js";
 import { normalizeCloneSaleWindows, shiftCloneEventDay, toDay } from "../../_lib/clone-sale-windows.js";
 import { rewriteProjectDate } from "./events.js";
 import { contentSnapshot, validateContentPatch } from "./_draft-content.js";
@@ -311,6 +313,30 @@ export async function onRequestPost(context) {
     return json({ project: next });
   }
 
+  // Unlisted (link only): off the homepage, search, sitemap and llms.txt, but
+  // open to anyone with the short link /<frozenSlug>. value=true picks the
+  // link (slug= sets it by hand); value=false lists the page again and keeps
+  // the link so links already shared keep working.
+  if (url.searchParams.get("action") === "set-unlisted") {
+    const kv = context.env.OVERRIDES;
+    if (!kv) return json({ error: "overrides store not configured" }, 503);
+    const id = (url.searchParams.get("id") || "").trim();
+    if (!isDraftId(id)) return json({ error: "invalid draft id" }, 400);
+    const project = await getProject(kv, id);
+    if (!project) return json({ error: "draft not found" }, 404);
+    let next;
+    if (url.searchParams.get("value") === "true") {
+      const picked = await resolveUnlistedSlug(context, kv, project, url.searchParams.get("slug") || "");
+      if (picked.error) return json({ error: picked.error, project }, picked.status || 409);
+      next = { ...project, unlisted: true, frozenSlug: picked.slug };
+    } else {
+      next = { ...project, unlisted: false };
+    }
+    await putProject(kv, next);
+    await dropFeedSnapshot(kv);
+    return json({ project: next });
+  }
+
   if (url.searchParams.get("action") === "publish") {
     const kv = context.env.OVERRIDES;
     if (!kv) return json({ error: "overrides store not configured" }, 503);
@@ -365,7 +391,14 @@ export async function onRequestPost(context) {
         syncError: photoWarning,
         frozenSlug: alreadyPublished ? liveSlugBase(reconciled) : mintFrozenSlug(reconciled),
       };
+      // An unlisted page goes live at its own short link. If a listed page
+      // took that link meanwhile, it gets a plain counter (-2) instead.
+      if (isUnlistedProject(next)) {
+        const picked = await resolveUnlistedSlug(context, kv, next, "");
+        if (!picked.error) next.frozenSlug = picked.slug;
+      }
       await putProject(kv, next);
+      if (isUnlistedProject(next)) await dropFeedSnapshot(kv);
       return json(photoWarning ? { project: next, warning: photoWarning } : { project: next });
     } catch (error) {
       const latest = (await getProject(kv, id)) || project;
@@ -781,6 +814,42 @@ async function otraFetch(context, accessToken, path, options = {}) {
   return data;
 }
 
+async function dropFeedSnapshot(kv) {
+  try {
+    await kv.delete("__homepage_feed_snapshot__");
+  } catch {
+    /* snapshot miss is fine */
+  }
+}
+
+// Every link already in use, mapped to the title using it: listed pages from
+// the public feed and other unlisted pages. The page's own link is free.
+async function takenSlugs(context, kv, project) {
+  const own = new Set([String(project.id), String(project.otraGuideId || "")].filter(Boolean));
+  const taken = new Map();
+  const feed = await getPublicHomepageFeed(context);
+  for (const event of (feed && feed.events) || []) {
+    if (!event || !event.slug || own.has(String(event.id))) continue;
+    taken.set(String(event.slug), String(event.title || ""));
+  }
+  for (const other of await listProjects(kv)) {
+    if (other.id === project.id || !isUnlistedProject(other)) continue;
+    const slug = persistedFrozenSlug(other);
+    if (slug && !taken.has(slug)) taken.set(slug, other.title);
+  }
+  return taken;
+}
+
+async function resolveUnlistedSlug(context, kv, project, requested) {
+  let taken;
+  try {
+    taken = await takenSlugs(context, kv, project);
+  } catch {
+    return { error: "Could not check the link right now. Try again in a minute.", status: 503 };
+  }
+  return pickUnlistedSlug({ requested, fallback: defaultUnlistedSlug(project), taken });
+}
+
 function putProject(kv, project) {
   return kv.put(`${DRAFT_PREFIX}${project.id}`, JSON.stringify(project));
 }
@@ -855,6 +924,7 @@ function normalizeProject(raw, id) {
     ticketTypeIds: Array.isArray(raw.ticketTypeIds) ? raw.ticketTypeIds : [],
     usesExistingOtraGuideEvent: !!raw.usesExistingOtraGuideEvent,
     adminOnly: !!raw.adminOnly,
+    unlisted: !!raw.unlisted,
     otraGuidePublished: !!raw.otraGuidePublished,
     syncError: typeof raw.syncError === "string" ? raw.syncError : "",
     frozenSlug: mintFrozenSlug({ frozenSlug: raw.frozenSlug, title: "" }),

@@ -12,6 +12,7 @@ import { readHiddenPageIds } from "./hidden-pages.js";
 import { cardScheduleLabel, scheduleEdited, validDateValue } from "./schedule-line.js";
 import { isOtraGuideId, readOverrideDoc, resolvePageOverride } from "./page-override.js";
 import { isHiddenGuideEvent } from "./guide-event-hidden.js";
+import { isServableUnlisted, isUnlistedProject } from "./unlisted.js";
 
 const API = "https://otraguide.com/api";
 
@@ -98,8 +99,13 @@ const DRAFT_ID = Symbol("draftId");
 //                      returns staff_only events; cached under a separate key
 export async function buildHomepageFeed(context, { includeAdminOnly = false, authToken = "", forceFresh = false } = {}) {
   const now = Date.now();
+  // Unlisted (link only) pages never reach any feed, the staff preview
+  // included. Their ids and links are collected here so the same Guide event
+  // cannot come back through the upstream feed, and no public page takes
+  // their link.
+  const unlisted = { ids: new Set(), slugs: new Set() };
   let [siteEvents, upstreamEvents, hiddenIds] = await Promise.all([
-    buildPublishedSiteEvents(context.env, { includeAdminOnly }),
+    buildPublishedSiteEvents(context.env, { includeAdminOnly, unlisted }),
     authToken
       ? getUpstreamEvents(context, now, forceFresh, authToken, ADMIN_UPSTREAM_CACHE_PATH)
       : getUpstreamEvents(context, now, forceFresh),
@@ -124,11 +130,16 @@ export async function buildHomepageFeed(context, { includeAdminOnly = false, aut
   // also has a site-event KV copy. Events archived from the admin (the
   // hidden-pages set) are dropped the same way, whichever source they
   // arrived from.
-  const visibleEvents = filterHomepageEvents(dedupeEvents([...siteEvents, ...upstreamEvents])).filter(
-    (event) => !hiddenIds.has(String(event && event.id))
-  );
+  const listedSiteIds = new Set(siteEvents.map((event) => String(event && event.id)));
+  const visibleEvents = filterHomepageEvents(dedupeEvents([...siteEvents, ...upstreamEvents])).filter((event) => {
+    const id = String(event && event.id);
+    if (hiddenIds.has(id)) return false;
+    // A listed page for the same Guide event keeps it on the feed.
+    return !(unlisted.ids.has(id) && !listedSiteIds.has(id));
+  });
   const events = await applyOverrides(visibleEvents, context.env);
   assignUniqueSlugs(events);
+  avoidReservedSlugs(events, unlisted.slugs);
   const rows = await buildRows(events, context.env);
   return { events, rows, hasSiteEvents: siteEvents.length > 0 };
 }
@@ -232,6 +243,26 @@ export function assignUniqueSlugs(events) {
       used.add(slug);
       event.slug = slug;
     });
+  }
+}
+
+// A listed event never takes the link of an unlisted page. Setting a page
+// unlisted refuses links a listed page already uses, so this only moves a
+// listed page published later with the same title, the same way a newer
+// same-title event takes a dated suffix.
+export function avoidReservedSlugs(events, reserved) {
+  if (!reserved || !reserved.size) return;
+  const used = new Set(events.map((event) => event.slug));
+  for (const event of events) {
+    if (!reserved.has(event.slug)) continue;
+    const base = event.slug;
+    const suffix = slugDateSuffix(event.date);
+    const candidates = suffix ? [`${base}-${suffix}`] : [];
+    for (let n = 2; n < 100; n += 1) candidates.push(`${base}-${n}`);
+    const next = candidates.find((slug) => !used.has(slug) && !reserved.has(slug));
+    if (!next) continue;
+    used.add(next);
+    event.slug = next;
   }
 }
 
@@ -532,7 +563,14 @@ function normalizeRows(raw, existing) {
     .filter((row) => row.eventIds.length);
 }
 
-export async function buildPublishedSiteEvents(env, { includeAdminOnly = false } = {}) {
+//   unlisted     — optional { ids:Set, slugs:Set } filled with the skipped
+//                  unlisted pages (ids and links), see buildHomepageFeed
+//   unlistedOnly — only servable unlisted pages (the /<slug> route), with
+//                  `slug` limiting the scan to one link
+export async function buildPublishedSiteEvents(
+  env,
+  { includeAdminOnly = false, unlisted = null, unlistedOnly = false, slug = "" } = {}
+) {
   const kv = env && env.OVERRIDES;
   if (!kv) return [];
 
@@ -563,6 +601,19 @@ export async function buildPublishedSiteEvents(env, { includeAdminOnly = false }
       if (project.adminOnly === true && !includeAdminOnly) continue;
       const draftId = key.name.replace(/^site-event:/, "");
       const id = project.otraGuideId ? String(project.otraGuideId) : draftId;
+      // Unlisted pages are link only: never on a feed, staff preview included.
+      if (unlistedOnly) {
+        if (!isServableUnlisted(project)) continue;
+        if (slug && persistedFrozenSlug(project) !== slug) continue;
+      } else if (isUnlistedProject(project)) {
+        if (unlisted) {
+          unlisted.ids.add(id);
+          unlisted.ids.add(draftId);
+          const link = persistedFrozenSlug(project);
+          if (link) unlisted.slugs.add(link);
+        }
+        continue;
+      }
       const localCard = LOCAL_CARD_INFO[id];
       const startDate = validDateValue(project.startDate);
       const endDate = validDateValue(project.endDate);
@@ -649,6 +700,27 @@ export async function buildPublishedSiteEvents(env, { includeAdminOnly = false }
   } while (cursor);
 
   return out.sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
+}
+
+// The unlisted page published at /<slug>, shaped like a feed card (title,
+// venue, date line, hero) for the slug route's head tags, or null. Archived
+// pages and pages whose Otra Guide event is gone answer null, like the feed.
+export async function findUnlistedSiteEvent(context, slug) {
+  const env = context && context.env;
+  const wanted = String(slug || "");
+  if (!wanted || !env || !env.OVERRIDES) return null;
+  const [cards, hiddenIds] = await Promise.all([
+    buildPublishedSiteEvents(env, { unlistedOnly: true, slug: wanted }),
+    readHiddenPageIds(env),
+  ]);
+  const matches = cards.filter(
+    (card) => !hiddenIds.has(String(card.id)) && !hiddenIds.has(String(card[DRAFT_ID] || ""))
+  );
+  if (!matches.length) return null;
+  const visible = await dropHiddenGuideEvents(matches, [], env);
+  if (!visible.length) return null;
+  const [event] = await applyOverrides([visible[0]], env);
+  return { ...event, slug: wanted, unlisted: true };
 }
 
 async function fetchJson(url, authToken = "") {

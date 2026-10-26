@@ -83,9 +83,14 @@ export async function onRequestGet(context) {
   const liveEventIds = new Set(dynamic.map((page) => String(page.id)));
   const visibleDrafts = [];
   const synthesized = [];
+  // The newest published draft of each live event: the one the public page
+  // reads (findBoundProjects), so its unlisted switch is the live page's.
+  const liveProjects = new Map();
   for (const page of drafts) {
     const eventId = page.otraGuideId ? String(page.otraGuideId) : "";
     if (page.status === "published" && eventId) {
+      const known = liveProjects.get(eventId);
+      if (!known || String(page.createdAt || "") > String(known.createdAt || "")) liveProjects.set(eventId, page);
       if (!liveEventIds.has(eventId)) {
         liveEventIds.add(eventId);
         synthesized.push({
@@ -99,6 +104,13 @@ export async function onRequestGet(context) {
       continue;
     }
     visibleDrafts.push(page);
+  }
+  for (const page of [...synthesized, ...dynamic]) {
+    const project = liveProjects.get(String(page.id));
+    if (!project) continue;
+    page.projectId = project.id;
+    page.unlisted = project.unlisted;
+    page.frozenSlug = project.frozenSlug;
   }
   const body = {
     pages: [...visibleDrafts, ...MANUAL_PAGES, ...synthesized, ...dynamic].filter(
@@ -155,7 +167,10 @@ async function buildDraftPages(env) {
         isDraft: true,
         status: project.status === "published" ? "published" : "draft",
         adminOnly: project.adminOnly === true,
+        unlisted: project.unlisted === true,
+        frozenSlug: typeof project.frozenSlug === "string" ? project.frozenSlug.trim() : "",
         publishedAt: typeof project.publishedAt === "string" ? project.publishedAt : "",
+        createdAt: typeof project.createdAt === "string" ? project.createdAt : "",
         otraGuideId: project.otraGuideId ? String(project.otraGuideId) : "",
         syncError: typeof project.syncError === "string" ? project.syncError : "",
         startDate: typeof project.startDate === "string" ? project.startDate : "",
