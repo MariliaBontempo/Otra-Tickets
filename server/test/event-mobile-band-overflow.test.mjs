@@ -104,3 +104,13 @@ test("detailed perks or sponsors grow the band without the text class", () => {
   assert.ok(band.classes.has("ev-band--grow"));
   assert.ok(!band.classes.has("ev-band--text"));
 });
+
+// Cloudflare keeps /site-overrides.js?v=11 for 4h, which still lacks
+// syncBandLayout. Every event page must ask for the build that has it.
+test("every event page loads the overrides build with the band sync", () => {
+  assert.match(overridesSrc, /function syncBandLayout\(/);
+  for (const page of ["event.html", "rnb.html", "clearboat.html"]) {
+    const srcs = read(page).match(/site-overrides\.js\?v=\d+"/g) || [];
+    assert.deepEqual(srcs, ['site-overrides.js?v=12"'], `${page} loads site-overrides.js?v=12 once`);
+  }
+});
