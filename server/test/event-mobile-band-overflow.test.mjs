@@ -25,6 +25,16 @@ test("band grow layout has class rules that do not depend on :has()", () => {
   for (const line of eventHtml.split("\n").filter((l) => l.includes(".ev-band--grow {") || l.includes(".ev-band--text {"))) {
     assert.doesNotMatch(line, /:has\(/);
   }
+  // They must also sit at the top level of the stylesheet, not inside an
+  // @supports or @media block that a browser without :has() could skip.
+  const style = eventHtml.slice(eventHtml.indexOf("<style>"), eventHtml.indexOf("</style>"));
+  for (const rule of [".ev-band.ev-band--grow {", ".ev-band.ev-band--text {"]) {
+    const at = style.indexOf(rule);
+    assert.ok(at > 0, rule + " missing");
+    const before = style.slice(0, at).replace(/\/\*[\s\S]*?\*\//g, "");
+    const depth = (before.match(/\{/g) || []).length - (before.match(/\}/g) || []).length;
+    assert.equal(depth, 0, rule + " must be a top-level rule");
+  }
   assert.match(eventHtml, /@supports not selector\(:has\(a\)\) \{\s*\.ev-band \{ aspect-ratio: auto; min-height: 56\.25vw; \}/);
 });
 
@@ -69,6 +79,13 @@ test("event render marks a band with visible text as grow + text", () => {
   const band = fakeBand({ "#evBandText": fakeNode("evBandText", false), "#evSponsors": fakeNode("evSponsors", true) });
   const listeners = loadOverrides(band);
   (listeners["otra:event-rendered"] || []).forEach((fn) => fn());
+  assert.ok(band.classes.has("ev-band--grow"));
+  assert.ok(band.classes.has("ev-band--text"));
+});
+
+test("band classes are synced when the script loads after the event rendered", () => {
+  const band = fakeBand({ "#evBandText": fakeNode("evBandText", false), "#evSponsors": fakeNode("evSponsors", true) });
+  loadOverrides(band); // no otra:event-rendered dispatched
   assert.ok(band.classes.has("ev-band--grow"));
   assert.ok(band.classes.has("ev-band--text"));
 });

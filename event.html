@@ -46,8 +46,9 @@
 html { scroll-behavior: smooth; }
 /* Full bleed sections use 100vw, which counts a classic scrollbar (desktop
    browsers, some Android browsers), so the page gained a sideways scroll and
-   looked cut on the right. Clip the extra width at the root; clip (unlike
-   hidden) keeps position: sticky working where it is supported. */
+   looked cut on the right. Clip the extra width at the root (on html it
+   applies to the viewport, so position: sticky keeps working); clip where
+   supported, hidden as the fallback. */
 html { overflow-x: hidden; }
 @supports (overflow-x: clip) { html { overflow-x: clip; } }
 

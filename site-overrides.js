@@ -9,6 +9,9 @@
   // this script runs it again after every pass of page edits.
   if (typeof window !== "undefined") window.otraTidyMetaLine = tidyMetaLine;
   tidyMetaLine();
+  // The event can render before this script loads, so its render event is
+  // missed; sync the band classes now and again on load as well.
+  syncBandLayout();
   if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
     document.addEventListener("otra:event-rendered", () => tidyMetaLine());
     document.addEventListener("otra:event-rendered", queueFitPriceAmounts);
@@ -24,6 +27,7 @@
   }
   if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
     window.addEventListener("load", queueFitPriceAmounts);
+    window.addEventListener("load", () => syncBandLayout());
     window.addEventListener("resize", queueFitPriceAmounts);
   }
   const id = inferOverrideId();
