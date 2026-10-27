@@ -9,9 +9,13 @@
   // this script runs it again after every pass of page edits.
   if (typeof window !== "undefined") window.otraTidyMetaLine = tidyMetaLine;
   tidyMetaLine();
+  // The event can render before this script loads, so its render event is
+  // missed; sync the band classes now and again on load as well.
+  syncBandLayout();
   if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
     document.addEventListener("otra:event-rendered", () => tidyMetaLine());
     document.addEventListener("otra:event-rendered", queueFitPriceAmounts);
+    document.addEventListener("otra:event-rendered", () => syncBandLayout());
     document.addEventListener("DOMContentLoaded", queueFitPriceAmounts);
     document.addEventListener("input", (e) => {
       if (e.target && e.target.closest && e.target.closest(".ev-rate .rp")) queueFitPriceAmounts();
@@ -23,6 +27,7 @@
   }
   if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
     window.addEventListener("load", queueFitPriceAmounts);
+    window.addEventListener("load", () => syncBandLayout());
     window.addEventListener("resize", queueFitPriceAmounts);
   }
   const id = inferOverrideId();
@@ -184,6 +189,7 @@
       }
     }
 
+    if (typeof syncBandLayout === "function") syncBandLayout();
     tidyMetaLine();
     const remaining = Object.keys(fields).filter((k) => !applied.has(k));
     if (remaining.length > 0 && attempt < 30) {
@@ -488,6 +494,25 @@
     if (!band) return;
     el.hidden = false;
     band.hidden = false;
+    // Guarded: the check scripts lift single functions out of this file.
+    if (typeof syncBandLayout === "function") syncBandLayout(band);
+  }
+
+  // Mirrors the .ev-band:has(...) rules in event.html as classes, so a band
+  // with text, sponsors or detailed perks grows to fit on browsers without
+  // :has() instead of clipping inside its 16:9 box.
+  function syncBandLayout(band) {
+    if (typeof document === "undefined") return;
+    const el = band || (typeof document.getElementById === "function" ? document.getElementById("evBandSection") : null);
+    if (!el || !el.classList || typeof el.querySelector !== "function") return;
+    const shown = (sel) => {
+      const node = el.querySelector(sel);
+      return !!node && !node.hidden;
+    };
+    const hasText = shown("#evBandText");
+    const grow = hasText || shown("#evSponsors") || !!el.querySelector(".ev-like.detailed");
+    el.classList.toggle("ev-band--text", hasText);
+    el.classList.toggle("ev-band--grow", grow);
   }
 
   function isVideoUrl(value) {
