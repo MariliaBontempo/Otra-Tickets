@@ -599,6 +599,7 @@
       </div>
       <select id="pageSelect" aria-label="Select page"></select>
       <div class="top-status error hidden" id="pagesNote" role="status"></div>
+      <div class="top-status error hidden" id="keepSellingNote" role="status"></div>
       <div class="row split">
         <div class="top-status" id="status"></div>
         <label class="admin-only-toggle hidden" id="adminOnlyWrap" title="Even after publishing, this event stays hidden from the public site and is visible only to admins.">
@@ -608,6 +609,10 @@
         <label class="admin-only-toggle hidden" id="unlistedWrap" title="Link only: stays off the homepage, search and sitemap. Anyone with the link can open the page and buy tickets. Not a password: share the link only with your guests.">
           <input id="unlistedToggle" type="checkbox" />
           <span>Unlisted (link only)</span>
+        </label>
+        <label class="admin-only-toggle hidden" id="keepSellingWrap" title="Keeps this page's link and tickets available while its Otra Guide event is private (staff only). It does not change listing: turn on Unlisted (link only) too to keep it off the homepage. Not a password. Turning it off can take up to a minute to reach every visitor, and it does not close a checkout that is already open in someone's browser.">
+          <input id="keepSellingToggle" type="checkbox" />
+          <span>Keep selling while Guide private</span>
         </label>
         <button class="btn ghost hidden" id="copyUnlistedLinkBtn" type="button" title="Copy the short link of this unlisted page">Copy link</button>
         <button class="btn ghost hidden" id="editUnlistedLinkBtn" type="button" title="Change the short link of this unlisted page">Edit link</button>
@@ -1537,6 +1542,7 @@
   $("pageSelect").addEventListener("change", () => selectPage($("pageSelect").value));
   $("adminOnlyToggle").addEventListener("change", setAdminOnly);
   $("unlistedToggle").addEventListener("change", () => setUnlisted($("unlistedToggle").checked));
+  $("keepSellingToggle").addEventListener("change", () => setKeepSelling($("keepSellingToggle").checked));
   $("copyUnlistedLinkBtn").addEventListener("click", copyUnlistedLink);
   $("editUnlistedLinkBtn").addEventListener("click", editUnlistedLink);
   $("editCheckoutBtn").addEventListener("click", openCheckoutModal);
@@ -2716,6 +2722,7 @@
     $("adminOnlyWrap").classList.toggle("hidden", !isDraft(selected));
     $("adminOnlyToggle").checked = !!(selected && selected.adminOnly);
     renderUnlistedControls();
+    renderKeepSellingControls();
     $("previewFrame").src = selected.url;
     $("description").value = "";
     $("imageInput").value = "";
@@ -3730,6 +3737,60 @@
     $("unlistedToggle").checked = on;
     $("copyUnlistedLinkBtn").classList.toggle("hidden", !on || !selected.frozenSlug);
     $("editUnlistedLinkBtn").classList.toggle("hidden", !on);
+    renderKeepSellingControls();
+  }
+
+  // Keep selling while Guide private: shown for pages linked to an Otra Guide
+  // event. The page keeps its link and tickets while that event is private.
+  function keepSellingGuideId(page) {
+    if (!page) return "";
+    if (page.projectId) return String(page.id || "");
+    return /^\d+$/.test(String(page.otraGuideId || "")) ? String(page.otraGuideId) : "";
+  }
+
+  function renderKeepSellingControls() {
+    const show = !!(unlistedProjectId(selected) && /^\d+$/.test(keepSellingGuideId(selected)));
+    $("keepSellingWrap").classList.toggle("hidden", !show);
+    const on = !!(show && selected.keepSellingWhileGuidePrivate);
+    $("keepSellingToggle").checked = on;
+    // Say it out loud when the switch is on but not doing what its name says.
+    let note = "";
+    if (on && ((isDraft(selected) && selected.status !== "published") || selected.adminOnly === true)) {
+      note = "Keep selling while Guide private only works once this page is published and not admin only.";
+    } else if (on && !selected.unlisted && selected.adminOnly !== true) {
+      note = "Keep selling while Guide private is on and this page is listed: it shows on the homepage, search and sitemap even though its Otra Guide event is private. Turn on Unlisted (link only) to share it by link only.";
+    }
+    $("keepSellingNote").textContent = note;
+    $("keepSellingNote").classList.toggle("hidden", !note);
+  }
+
+  async function setKeepSelling(value) {
+    const projectId = unlistedProjectId(selected);
+    if (!projectId) return;
+    const page = selected;
+    $("keepSellingToggle").disabled = true;
+    setStatus(value ? "Keeping the page on sale while the Guide event is private..." : "Following the Guide event again...");
+    try {
+      const params = new URLSearchParams({ action: "set-keep-selling-while-guide-private", id: projectId, value: String(!!value) });
+      const data = await api("/admin/api/projects?" + params.toString(), { method: "POST", headers: authHeaders() });
+      page.keepSellingWhileGuidePrivate = !!(data.project && data.project.keepSellingWhileGuidePrivate);
+      for (const row of pages) {
+        if (row === page || unlistedProjectId(row) !== projectId) continue;
+        row.keepSellingWhileGuidePrivate = page.keepSellingWhileGuidePrivate;
+      }
+      if (selected === page) {
+        renderKeepSellingControls();
+        refreshPreview();
+      }
+      setStatus(page.keepSellingWhileGuidePrivate
+        ? "Keeps selling while the Guide event is private, as long as its tickets are on sale."
+        : "Follows the Guide event again: hidden while the Guide event is private.", "ok");
+    } catch (err) {
+      if (selected === page) renderKeepSellingControls();
+      setStatus(err.message, "error");
+    } finally {
+      $("keepSellingToggle").disabled = false;
+    }
   }
 
   function unlistedStatusText(page) {
@@ -3804,6 +3865,7 @@
       );
       selected.adminOnly = !!(data.project && data.project.adminOnly);
       $("adminOnlyToggle").checked = selected.adminOnly;
+      renderKeepSellingControls();
       setStatus(selected.adminOnly ? "Event is now admin only." : "Event is now public.", "ok");
     } catch (err) {
       $("adminOnlyToggle").checked = !value;

@@ -98,6 +98,9 @@ const SCHEDULE_SOURCE = Symbol("scheduleSource");
 // Draft id of a published site event card, so applyOverrides can read the
 // page edits through the shared resolver without scanning site events.
 const DRAFT_ID = Symbol("draftId");
+// The page record behind a site event card (never serialized), so the
+// private Guide event check does not read it from KV again.
+const SITE_PROJECT = Symbol("siteProject");
 
 // Build the full { events, rows } homepage payload.
 //   includeAdminOnly — include KV site events flagged adminOnly (staff preview)
@@ -160,7 +163,7 @@ export async function dropHiddenGuideEvents(siteEvents, upstreamEvents, env) {
     siteEvents.map((event) => {
       const id = String((event && event.id) || "");
       if (!isOtraGuideId(id) || listed.has(id)) return false;
-      return isHiddenGuideEvent(env, id, event[DRAFT_ID] || "");
+      return isHiddenGuideEvent(env, id, event[DRAFT_ID] || "", event[SITE_PROJECT] || null);
     })
   );
   return siteEvents.filter((_, i) => !hidden[i]);
@@ -761,6 +764,7 @@ export async function buildPublishedSiteEvents(
         ...(frozen ? { [FROZEN_SLUG]: frozen } : {}),
         [SCHEDULE_SOURCE]: { project: scheduleProject(project), localCard: localCard || null },
         [DRAFT_ID]: draftId,
+        [SITE_PROJECT]: project,
       });
     }
     cursor = page.list_complete ? undefined : page.cursor;

@@ -10,8 +10,10 @@ const UPSTREAM_TTL = 300;
 // A slow Guide never holds a page back: past this, the answer is "not missing".
 const CHECK_TIMEOUT_MS = 4000;
 
-// Guide id -> the one published project that may keep selling while its Guide
-// detail is hidden, as long as its public ticket feed is live.
+// Legacy: Guide id -> the one published project that may keep selling while
+// its Guide detail is hidden, as long as its public ticket feed is live. New
+// pages use the admin "Keep selling while Guide private" switch instead
+// (KEEP_SELLING_FLAG on the project), so this list never grows again.
 export const HIDDEN_DETAIL_EXCEPTIONS = Object.freeze({
   "8088": "draft-1791253678425-26c548a5",
   "8266": "draft-1792794458964-79d36de9",
@@ -73,18 +75,61 @@ async function discardBody(resp) {
   }
 }
 
-// True when the exception above applies: the exact project, and a live feed.
-export async function keepsSellingWhileHidden(api, guideId, projectId, ticketData) {
-  if (!projectId || HIDDEN_DETAIL_EXCEPTIONS[String(guideId)] !== String(projectId)) return false;
+// The project switch an admin turns on so a page keeps opening and selling
+// while its Otra Guide event is private (staff only, detail 404). Unlisted
+// alone never does this.
+export const KEEP_SELLING_FLAG = "keepSellingWhileGuidePrivate";
+
+// The one rule for the switch: the exact live project bound to this Guide id,
+// published, not admin only, not archived, with the switch on.
+export function keepsSellingFlagOn(project, guideId, projectId) {
+  return (
+    !!project && typeof project === "object" &&
+    project[KEEP_SELLING_FLAG] === true &&
+    !!projectId && String(project.id || projectId) === String(projectId) &&
+    isOtraGuideId(guideId) && String(project.otraGuideId || "") === String(guideId) &&
+    project.status === "published" &&
+    project.adminOnly !== true &&
+    !project.archivedAt
+  );
+}
+
+async function readProject(kv, projectId) {
+  if (!kv || typeof kv.get !== "function" || !/^draft-[a-zA-Z0-9-]+$/.test(String(projectId))) return null;
+  try {
+    const raw = await kv.get(`site-event:${projectId}`, "json");
+    return raw && typeof raw === "object" ? { ...raw, id: String(projectId) } : null;
+  } catch {
+    return null;
+  }
+}
+
+// True when this project may keep selling while its Guide detail is hidden:
+// the legacy list above names it, or its own switch is on (source.project, or
+// read from source.kv), and its public ticket feed is live. Anything missing
+// or failing answers false, so the page stays hidden.
+export async function keepsSellingWhileHidden(api, guideId, projectId, ticketData, source = {}) {
+  if (!projectId) return false;
+  let allowed = HIDDEN_DETAIL_EXCEPTIONS[String(guideId)] === String(projectId);
+  if (!allowed) {
+    const given = source && source.project && typeof source.project === "object" ? source.project : null;
+    const project = given || (await readProject(source && source.kv, projectId));
+    allowed = keepsSellingFlagOn(project, guideId, projectId);
+  }
+  if (!allowed) return false;
   const data = ticketData === undefined ? await guideTicketFeed(api, guideId) : ticketData;
   return Boolean(data && Array.isArray(data.results) && data.results.length);
 }
 
 // The storefront must show nothing for this Guide event.
-export async function isHiddenGuideEvent(env, guideId, projectId = "") {
+// project: the page record the caller already read from KV for projectId
+// (saves a second read); otherwise it is read here.
+export async function isHiddenGuideEvent(env, guideId, projectId = "", project = null) {
   const api = guideApiBase(env);
   if (!(await guideDetailMissing(api, guideId))) return false;
-  return !(await keepsSellingWhileHidden(api, guideId, projectId));
+  const known = project && typeof project === "object" && projectId ? { ...project, id: String(projectId) } : null;
+  const source = known ? { project: known } : { kv: env && env.OVERRIDES };
+  return !(await keepsSellingWhileHidden(api, guideId, projectId, undefined, source));
 }
 
 // A Guide event's public detail, or null when it is missing, fails or times out.

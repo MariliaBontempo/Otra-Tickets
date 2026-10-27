@@ -29,7 +29,7 @@ export async function onRequestGet(context) {
     ]);
     if (!override || typeof override !== "object") return json({ override: null });
     const hidden = numeric
-      ? missing && !(await keepsSellingWhileHidden(api, id, draftId))
+      ? missing && !(await keepsSellingWhileHidden(api, id, draftId, undefined, { kv: context.env.OVERRIDES }))
       : await draftFollowsHiddenEvent(context.env, id);
     if (hidden && !(await isStaffRequest(context))) return json({ override: null });
     const rawAccent = typeof override.accentColor === "string" ? override.accentColor.trim() : "";
