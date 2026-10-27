@@ -175,6 +175,8 @@ export async function onRequestPost(context) {
       publishedAt: "",
       archivedAt: "",
       adminOnly: false,
+      // A clone gets its own Guide event; the switch is set again by hand.
+      keepSellingWhileGuidePrivate: false,
       // New draft: mint the pretty URL from this clone's title at first publish.
       frozenSlug: "",
       // The clone must never point at the original's Otra Guide event or
@@ -311,6 +313,40 @@ export async function onRequestPost(context) {
     const next = { ...project, adminOnly: url.searchParams.get("value") === "true" };
     await putProject(kv, next);
     if (isUnlistedProject(next)) await invalidatePublicFeed(kv);
+    return json({ project: next });
+  }
+
+  // Keep selling while Guide private: the page keeps opening and selling at
+  // its link while its Otra Guide event is private (staff only, detail 404),
+  // as long as the ticket feed is live. It does not change listing (pair it
+  // with Unlisted to stay off the homepage) and is not a password. Only pages
+  // bound to an Otra Guide event can turn it on.
+  if (url.searchParams.get("action") === "set-keep-selling-while-guide-private") {
+    const kv = context.env.OVERRIDES;
+    if (!kv) return json({ error: "overrides store not configured" }, 503);
+    const id = (url.searchParams.get("id") || "").trim();
+    if (!isDraftId(id)) return json({ error: "invalid draft id" }, 400);
+    const project = await getProject(kv, id);
+    if (!project) return json({ error: "draft not found" }, 404);
+    // Strict: a typo must not silently turn the switch off (or on).
+    const rawValue = url.searchParams.get("value");
+    if (rawValue !== "true" && rawValue !== "false") return json({ error: "value must be true or false" }, 400);
+    const value = rawValue === "true";
+    if (value && !/^\d+$/.test(String(project.otraGuideId || ""))) {
+      return json({ error: "only pages linked to an Otra Guide event can keep selling while it is private" }, 409);
+    }
+    // getProject already returns the normalized page; every other save spreads
+    // it, so the switch survives edits, toggles and date moves.
+    const next = { ...project, keepSellingWhileGuidePrivate: value };
+    await putProject(kv, next);
+    await dropFeedSnapshot(kv);
+    // This switch decides whether a private Guide event is public here, so
+    // record who changed it.
+    await appendAudit(kv, {
+      actor: await actorForAudit(session.token, session.role, context.env),
+      action: "save", pageId: id,
+      changedFields: [`keepSellingWhileGuidePrivate:${value}`],
+    });
     return json({ project: next });
   }
 
@@ -982,6 +1018,7 @@ function normalizeProject(raw, id) {
     usesExistingOtraGuideEvent: !!raw.usesExistingOtraGuideEvent,
     adminOnly: !!raw.adminOnly,
     unlisted: !!raw.unlisted,
+    keepSellingWhileGuidePrivate: raw.keepSellingWhileGuidePrivate === true,
     otraGuidePublished: !!raw.otraGuidePublished,
     syncError: typeof raw.syncError === "string" ? raw.syncError : "",
     frozenSlug: mintFrozenSlug({ frozenSlug: raw.frozenSlug, title: "" }),

@@ -110,6 +110,8 @@ export async function onRequestGet(context) {
     if (!project) continue;
     page.projectId = project.id;
     page.unlisted = project.unlisted;
+    page.keepSellingWhileGuidePrivate = project.keepSellingWhileGuidePrivate === true;
+    page.adminOnly = project.adminOnly === true;
     page.frozenSlug = project.frozenSlug;
   }
   const body = {
@@ -168,6 +170,7 @@ async function buildDraftPages(env) {
         status: project.status === "published" ? "published" : "draft",
         adminOnly: project.adminOnly === true,
         unlisted: project.unlisted === true,
+        keepSellingWhileGuidePrivate: project.keepSellingWhileGuidePrivate === true,
         frozenSlug: typeof project.frozenSlug === "string" ? project.frozenSlug.trim() : "",
         publishedAt: typeof project.publishedAt === "string" ? project.publishedAt : "",
         createdAt: typeof project.createdAt === "string" ? project.createdAt : "",

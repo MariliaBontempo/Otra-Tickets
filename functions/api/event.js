@@ -31,6 +31,11 @@ const UPSTREAM_FAILED = Symbol("upstreamFailed");
 // A draft id (draft-...) whose own project is unlisted: kept off the JSON
 // like PROJECT_DATES; the response is then marked unlisted and never cached.
 const DRAFT_UNLISTED = Symbol("draftUnlisted");
+// The live page a private Guide event was served from (kept off the JSON).
+const SERVED_PAGE = Symbol("servedPage");
+// The stored page record behind a draft payload (never serialized), so the
+// private Guide event check does not read it from KV again.
+const DRAFT_RECORD = Symbol("draftRecord");
 
 const ACCENT_OVERRIDES = {
   "6113": "#1fa9a0", // Clearboat — turquoise from the original handoff design
@@ -44,10 +49,13 @@ export async function onRequestGet(context) {
   // One site event scan: the newest bound project drives the design, the
   // newest published one feeds the page edits.
   const bound = /^\d+$/.test(id) ? await findBoundProjects(context.env && context.env.OVERRIDES, id) : null;
-  const project = bound ? bound.latest : null;
-  const base = await getBasePayload(context, id, url, project);
+  const latest = bound ? bound.latest : null;
+  const base = await getBasePayload(context, id, url, latest, bound ? bound.published : null);
   if (base === UPSTREAM_FAILED) return json({ error: "upstream unavailable" }, 502);
   if (!base) return json({ error: "not found" }, 404);
+  // A private Guide event served from its live page: that page (not a newer
+  // unpublished draft) shapes the response.
+  const project = base[SERVED_PAGE] || latest;
 
   // Admin-only events are hidden from the public; a valid staff Bearer token
   // may still fetch them (used by the admin preview). Staff responses are
@@ -144,7 +152,7 @@ export async function onRequestGet(context) {
   return json(payload, 200, !(staffPreview || override || touchesUnlisted));
 }
 
-async function getBasePayload(context, id, url, project) {
+async function getBasePayload(context, id, url, project, livePage) {
   if (isDraftId(id)) return getDraftPagePayload(context, id);
 
   const api = apiBase(context.env);
@@ -163,21 +171,25 @@ async function getBasePayload(context, id, url, project) {
   if (!detail) {
     // A staff-only Guide event has no public detail response, but a published
     // Otra Tickets project may still sell its ticket types through the embed.
-    // Keep this fallback bound to that exact project and a live ticket feed.
+    // Keep this fallback bound to that exact project (legacy list or its
+    // "Keep selling while Guide private" switch) and a live ticket feed.
     // It applies to every caller, staff included, so staff preview what the
-    // public sees.
+    // public sees. The live (newest published) page decides, so a newer
+    // unpublished draft on the same Guide event never switches it off.
     if (
-      HIDDEN_DETAIL_EXCEPTIONS[id] && project?.id === HIDDEN_DETAIL_EXCEPTIONS[id] &&
-      project.status === "published" && project.adminOnly !== true &&
-      (await keepsSellingWhileHidden(api, id, project.id, ticketData))
+      livePage?.id && livePage.status === "published" && livePage.adminOnly !== true &&
+      (await keepsSellingWhileHidden(api, id, livePage.id, ticketData, { project: livePage }))
     ) {
-      const draftPayload = await getDraftPayload(context.env, project.id);
+      const draftPayload = await getDraftPayload(context.env, livePage.id);
       if (!draftPayload) return null;
       // The draft key locates site content; the public event ID is the Guide ID.
-      // 8088 is still on sale while its feed is live, so the project's own
-      // (single day) dates never mark it past.
-      const { [PROJECT_DATES]: _projectDates, ...payload } = draftPayload;
-      return { ...payload, id: Number(id) };
+      const served = { ...draftPayload, id: Number(id), [SERVED_PAGE]: livePage };
+      // Legacy pages (8088 and the others on the old list) are still on sale
+      // while their feed is live, so their own (single day) dates never mark
+      // them past. A page on the switch keeps its dates: once its event is
+      // over it stops offering checkout, the same as its draft-id URL.
+      if (HIDDEN_DETAIL_EXCEPTIONS[String(id)] === String(livePage.id)) delete served[PROJECT_DATES];
+      return served;
     }
   }
 
@@ -266,8 +278,10 @@ async function getDraftPagePayload(context, id) {
   const api = apiBase(context.env);
   if (!(await guideDetailMissing(api, draft.checkoutEventId))) return draft;
   if (await isStaffRequest(context)) return { ...draft, staffView: true };
+  const record = draft[DRAFT_RECORD];
+  const source = record ? { project: { ...record, id } } : { kv: context.env && context.env.OVERRIDES };
   const exempt = draft.status === "published" && !draft.adminOnly &&
-    (await keepsSellingWhileHidden(api, draft.checkoutEventId, id));
+    (await keepsSellingWhileHidden(api, draft.checkoutEventId, id, undefined, source));
   return exempt ? draft : null;
 }
 
@@ -301,6 +315,7 @@ async function getDraftPayload(env, id) {
     design: draft.claudeDesign && typeof draft.claudeDesign === "object" ? draft.claudeDesign : null,
     adminOnly: draft.adminOnly === true,
     [DRAFT_UNLISTED]: isUnlistedProject(draft),
+    [DRAFT_RECORD]: draft,
     [PROJECT_DATES]: {
       startDate: typeof draft.startDate === "string" ? draft.startDate : "",
       endDate: typeof draft.endDate === "string" ? draft.endDate : "",
