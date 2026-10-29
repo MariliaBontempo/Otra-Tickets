@@ -82,7 +82,7 @@ test("every event page keeps the price amount on one line", () => {
     assert.match(rule[0], /white-space:\s*nowrap/, `${page} price amount must not wrap`);
     assert.match(rule[0], /font-size:\s*clamp\(40px, 4\.4vw, 60px\);/, `${page} keeps the design size`);
     assert.match(html, /\.ev-rate \{ min-width: 0;/, `${page} card may be narrower than its amount so the fit can shrink it`);
-    assert.match(html, /site-overrides\.js\?v=12"/, `${page} loads the build with the price fit`);
+    assert.match(html, /site-overrides\.js\?v=13"/, `${page} loads the build with the price fit`);
   }
 });
 
