@@ -16,6 +16,9 @@
     document.addEventListener("otra:event-rendered", () => tidyMetaLine());
     document.addEventListener("otra:event-rendered", queueFitPriceAmounts);
     document.addEventListener("otra:event-rendered", () => syncBandLayout());
+    // Emails in design text (not only page edits) become mailto links.
+    document.addEventListener("otra:event-rendered", () => linkifyContentEmails());
+    document.addEventListener("DOMContentLoaded", () => linkifyContentEmails());
     document.addEventListener("DOMContentLoaded", queueFitPriceAmounts);
     document.addEventListener("input", (e) => {
       if (e.target && e.target.closest && e.target.closest(".ev-rate .rp")) queueFitPriceAmounts();
@@ -28,6 +31,7 @@
   if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
     window.addEventListener("load", queueFitPriceAmounts);
     window.addEventListener("load", () => syncBandLayout());
+    window.addEventListener("load", () => linkifyContentEmails());
     window.addEventListener("resize", queueFitPriceAmounts);
   }
   const id = inferOverrideId();
@@ -96,6 +100,7 @@
             const p = document.createElement("p");
             p.textContent = text;
             body.appendChild(p);
+            linkifyEmails(p);
           });
       }
     }
@@ -155,6 +160,17 @@
           if (value.includes("\n")) el.style.whiteSpace = "pre-line";
         }
         if (priceAmount) fitPriceAmount(el);
+        // After the compare: a page re-render resets the text (and drops the
+        // links) while it still equals the saved value. Only band / story /
+        // info-cell text (same targets as linkifyContentEmails), never titles
+        // or rate names.
+        else if (
+          (el.id === "evBandText") ||
+          (el.classList && el.classList.contains("ev-body")) ||
+          (el.classList && el.classList.contains("v") && el.closest && el.closest(".ev-info-cell"))
+        ) {
+          linkifyEmails(el);
+        }
         revealBandText(el, value);
         const infoCell = el.closest && el.closest(".ev-info-cell");
         if (infoCell) {
@@ -190,6 +206,7 @@
     }
 
     if (typeof syncBandLayout === "function") syncBandLayout();
+    if (typeof linkifyContentEmails === "function") linkifyContentEmails();
     tidyMetaLine();
     const remaining = Object.keys(fields).filter((k) => !applied.has(k));
     if (remaining.length > 0 && attempt < 30) {
@@ -365,6 +382,7 @@
     }
     if (title && title.textContent !== next.title) title.textContent = next.title;
     if (subtitle && subtitle.textContent !== next.subtitle) subtitle.textContent = next.subtitle;
+    if (subtitle) linkifyEmails(subtitle);
     syncInfoCellDecorativeState(el);
   }
 
@@ -452,7 +470,10 @@
       .map((p) => p.textContent.trim())
       .filter(Boolean)
       .join("\n\n");
-    if (current === next) return;
+    if (current === next) {
+      el.querySelectorAll("p").forEach(linkifyEmails);
+      return;
+    }
     el.innerHTML = "";
     next
       .split(/\n{2,}/)
@@ -462,7 +483,68 @@
         const p = document.createElement("p");
         p.textContent = text;
         el.appendChild(p);
+        linkifyEmails(p);
       });
+  }
+
+  // Plain email addresses in page text become mailto links, e.g.
+  // "Enquiries: a@b.com" -> "Enquiries: " + <a href="mailto:a@b.com">.
+  // Only text nodes are split (never innerHTML), so the text is never parsed
+  // as HTML, line breaks stay for white-space: pre-line, and el.textContent is
+  // unchanged: compare-before-set guards and the admin editor read the same
+  // text. Text already inside a link is left alone, so running it again is a
+  // no-op. Price amounts are never passed in.
+  function linkifyEmails(el) {
+    if (!el || typeof document === "undefined") return;
+    if (typeof document.createElement !== "function" || typeof document.createTextNode !== "function") return;
+    if (!el.childNodes || typeof el.insertBefore !== "function") return;
+    // Never a link inside a link or button (e.g. an edited .btn-metal).
+    if (typeof el.closest === "function" && el.closest("a, button")) return;
+    if (!String(el.textContent || "").includes("@")) return;
+    const re = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g;
+    const textNodes = [];
+    const walk = (node) => {
+      Array.from(node.childNodes || []).forEach((child) => {
+        if (child.nodeType === 3) textNodes.push(child);
+        else if (child.nodeType === 1 && String(child.tagName || "").toUpperCase() !== "A" && !isAdminControl(child)) walk(child);
+      });
+    };
+    walk(el);
+    textNodes.forEach((node) => {
+      const text = node.nodeValue || "";
+      re.lastIndex = 0;
+      if (!re.test(text)) return;
+      re.lastIndex = 0;
+      const parent = node.parentNode;
+      if (!parent || typeof parent.insertBefore !== "function" || typeof parent.removeChild !== "function") return;
+      let last = 0;
+      let match;
+      while ((match = re.exec(text))) {
+        const email = match[0];
+        if (match.index > last) parent.insertBefore(document.createTextNode(text.slice(last, match.index)), node);
+        const a = document.createElement("a");
+        a.href = "mailto:" + email;
+        a.textContent = email;
+        a.setAttribute("data-otra-mailto", "1");
+        // The pages have no global link style: keep the text colour, underlined.
+        if (a.style) {
+          a.style.color = "inherit";
+          a.style.textDecoration = "underline";
+          a.style.textUnderlineOffset = "3px";
+        }
+        parent.insertBefore(a, node);
+        last = match.index + email.length;
+      }
+      if (last < text.length) parent.insertBefore(document.createTextNode(text.slice(last)), node);
+      parent.removeChild(node);
+    });
+  }
+
+  // Text blocks that may hold an organizer email, whatever set their text
+  // (the event design render or a page edit).
+  function linkifyContentEmails() {
+    if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") return;
+    document.querySelectorAll("#evBandText, #evBody p, .ev-info-cell .v").forEach(linkifyEmails);
   }
 
   // The template hides the story photo, feature photo/video, appreciation
