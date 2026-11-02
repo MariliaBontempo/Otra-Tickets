@@ -10,7 +10,7 @@ import { mintFrozenSlug, liveSlugBase, persistedFrozenSlug } from "../../_lib/ev
 import { defaultUnlistedSlug, isUnlistedProject, pickUnlistedSlug, reservesUnlistedLink } from "../../_lib/unlisted.js";
 import { buildHomepageFeed, invalidatePublicFeed, snapshotEvents } from "../../_lib/homepage-feed.js";
 import { normalizeCloneSaleWindows, shiftCloneEventDay, toDay } from "../../_lib/clone-sale-windows.js";
-import { blankOtOnlyCloneOverride, blankOtOnlyCloneProjectFields, wantsBlankOtOnlyFields } from "../../_lib/clone-blank-ot-only.js";
+import { blankOtOnlyCloneOverride, blankOtOnlyCloneProjectFields, blankOtOnlyMappedDesignFromGuide, wantsBlankOtOnlyFields } from "../../_lib/clone-blank-ot-only.js";
 import { rewriteProjectDate } from "./events.js";
 import { contentSnapshot, validateContentPatch } from "./_draft-content.js";
 import { isOtraGuideId, isPublishedBound, readOverrideDoc, resolvePageOverride } from "../../_lib/page-override.js";
@@ -167,9 +167,10 @@ export async function onRequestPost(context) {
       return json({ error: error.message }, 400);
     }
 
-    // Studio clones ask for a template shell: OT only page content starts
-    // blank so its checklist of blanks is real. Without the flag the clone
-    // keeps today's behavior and looks identical to the source.
+    // Studio clones ask for a template shell: OT only page content with no
+    // Studio mapping starts blank, while Guide mapped fields are refilled
+    // from the bound event. Without the flag the clone keeps today's
+    // behavior and looks identical to the source.
     const blankOtOnly = wantsBlankOtOnlyFields(body);
     const cloneId = `draft-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
     let clone = {
@@ -238,6 +239,9 @@ export async function onRequestPost(context) {
       const existingEventId = cleanInteger(body && body.existingEventId);
       if (existingEventId) {
         bound = await createDraftFromExistingEvent(context, accessToken, clone, existingEventId);
+        // Blank Studio clone: Guide mapped fields fill the design too, so the
+        // editor is not empty where Studio already set title/description/image.
+        if (blankOtOnly) bound = blankOtOnlyMappedDesignFromGuide(bound);
         await putProject(kv, bound);
         // Existing bind reuses live ticket types. Windows were confirmed above
         // before the draft was created; Checkout remains the write path.

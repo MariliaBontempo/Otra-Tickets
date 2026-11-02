@@ -1,5 +1,7 @@
 // Oracle: POST /admin/api/projects?action=clone honors blankOtOnlyFields.
-// Studio sends blankOtOnlyFields: true so OT only page content starts blank;
+// Studio sends blankOtOnlyFields: true so OT only fields with no Studio mapping
+// start blank, while Guide mapped fields (title, description, image) fill the
+// project and design after the existingEventId bind;
 // without the flag the clone still copies the source page so it looks identical.
 // Exercises the real handler with in-memory KV and a mocked Guide API.
 // Run: node scripts/check-clone-blank-ot-only-fields.mjs
@@ -9,6 +11,8 @@ import {
   BLANKED_DESIGN_KEYS,
   blankOtOnlyCloneDesign,
   blankOtOnlyCloneOverride,
+  blankOtOnlyMappedDesignFromGuide,
+  GUIDE_MAPPED_DESIGN_KEYS,
   wantsBlankOtOnlyFields,
 } from '../functions/_lib/clone-blank-ot-only.js';
 
@@ -66,11 +70,12 @@ const sourceOverride = (extra = {}) => ({
 });
 
 const guideTicket = { id: 491, name: 'Entrance', price: '25.00', quantity: 150, description: '', currency: 'USD', isActive: true };
-const detail = {
+const baseDetail = {
   id: 8800, slug: 'sunday-social-club-nov-9', title: 'Sunday Social Club Nov 9', description: 'New Guide description.',
   start_date: '2026-11-09T20:00:00Z', end_date: '2026-11-10T01:00:00Z', team: { id: 1, name: 'Otra Guide', region: 1 },
   location: 'New venue', full_web_image_url: 'https://cdn.test/new.jpg',
 };
+let detail = { ...baseDetail };
 
 function mockGuide() {
   globalThis.fetch = async (input, options = {}) => {
@@ -96,8 +101,23 @@ async function clone({ kv, id = SOURCE_ID, body }) {
 const windows = [{ name: 'Entrance', saleStartDate: '2026-11-03', saleEndDate: '2026-11-09', isActive: true }];
 const studioBody = (extra = {}) => ({ existingEventId: 8800, title: 'Sunday Social Club Nov 9', ticketSaleWindows: windows, ...extra });
 
-function assertBlankDesign(design, label) {
-  for (const key of ['displayTitle', 'subtitle', 'eyebrow', 'tag', 'description', 'storyImage', 'pullQuote', 'storyEyebrow',
+// Bound Studio clones: mapped keys hold the Guide values, everything else blank.
+function assertMappedFromGuide(design, label, expected = {
+  displayTitle: 'Sunday Social Club Nov 9', description: 'New Guide description.', image: 'https://cdn.test/new.jpg',
+}) {
+  for (const key of GUIDE_MAPPED_DESIGN_KEYS) {
+    assert.equal(design[key], expected[key], `${label}: design.${key} comes from the Guide event`);
+  }
+}
+
+function assertBlankDesign(design, label, { bound = false } = {}) {
+  if (bound) assertMappedFromGuide(design, label);
+  else {
+    assert.equal(design.displayTitle, '', `${label}: displayTitle must be blank`);
+    assert.equal(design.description, '', `${label}: description must be blank`);
+    assert.equal(design.image, '', `${label}: image must be blank`);
+  }
+  for (const key of ['subtitle', 'eyebrow', 'tag', 'storyImage', 'pullQuote', 'storyEyebrow',
     'videoImage', 'bandImage', 'bandEyebrow', 'bandTitle', 'bandText', 'sponsorTitle', 'sponsorText', 'photoBandImage', 'practicalTitle']) {
     assert.equal(design[key], '', `${label}: ${key} must be blank`);
   }
@@ -119,6 +139,12 @@ try {
   }
   assert.equal(wantsBlankOtOnlyFields(null), false);
   assertBlankDesign(blankOtOnlyCloneDesign(fullDesign()), 'helper');
+  {
+    const mapped = blankOtOnlyMappedDesignFromGuide({ title: 'T', description: '', image: 'https://cdn.test/i.jpg', claudeDesign: blankOtOnlyCloneDesign(fullDesign()) });
+    assertMappedFromGuide(mapped.claudeDesign, 'mapped helper', { displayTitle: 'T', description: '', image: 'https://cdn.test/i.jpg' });
+    assert.equal(mapped.claudeDesign.bandTitle, '', 'mapped helper leaves OT only keys blank');
+    assert.equal(mapped.claudeDesign.perkLayout, 'cards');
+  }
   assert.deepEqual(blankOtOnlyCloneDesign(null).rates, [], 'missing design gives empty rates');
   assert.deepEqual(blankOtOnlyCloneOverride(sourceOverride(), 'draft-x'), { accentColor: '#aa3366', id: 'draft-x' });
   assert.equal(blankOtOnlyCloneOverride({ fields: { a: 1 } }, 'draft-x'), null, 'override without style keys is dropped');
@@ -142,12 +168,15 @@ try {
     assert.equal(p.image, 'https://cdn.test/new.jpg', 'hero comes from the bound Guide event');
     assert.equal(p.status, 'draft');
     assert.equal(p.blankOtOnlyFields, true);
-    assertBlankDesign(p.claudeDesign, 'studio clone');
+    assertBlankDesign(p.claudeDesign, 'studio clone', { bound: true });
     assert.equal(p.claudeDesign.rates[0].price, '25.00', 'rates come from the bound Guide event');
     const doc = JSON.parse(kv.values.get(`event:${p.id}`));
     assert.deepEqual(doc, { accentColor: '#aa3366', id: p.id }, 'only accent color survives; no fields, video, story or hides');
     const stored = JSON.parse(kv.values.get(`site-event:${p.id}`));
     assert.ok(!JSON.stringify(stored.claudeDesign).includes('Old'), 'stored clone has no source content');
+    assertMappedFromGuide(stored.claudeDesign, 'stored studio clone');
+    assert.equal(stored.description, 'New Guide description.');
+    assert.equal(stored.image, 'https://cdn.test/new.jpg');
     const src = JSON.parse(kv.values.get(`event:${SOURCE_ID}`));
     assert.equal(src.fields['text:#evStoryText'].value, 'Override story text', 'source override untouched');
     checked += 1;
@@ -159,7 +188,7 @@ try {
     const { status, data } = await clone({ kv, body: studioBody({ blankOtOnlyFields: true }) });
     assert.equal(status, 201);
     assert.equal(kv.values.has(`event:${data.project.id}`), false, 'nothing to copy, nothing written');
-    assertBlankDesign(data.project.claudeDesign, 'no override');
+    assertBlankDesign(data.project.claudeDesign, 'no override', { bound: true });
     checked += 1;
   }
 
@@ -181,6 +210,9 @@ try {
     assert.equal(p.claudeDesign.bandTitle, 'What you get', 'default clone keeps perks');
     assert.equal(p.claudeDesign.practicalInfo[0].value, 'Old venue', 'default clone keeps Before You Go');
     assert.equal(p.claudeDesign.sponsorText, 'Old sponsor', 'default clone keeps sponsors');
+    assert.equal(p.claudeDesign.displayTitle, 'Sunday Social Club', 'default bind keeps the source displayTitle (no design sync)');
+    assert.equal(p.claudeDesign.description, 'Old story paragraph.', 'default bind keeps the source design description');
+    assert.equal(p.claudeDesign.image, '/override-images/x/hero.jpg', 'default bind keeps the source design image');
     const doc = JSON.parse(kv.values.get(`event:${p.id}`));
     assert.equal(doc.id, p.id);
     assert.equal(doc.fields['text:#evStoryText'].value, 'Override story text', 'default clone copies override fields');
@@ -198,7 +230,7 @@ try {
     });
     const { status, data } = await clone({ kv, id: '7514', body: studioBody({ blankOtOnlyFields: true }) });
     assert.equal(status, 201);
-    assertBlankDesign(data.project.claudeDesign, 'live source');
+    assertBlankDesign(data.project.claudeDesign, 'live source', { bound: true });
     assert.deepEqual(JSON.parse(kv.values.get(`event:${data.project.id}`)), { accentColor: '#aa3366', id: data.project.id });
     checked += 1;
   }
@@ -220,7 +252,41 @@ try {
     checked += 1;
   }
 
-  // 7. Unknown source.
+  // 7. Guide event with empty description and image: mapped fields stay
+  // blank, never the template's content; title still maps.
+  {
+    detail = { ...baseDetail, description: '', full_web_image_url: '', half_web_image_url: '', card_image_url: '' };
+    try {
+      const kv = memoryKV({ [`site-event:${SOURCE_ID}`]: sourceProject(), [`event:${SOURCE_ID}`]: sourceOverride() });
+      const { status, data } = await clone({ kv, body: studioBody({ blankOtOnlyFields: true }) });
+      assert.equal(status, 201);
+      const p = data.project;
+      assert.equal(p.title, 'Sunday Social Club Nov 9');
+      assert.equal(p.description, '', 'empty Guide description stays blank');
+      assert.equal(p.image, '', 'empty Guide image stays blank');
+      assertMappedFromGuide(p.claudeDesign, 'empty guide', { displayTitle: 'Sunday Social Club Nov 9', description: '', image: '' });
+      assert.ok(!JSON.stringify(p.claudeDesign).includes('Old'), 'no template content fallback');
+    } finally {
+      detail = { ...baseDetail };
+    }
+    checked += 1;
+  }
+
+  // 8. Guide image priority: half web then card image when full is missing.
+  {
+    detail = { ...baseDetail, full_web_image_url: '', half_web_image_url: 'https://cdn.test/half.jpg', card_image_url: 'https://cdn.test/card.jpg' };
+    try {
+      const kv = memoryKV({ [`site-event:${SOURCE_ID}`]: sourceProject() });
+      const { data } = await clone({ kv, body: studioBody({ blankOtOnlyFields: true }) });
+      assert.equal(data.project.image, 'https://cdn.test/half.jpg');
+      assert.equal(data.project.claudeDesign.image, 'https://cdn.test/half.jpg', 'design image follows the same priority');
+    } finally {
+      detail = { ...baseDetail };
+    }
+    checked += 1;
+  }
+
+  // 9. Unknown source.
   {
     const kv = memoryKV();
     const r = await clone({ kv, id: 'draft-0-deadbeef', body: studioBody({ blankOtOnlyFields: true }) });
