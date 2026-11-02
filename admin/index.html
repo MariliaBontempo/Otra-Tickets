@@ -1037,6 +1037,9 @@
   const tokenKey = "otra_admin_token";
   const INFO_CELL_VALUE_PREFIX = "otra-info-cell:";
   let token = sessionStorage.getItem(tokenKey) || "";
+  // Deep link: /admin/?edit=<pageId> opens that page in the editor once
+  // staff are signed in. Kept until the editor opens, so it survives login.
+  let pendingEditId = readEditParam(location.search);
   let pages = [];
   let selected = null;
   let currentOverride = null;
@@ -2437,9 +2440,44 @@
     homepageView.classList.add("hidden");
     hubView.classList.remove("hidden");
     $("hubStatus").textContent = "";
+    if (pendingEditId) await openEditDeepLink(pendingEditId);
   }
 
-  async function loadPages(preferredId) {
+  // Accepts draft ids (draft-<ms>-<hex>) and numeric Otra Guide ids only.
+  function readEditParam(search) {
+    const id = String(new URLSearchParams(search || "").get("edit") || "").trim();
+    return /^(?:draft-[A-Za-z0-9-]{1,80}|\d{1,12})$/.test(id) ? id : "";
+  }
+
+  // A published draft is listed under its Otra Guide id with projectId set
+  // to the draft id, so a draft link still finds the live page.
+  function resolveEditPageId(list, id) {
+    if (!id) return "";
+    const want = String(id);
+    const exact = (list || []).find((page) => String(page.id) === want);
+    if (exact) return String(exact.id);
+    const bound = (list || []).find((page) => page.projectId && String(page.projectId) === want);
+    return bound ? String(bound.id) : "";
+  }
+
+  function clearEditParam() {
+    pendingEditId = "";
+    try {
+      const url = new URL(location.href);
+      if (!url.searchParams.has("edit")) return;
+      url.searchParams.delete("edit");
+      history.replaceState(null, "", url.pathname + url.search + url.hash);
+    } catch {}
+  }
+
+  async function openEditDeepLink(editId) {
+    hubView.classList.add("hidden");
+    appView.classList.remove("hidden");
+    setStatus("Loading pages...");
+    await loadPages(editId, { deepLink: true });
+  }
+
+  async function loadPages(preferredId, options = {}) {
     try {
       const data = await api("/admin/api/pages", { headers: authHeaders() });
       pages = data.pages || [];
@@ -2448,7 +2486,19 @@
       const pagesNote = $("pagesNote");
       pagesNote.textContent = data.upstreamError ? `Some events may be missing from this list: ${data.upstreamError}.` : "";
       pagesNote.classList.toggle("hidden", !data.upstreamError);
-      const initial = preferredId && pages.some((page) => page.id === preferredId) ? preferredId : pages[0] && pages[0].id;
+      if (options.deepLink) {
+        const target = resolveEditPageId(pages, preferredId);
+        clearEditParam();
+        if (!target) {
+          appView.classList.add("hidden");
+          hubView.classList.remove("hidden");
+          $("hubStatus").textContent = `Could not find page ${preferredId} to edit. Open Edit existing and pick it from the list.`;
+          return;
+        }
+        preferredId = target;
+      }
+      const match = preferredId ? pages.find((page) => String(page.id) === String(preferredId)) : null;
+      const initial = match ? match.id : pages[0] && pages[0].id;
       renderPageSelectOptions(initial);
       if (initial) await selectPage(initial);
       else {

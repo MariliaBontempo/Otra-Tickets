@@ -10,6 +10,7 @@ import { mintFrozenSlug, liveSlugBase, persistedFrozenSlug } from "../../_lib/ev
 import { defaultUnlistedSlug, isUnlistedProject, pickUnlistedSlug, reservesUnlistedLink } from "../../_lib/unlisted.js";
 import { buildHomepageFeed, invalidatePublicFeed, snapshotEvents } from "../../_lib/homepage-feed.js";
 import { normalizeCloneSaleWindows, shiftCloneEventDay, toDay } from "../../_lib/clone-sale-windows.js";
+import { blankOtOnlyCloneOverride, blankOtOnlyCloneProjectFields, wantsBlankOtOnlyFields } from "../../_lib/clone-blank-ot-only.js";
 import { rewriteProjectDate } from "./events.js";
 import { contentSnapshot, validateContentPatch } from "./_draft-content.js";
 import { isOtraGuideId, isPublishedBound, readOverrideDoc, resolvePageOverride } from "../../_lib/page-override.js";
@@ -166,8 +167,12 @@ export async function onRequestPost(context) {
       return json({ error: error.message }, 400);
     }
 
+    // Studio clones ask for a template shell: OT only page content starts
+    // blank so its checklist of blanks is real. Without the flag the clone
+    // keeps today's behavior and looks identical to the source.
+    const blankOtOnly = wantsBlankOtOnlyFields(body);
     const cloneId = `draft-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
-    const clone = {
+    let clone = {
       ...source,
       id: cloneId,
       title: cloneProjectTitle(source.title, body && body.title),
@@ -188,9 +193,11 @@ export async function onRequestPost(context) {
       syncError: "",
       createdAt: new Date().toISOString(),
     };
+    if (blankOtOnly) clone = blankOtOnlyCloneProjectFields(clone);
     await putProject(kv, clone);
 
     // Bring the page overrides along so the clone starts looking identical.
+    // A blank clone keeps style keys only (accent color), never field edits.
     try {
       // A live page shows its published draft edits with the later edits
       // on top, so the clone copies that same view.
@@ -202,7 +209,16 @@ export async function onRequestPost(context) {
       const override =
         (livePageId ? (await resolvePageOverride(kv, livePageId)).override : null) ||
         (await readOverrideDoc(kv, source.id));
-      if (override && typeof override === "object") {
+      const shell = blankOtOnly ? blankOtOnlyCloneOverride(override, cloneId) : null;
+      if (blankOtOnly) {
+        if (shell) await kv.put(`event:${cloneId}`, JSON.stringify(shell));
+        await appendAudit(kv, {
+          actor: await actorForAudit(session.token, session.role, context.env),
+          action: "save",
+          pageId: cloneId,
+          changedFields: ["clone", "blankOtOnlyFields"],
+        });
+      } else if (override && typeof override === "object") {
         const { draftEditsFrom: _merged, draftEditsHidden: _hidden, pageEditsVersion: _version, ...copy } = override;
         await kv.put(`event:${cloneId}`, JSON.stringify({ ...copy, id: cloneId }));
         await appendAudit(kv, {

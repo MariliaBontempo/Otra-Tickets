@@ -1,0 +1,237 @@
+// Oracle: POST /admin/api/projects?action=clone honors blankOtOnlyFields.
+// Studio sends blankOtOnlyFields: true so OT only page content starts blank;
+// without the flag the clone still copies the source page so it looks identical.
+// Exercises the real handler with in-memory KV and a mocked Guide API.
+// Run: node scripts/check-clone-blank-ot-only-fields.mjs
+import assert from 'node:assert/strict';
+import { onRequestPost } from '../functions/admin/api/projects.js';
+import {
+  BLANKED_DESIGN_KEYS,
+  blankOtOnlyCloneDesign,
+  blankOtOnlyCloneOverride,
+  wantsBlankOtOnlyFields,
+} from '../functions/_lib/clone-blank-ot-only.js';
+
+const originalFetch = globalThis.fetch;
+let checked = 0;
+
+function memoryKV(seed = {}) {
+  const values = new Map(Object.entries(seed).map(([k, v]) => [k, typeof v === 'string' ? v : JSON.stringify(v)]));
+  return {
+    values,
+    async get(key, type) {
+      const value = values.get(key);
+      return value === undefined ? null : type === 'json' ? JSON.parse(value) : value;
+    },
+    async put(key, value) { values.set(key, value); },
+    async list({ prefix = '' } = {}) {
+      return { keys: [...values.keys()].filter(n => n.startsWith(prefix)).map(name => ({ name })), list_complete: true };
+    },
+    async delete(key) { values.delete(key); },
+  };
+}
+
+const SOURCE_ID = 'draft-1790000000000-abcd1234';
+const fullDesign = () => ({
+  title: 'Sunday Social Club - Old', displayTitle: 'Sunday Social Club', subtitle: 'Old edition',
+  eyebrow: 'Social · Curaçao', tag: 'Every Sunday', meta: ['Sun', '4 PM'],
+  description: 'Old story paragraph.', image: '/override-images/x/hero.jpg', heroKey: 'k', heroName: 'hero.jpg',
+  storyImage: '/override-images/x/story.jpg', pullQuote: 'Old quote', storyEyebrow: 'Our story',
+  videoImage: '/override-images/x/video.jpg',
+  bandImage: '/override-images/x/band.jpg', bandEyebrow: 'Perks', bandTitle: 'What you get', bandText: 'Old perks',
+  appreciates: [{ name: 'Drink', description: 'Welcome drink', image: '' }],
+  perkLayout: 'cards', sponsorLayout: 'compact',
+  sponsorTitle: 'Thanks', sponsorText: 'Old sponsor', sponsorGroups: [{ name: 'Gold', sponsors: 'Old Co' }],
+  photoBandImage: '/override-images/x/photo.jpg',
+  practicalTitle: 'Before You Go', practicalInfo: [{ key: 'Venue', value: 'Old venue' }],
+  ratesTitle: 'Rates', rates: [{ name: 'Entrance', price: '20.00', currency: 'USD', description: '' }],
+  galleryImages: ['/override-images/x/g1.jpg'], assets: ['/override-images/x/g1.jpg'],
+});
+const sourceProject = (extra = {}) => ({
+  id: SOURCE_ID, title: 'Sunday Social Club', description: 'Old story paragraph.', source: 'claude-design',
+  status: 'draft', createdAt: '2026-01-01T00:00:00Z', image: '/override-images/x/hero.jpg',
+  claudeDesign: fullDesign(), teamId: 1, regionId: 1, startDate: '2026-01-04T20:00:00Z',
+  endDate: '2026-01-05T01:00:00Z', location: 'Old venue', ticketQuantities: [100], ticketTypeIds: [11],
+  otraGuideId: '7514', otraGuideSlug: 'sunday-social-club', ...extra,
+});
+const sourceOverride = (extra = {}) => ({
+  id: SOURCE_ID, pageEditsVersion: 2, description: 'Override story', image: '/override-images/x/o.jpg',
+  accentColor: '#aa3366',
+  fields: {
+    'text:#evStoryText': { type: 'text', value: 'Override story text' },
+    'video:#evVideo': { type: 'video', value: '/override-media/x/v.mp4' },
+    'remove:#evInfoSection': { type: 'remove', value: true },
+  },
+  ...extra,
+});
+
+const guideTicket = { id: 491, name: 'Entrance', price: '25.00', quantity: 150, description: '', currency: 'USD', isActive: true };
+const detail = {
+  id: 8800, slug: 'sunday-social-club-nov-9', title: 'Sunday Social Club Nov 9', description: 'New Guide description.',
+  start_date: '2026-11-09T20:00:00Z', end_date: '2026-11-10T01:00:00Z', team: { id: 1, name: 'Otra Guide', region: 1 },
+  location: 'New venue', full_web_image_url: 'https://cdn.test/new.jpg',
+};
+
+function mockGuide() {
+  globalThis.fetch = async (input, options = {}) => {
+    const url = new URL(String(input));
+    assert.equal(url.origin, 'https://backend.test', 'all Guide calls must be mocked');
+    const path = url.pathname + url.search;
+    if (path === '/api/users/user-role/') return Response.json({ is_staff_or_admin: true });
+    if (path === '/api/users/profile/') return Response.json({ first_name: 'Local', last_name: 'Fixture' });
+    if (path === '/api/events/details/8800/') return Response.json(detail);
+    if (path === '/api/events/admin-ticketed-search/?id=8800') return Response.json({ events: [{ ...detail, tickets: [guideTicket] }] });
+    throw new Error(`Unexpected mock call: ${options.method || 'GET'} ${path}`);
+  };
+}
+
+async function clone({ kv, id = SOURCE_ID, body }) {
+  const env = { OVERRIDES: kv, OTRA_API_URL: 'https://backend.test/api' };
+  const response = await onRequestPost({ env, request: new Request(`https://tickets.test/admin/api/projects?action=clone&id=${encodeURIComponent(id)}`, {
+    method: 'POST', headers: { authorization: 'Bearer local-fixture', 'content-type': 'application/json' }, body: JSON.stringify(body),
+  }) });
+  return { status: response.status, data: await response.json() };
+}
+
+const windows = [{ name: 'Entrance', saleStartDate: '2026-11-03', saleEndDate: '2026-11-09', isActive: true }];
+const studioBody = (extra = {}) => ({ existingEventId: 8800, title: 'Sunday Social Club Nov 9', ticketSaleWindows: windows, ...extra });
+
+function assertBlankDesign(design, label) {
+  for (const key of ['displayTitle', 'subtitle', 'eyebrow', 'tag', 'description', 'storyImage', 'pullQuote', 'storyEyebrow',
+    'videoImage', 'bandImage', 'bandEyebrow', 'bandTitle', 'bandText', 'sponsorTitle', 'sponsorText', 'photoBandImage', 'practicalTitle']) {
+    assert.equal(design[key], '', `${label}: ${key} must be blank`);
+  }
+  for (const key of ['meta', 'appreciates', 'sponsorGroups', 'practicalInfo', 'galleryImages', 'assets']) {
+    assert.deepEqual(design[key], [], `${label}: ${key} must be empty`);
+  }
+  assert.equal(design.perkLayout, 'cards', `${label}: perk layout shell kept`);
+  assert.equal(design.sponsorLayout, 'compact', `${label}: sponsor layout shell kept`);
+  assert.ok(!JSON.stringify(design).includes('Old'), `${label}: no source text may survive`);
+}
+
+try {
+  mockGuide();
+
+  // Pure helpers.
+  assert.equal(wantsBlankOtOnlyFields({ blankOtOnlyFields: true }), true);
+  for (const value of [false, 'true', 1, null, undefined]) {
+    assert.equal(wantsBlankOtOnlyFields({ blankOtOnlyFields: value }), false, `only boolean true opts in (${value})`);
+  }
+  assert.equal(wantsBlankOtOnlyFields(null), false);
+  assertBlankDesign(blankOtOnlyCloneDesign(fullDesign()), 'helper');
+  assert.deepEqual(blankOtOnlyCloneDesign(null).rates, [], 'missing design gives empty rates');
+  assert.deepEqual(blankOtOnlyCloneOverride(sourceOverride(), 'draft-x'), { accentColor: '#aa3366', id: 'draft-x' });
+  assert.equal(blankOtOnlyCloneOverride({ fields: { a: 1 } }, 'draft-x'), null, 'override without style keys is dropped');
+  assert.equal(blankOtOnlyCloneOverride(null, 'draft-x'), null);
+  assert.ok(BLANKED_DESIGN_KEYS.includes('practicalInfo') && BLANKED_DESIGN_KEYS.includes('appreciates'));
+  checked += 1;
+
+  // 1. Studio: flag true, existing override, existingEventId + title bind.
+  {
+    const kv = memoryKV({ [`site-event:${SOURCE_ID}`]: sourceProject(), [`event:${SOURCE_ID}`]: sourceOverride() });
+    const { status, data } = await clone({ kv, body: studioBody({ blankOtOnlyFields: true }) });
+    assert.equal(status, 201, `blank clone must bind: ${JSON.stringify(data)}`);
+    const p = data.project;
+    assert.match(p.id, /^draft-\d+-[0-9a-f]{8}$/);
+    assert.notEqual(p.id, SOURCE_ID);
+    assert.equal(p.otraGuideId, '8800', 'existingEventId binds the clone');
+    assert.equal(p.usesExistingOtraGuideEvent, true);
+    assert.deepEqual(p.ticketTypeIds, [491]);
+    assert.equal(p.title, 'Sunday Social Club Nov 9', 'Guide title binds');
+    assert.equal(p.description, 'New Guide description.', 'description comes from the bound Guide event, not the source');
+    assert.equal(p.image, 'https://cdn.test/new.jpg', 'hero comes from the bound Guide event');
+    assert.equal(p.status, 'draft');
+    assert.equal(p.blankOtOnlyFields, true);
+    assertBlankDesign(p.claudeDesign, 'studio clone');
+    assert.equal(p.claudeDesign.rates[0].price, '25.00', 'rates come from the bound Guide event');
+    const doc = JSON.parse(kv.values.get(`event:${p.id}`));
+    assert.deepEqual(doc, { accentColor: '#aa3366', id: p.id }, 'only accent color survives; no fields, video, story or hides');
+    const stored = JSON.parse(kv.values.get(`site-event:${p.id}`));
+    assert.ok(!JSON.stringify(stored.claudeDesign).includes('Old'), 'stored clone has no source content');
+    const src = JSON.parse(kv.values.get(`event:${SOURCE_ID}`));
+    assert.equal(src.fields['text:#evStoryText'].value, 'Override story text', 'source override untouched');
+    checked += 1;
+  }
+
+  // 2. Flag true without any source override: no override doc for the clone.
+  {
+    const kv = memoryKV({ [`site-event:${SOURCE_ID}`]: sourceProject() });
+    const { status, data } = await clone({ kv, body: studioBody({ blankOtOnlyFields: true }) });
+    assert.equal(status, 201);
+    assert.equal(kv.values.has(`event:${data.project.id}`), false, 'nothing to copy, nothing written');
+    assertBlankDesign(data.project.claudeDesign, 'no override');
+    checked += 1;
+  }
+
+  // 3. Flag true with override holding no style keys: no override doc.
+  {
+    const kv = memoryKV({ [`site-event:${SOURCE_ID}`]: sourceProject(), [`event:${SOURCE_ID}`]: sourceOverride({ accentColor: '' }) });
+    const { data } = await clone({ kv, body: studioBody({ blankOtOnlyFields: true }) });
+    assert.equal(kv.values.has(`event:${data.project.id}`), false, 'field edits never copied');
+    checked += 1;
+  }
+
+  // 4. Flag false and absent: today's behavior, override and design copied.
+  for (const extra of [{ blankOtOnlyFields: false }, {}, { blankOtOnlyFields: 'true' }]) {
+    const kv = memoryKV({ [`site-event:${SOURCE_ID}`]: sourceProject(), [`event:${SOURCE_ID}`]: sourceOverride() });
+    const { status, data } = await clone({ kv, body: studioBody(extra) });
+    assert.equal(status, 201);
+    const p = data.project;
+    assert.equal(p.blankOtOnlyFields, undefined, 'default clone is not marked blank');
+    assert.equal(p.claudeDesign.bandTitle, 'What you get', 'default clone keeps perks');
+    assert.equal(p.claudeDesign.practicalInfo[0].value, 'Old venue', 'default clone keeps Before You Go');
+    assert.equal(p.claudeDesign.sponsorText, 'Old sponsor', 'default clone keeps sponsors');
+    const doc = JSON.parse(kv.values.get(`event:${p.id}`));
+    assert.equal(doc.id, p.id);
+    assert.equal(doc.fields['text:#evStoryText'].value, 'Override story text', 'default clone copies override fields');
+    assert.equal(doc.fields['video:#evVideo'].value, '/override-media/x/v.mp4', 'default clone copies video');
+    assert.equal(doc.pageEditsVersion, undefined, 'merge markers still stripped');
+    checked += 1;
+  }
+
+  // 5. Live page source (numeric id): the merged live override is not copied.
+  {
+    const kv = memoryKV({
+      [`site-event:${SOURCE_ID}`]: sourceProject({ status: 'published', publishedAt: '2026-01-02T00:00:00Z' }),
+      [`event:${SOURCE_ID}`]: sourceOverride(),
+      'event:7514': sourceOverride({ id: '7514', draftEditsFrom: SOURCE_ID }),
+    });
+    const { status, data } = await clone({ kv, id: '7514', body: studioBody({ blankOtOnlyFields: true }) });
+    assert.equal(status, 201);
+    assertBlankDesign(data.project.claudeDesign, 'live source');
+    assert.deepEqual(JSON.parse(kv.values.get(`event:${data.project.id}`)), { accentColor: '#aa3366', id: data.project.id });
+    checked += 1;
+  }
+
+  // 6. ticketSaleWindows still validated with the flag.
+  {
+    const kv = memoryKV({ [`site-event:${SOURCE_ID}`]: sourceProject() });
+    let r = await clone({ kv, body: studioBody({ blankOtOnlyFields: true, ticketSaleWindows: undefined }) });
+    assert.equal(r.status, 400, 'missing windows must fail');
+    assert.match(r.data.error, /confirm ticket sale/i);
+    r = await clone({ kv, body: studioBody({ blankOtOnlyFields: true, ticketSaleWindows: [...windows, ...windows] }) });
+    assert.equal(r.status, 400, 'one window per Guide TicketType');
+    assert.match(r.data.error, /all 1 ticket types/i);
+    r = await clone({ kv, body: studioBody({ blankOtOnlyFields: true, ticketSaleWindows: [{ name: 'Entrance', saleStartDate: '2026-11-09', saleEndDate: '2026-11-03', isActive: true }] }) });
+    assert.equal(r.status, 400, 'end before start fails');
+    r = await clone({ kv, body: studioBody({ blankOtOnlyFields: true, ticketSaleWindows: [{ name: 'Entrance', saleStartDate: '', saleEndDate: '', isActive: false }] }) });
+    assert.equal(r.status, 201, 'blank dates allowed with existingEventId');
+    assert.equal([...kv.values.keys()].filter(k => k.startsWith('site-event:')).length, 2, 'rejected requests create no draft');
+    checked += 1;
+  }
+
+  // 7. Unknown source.
+  {
+    const kv = memoryKV();
+    const r = await clone({ kv, id: 'draft-0-deadbeef', body: studioBody({ blankOtOnlyFields: true }) });
+    assert.equal(r.status, 404);
+    checked += 1;
+  }
+
+  console.log(`check-clone-blank-ot-only-fields: ${checked} groups passed`);
+} catch (error) {
+  console.error('check-clone-blank-ot-only-fields FAILED:', error.message);
+  process.exitCode = 1;
+} finally {
+  globalThis.fetch = originalFetch;
+}
