@@ -1043,7 +1043,8 @@
   // staff are signed in. Kept until the editor opens, so it survives login.
   let pendingEditId = readEditParam(location.search);
   // Studio handoff: the Calendar Studio iframe opens
-  // /admin/?edit=<id>#access_token=<staff JWT> so staff skip the login form.
+  // /admin/?edit=<id>#access_token=<staff JWT> so staff skip the login form
+  // (hash only; a token in the query is stripped and ignored).
   // The token is stored like a password login and removed from the URL
   // before anything else loads; every admin API still checks it is staff.
   consumeStudioHandoff();
@@ -2464,9 +2465,10 @@
     return parts.length === 3 && parts.every((part) => /^[A-Za-z0-9_-]+$/.test(part));
   }
 
-  // Hash first (never reaches server logs), then query. A bare JWT as the
-  // whole hash is accepted too.
-  function readStudioHandoffToken(search, hash) {
+  // Hash only: the hash never reaches the server, so the token stays out of
+  // access logs. A bare JWT as the whole hash is accepted too. Query
+  // access_token / studio_token are never used to sign in.
+  function readStudioHandoffToken(hash) {
     const rawHash = String(hash || "").replace(/^#/, "");
     const hashParams = new URLSearchParams(rawHash);
     for (const key of STUDIO_HANDOFF_KEYS) {
@@ -2474,16 +2476,12 @@
       if (isJwtShape(value)) return value;
     }
     if (isJwtShape(rawHash)) return rawHash.trim();
-    const queryParams = new URLSearchParams(search || "");
-    for (const key of STUDIO_HANDOFF_KEYS) {
-      const value = String(queryParams.get(key) || "").trim();
-      if (isJwtShape(value)) return value;
-    }
     return "";
   }
 
   // Removes handoff tokens (valid or not) from query and hash, keeping
-  // ?edit= and any other params.
+  // ?edit= and any other params. A token sent by mistake in the query is
+  // removed too, but never stored.
   function stripStudioHandoffFromUrl() {
     try {
       const url = new URL(location.href);
@@ -2520,7 +2518,7 @@
   }
 
   function consumeStudioHandoff() {
-    const jwt = readStudioHandoffToken(location.search, location.hash);
+    const jwt = readStudioHandoffToken(location.hash);
     stripStudioHandoffFromUrl();
     if (!jwt) return false;
     token = jwt;

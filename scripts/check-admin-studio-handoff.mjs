@@ -1,4 +1,5 @@
-// Oracle: the Studio iframe opens /admin/?edit=<id>#access_token=<jwt> and
+// Oracle: the Studio iframe opens /admin/?edit=<id>#access_token=<jwt> (hash
+// only; query tokens are stripped and never used) and
 // lands in the editor without the login form. Runs the real handoff helpers
 // from admin/index.html in a VM with a stubbed location/history/sessionStorage.
 // Run: node scripts/check-admin-studio-handoff.mjs
@@ -93,20 +94,38 @@ const tokenIn = (ctx) => ctx.url.href.includes(JWT) || ctx.url.href.includes('ac
   assert.equal(ctx.url.search, '?edit=7514');
 }
 
-// Query access_token and studio_token, edit kept regardless of order.
+// Query access_token / studio_token never sign in (query reaches server
+// logs). They are still stripped, edit kept regardless of order, and an
+// existing session is left as it was.
 for (const q of [`?access_token=${JWT}&edit=7514`, `?edit=7514&studio_token=${JWT}`]) {
-  const ctx = makeCtx(`http://host.docker.internal:8790/admin/${q}`);
-  assert.equal(ctx.getToken(), JWT, q);
-  assert.equal(tokenIn(ctx), false, `${q} stripped`);
-  assert.equal(ctx.url.search, '?edit=7514', `${q} keeps edit`);
+  for (const stored of ['', JWT2]) {
+    const ctx = makeCtx(`http://host.docker.internal:8790/admin/${q}`, stored);
+    assert.equal(ctx.result, false, `${q} not accepted`);
+    assert.equal(ctx.getToken(), stored, `${q} does not set the session token`);
+    assert.equal(ctx.store.get('otra_admin_token'), stored || undefined, `${q} not stored`);
+    assert.equal(tokenIn(ctx), false, `${q} stripped`);
+    assert.equal(ctx.url.search, '?edit=7514', `${q} keeps edit`);
+    assert.equal(ctx.getPending(), '7514', `${q} deep link still pending`);
+  }
 }
 
-// Hash wins over query when both are present; both stripped.
+// Hash is used when both are present; the query token is ignored; both stripped.
 {
   const ctx = makeCtx(`http://127.0.0.1:8790/admin/?access_token=${JWT2}#access_token=${JWT}`);
   assert.equal(ctx.getToken(), JWT);
   assert.equal(ctx.url.search, '');
   assert.equal(ctx.url.hash, '');
+}
+
+// Helper reads the hash only.
+{
+  const ctx = makeCtx('http://127.0.0.1:8790/admin/');
+  assert.equal(ctx.readStudioHandoffToken(`#access_token=${JWT}`), JWT);
+  assert.equal(ctx.readStudioHandoffToken(`#edit=7514`), '');
+  assert.equal(ctx.readStudioHandoffToken(''), '');
+  assert.equal(ctx.readStudioHandoffToken.length, 1, 'takes the hash only');
+  assert.doesNotMatch(extractFunction('readStudioHandoffToken'), /search|URLSearchParams\(search/);
+  assert.match(extractFunction('consumeStudioHandoff'), /readStudioHandoffToken\(location\.hash\)/);
 }
 
 // New handoff replaces an older stored session.
