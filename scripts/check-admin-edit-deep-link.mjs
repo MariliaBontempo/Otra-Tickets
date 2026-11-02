@@ -24,8 +24,9 @@ const source = names.map(extractFunction).join('\n');
 
 assert.match(html, /let pendingEditId = readEditParam\(location\.search\);/, 'edit param read on load');
 assert.match(extractFunction('boot'), /if \(pendingEditId\) await openEditDeepLink\(pendingEditId\);/, 'boot continues to the deep link');
-assert.match(html, /await staffLogin\(\$\("email"\)\.value, \$\("password"\)\.value\);\s*await boot\(\);/, 'login submit runs boot so the link continues after login');
-assert.match(extractFunction('staffLogin'), /sessionStorage\.setItem\(tokenKey, token\);/, 'shared login stores the token');
+assert.match(html, /await staffLogin\(\$\("email"\)\.value, \$\("password"\)\.value\);\s*hideSessionExpired\(\);\s*await boot\(\);/, 'login submit runs boot so the link continues after login');
+assert.match(extractFunction('staffLogin'), /storeStaffToken\(data\.token\);/, 'shared login stores the token');
+assert.match(extractFunction('storeStaffToken'), /sessionStorage\.setItem\(tokenKey, jwt\);/, 'token kept in sessionStorage');
 assert.match(html, /if \(token\) boot\(\);/, 'existing session boots straight into the link');
 
 function classList() {

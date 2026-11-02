@@ -2,8 +2,11 @@
 // "Session expired" banner and keeps the editor, the token and every typed
 // value on screen. The banner has its own sign in form that swaps only the
 // token (memory and sessionStorage) without logout(), boot() or closing the
-// open dialog. Only Sign out (or a failed first load with no page open)
-// returns to the login form.
+// open dialog. Studio can also push a fresh token by postMessage. A save
+// refused by the expiry is retried once on the new token, and the dialog
+// text is kept per page in sessionStorage (never the password) so a Cancel
+// while expired or a reload can get it back. Only Sign out (or a failed
+// first load with no page open) returns to the login form.
 // Runs the real api(), loadPages() and banner helpers from admin/index.html
 // in a VM with stubbed DOM, fetch and sessionStorage.
 // Run: node scripts/check-admin-session-expired.mjs
@@ -43,9 +46,29 @@ const staffLoginSrc = extractFunction('staffLogin');
 assert.ok(!/logout\(|boot\(|closeModal\(|removeItem\(/.test(staffLoginSrc), 'staffLogin only swaps the token');
 const loginFormHandler = html.match(/\$\("loginForm"\)\.addEventListener\("submit", async \(e\) => \{[\s\S]*?\n  \}\);/);
 assert.ok(loginFormHandler && /staffLogin\(/.test(loginFormHandler[0]) && /boot\(\)/.test(loginFormHandler[0]), 'login form shares staffLogin then boots');
+assert.match(bannerHandler[0], /afterTokenRenewed\(\)/, 'banner sign in retries the blocked save');
+const hashHandler = html.match(/window\.addEventListener\("hashchange", \(\) => \{[\s\S]*?\n  \}\);/);
+assert.ok(hashHandler && /afterTokenRenewed\(\)/.test(hashHandler[0]), 'hash token refresh shares afterTokenRenewed');
+const messageHandler = html.match(/window\.addEventListener\("message", \(event\) => \{[\s\S]*?\n  \}\);/);
+assert.ok(messageHandler && /storeStaffToken\(jwt\)/.test(messageHandler[0]) && /afterTokenRenewed\(\)/.test(messageHandler[0]), 'postMessage token applied');
+assert.ok(!/logout\(|boot\(|closeModal\(|reload\(/.test(messageHandler[0] + extractFunction('afterTokenRenewed')), 'token refresh never wipes the editor');
+const submitHandler = html.match(/\$\("editForm"\)\.addEventListener\("submit", async \(e\) => \{[\s\S]*?\n  \}\);/)[0];
+assert.equal((submitHandler.match(/if \(err\.sessionExpired\) noteBlockedSave\(\);/g) || []).length, 2, 'rename and field saves remember a save refused by expiry');
+assert.equal((submitHandler.match(/clearUnsavedEdit\(selected\);\s*closeModal\(\);/g) || []).length, 2, 'a successful save clears the kept text');
+assert.match(extractFunction('uploadCurrentImage'), /clearUnsavedEdit\(selected\);\s*closeModal\(true\);/, 'a saved upload clears the kept text');
+assert.match(extractFunction('openEditor'), /\$\("editModal"\)\.classList\.remove\("hidden"\);\s*restoreUnsavedEdit\(\);/, 'reopening the same field restores kept text');
+assert.match(extractFunction('selectPage'), /readUnsavedEdit\(selected\)/, 'opening a page says it has kept text');
+for (const id of ['closeModalBtn', 'cancelBtn']) assert.match(html, new RegExp(`\\$\\("${id}"\\)\\.addEventListener\\("click", dismissEditModal\\);`), `${id} keeps text while expired`);
+assert.match(html, /\$\("editForm"\)\.addEventListener\("input", scheduleUnsavedEditStash\);/, 'typing is kept (debounced)');
+assert.ok(!/password/i.test(extractFunction('unsavedEditInputs')), 'passwords are never kept');
 
 const msgDecl = html.match(/const SESSION_EXPIRED_MESSAGE = "[^"]*";/)[0];
-const source = ['api', 'showSessionExpired', 'hideSessionExpired', 'staffLogin', 'loadPages', 'setStatus'].map(extractFunction).join('\n');
+const source = ['api', 'showSessionExpired', 'sessionExpiredShown', 'hideSessionExpired', 'staffLogin', 'storeStaffToken',
+  'afterTokenRenewed', 'requestStudioToken', 'readStudioTokenMessage', 'isJwtShape', 'unsavedEditKey', 'unsavedEditInputs',
+  'editTarget', 'sameEditTarget', 'stashUnsavedEdit', 'scheduleUnsavedEditStash', 'readUnsavedEdit', 'clearUnsavedEdit',
+  'restoreUnsavedEdit', 'noteBlockedSave', 'retryBlockedSave', 'dismissEditModal', 'loadPages', 'setStatus'].map(extractFunction).join('\n');
+const tokenMsgDecl = html.match(/const STUDIO_TOKEN_MESSAGE = \{[^}]*\};/)[0];
+const prefixDecl = html.match(/const UNSAVED_EDIT_PREFIX = "[^"]*";/)[0];
 
 function el(id) {
   const classes = new Set();
@@ -59,7 +82,10 @@ function el(id) {
   };
 }
 
-function makeCtx({ status, stored = 'jwt.a.b', selectedPage = { id: 'draft-1' }, inEditor = true, loginStatus = 200 }) {
+const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
+const JWT = `${b64({ alg: 'HS256' })}.${b64({ user_id: 9 })}.c2ln`;
+
+function makeCtx({ status, stored = 'jwt.a.b', selectedPage = { id: 'draft-1' }, inEditor = true, loginStatus = 200, framed = true }) {
   const els = new Map();
   const $ = (id) => { if (!els.has(id)) els.set(id, el(id)); return els.get(id); };
   $('sessionExpiredBanner').classList.add('hidden');
@@ -79,7 +105,14 @@ function makeCtx({ status, stored = 'jwt.a.b', selectedPage = { id: 'draft-1' },
       return { ok: status < 400, status, json: async () => (status === 401 ? { error: 'unauthorized' } : { pages: [] }) };
     },
     sessionStorage: { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)), removeItem: (k) => store.delete(k) },
+    timers: [], submits: 0, toParent: [],
+    setTimeout: (fn) => { ctx.timers.push(fn); return ctx.timers.length; }, clearTimeout: () => {},
+    location: { origin: 'http://127.0.0.1:8790' },
   };
+  const win = { postMessage() {}, __listeners: {}, addEventListener(type, fn) { this.__listeners[type] = fn; } };
+  win.parent = framed ? { postMessage: (msg, origin) => ctx.toParent.push({ msg, origin }) } : win;
+  ctx.window = win;
+  $('editForm').requestSubmit = () => { ctx.submits += 1; };
   vm.createContext(ctx);
   vm.runInContext(`const tokenKey = "otra_admin_token"; ${msgDecl}
     var token = sessionStorage.getItem(tokenKey) || "";
@@ -90,10 +123,18 @@ function makeCtx({ status, stored = 'jwt.a.b', selectedPage = { id: 'draft-1' },
     function resolveEditPageId() { return ""; } function clearEditParam() {}
     function renderPageSelectOptions() {} async function selectPage() {}
     var logoutCalls = 0, bootCalls = 0, closeModalCalls = 0;
-    function logout() { logoutCalls += 1; } async function boot() { bootCalls += 1; } function closeModal() { closeModalCalls += 1; }
+    function logout() { logoutCalls += 1; } async function boot() { bootCalls += 1; } function closeModal() { closeModalCalls += 1; $("editModal").classList.add("hidden"); }
+    function overrideIdForPage(page) { return page ? String(page.id) : ""; } function showImage() {}
+    var modalMode = "text", activeField = { key: "text:#evBody" }, mediaUploadBusy = false;
+    ${tokenMsgDecl} ${prefixDecl} let unsavedEditTimer = null; let blockedSave = null;
     ${source}
     ${bannerHandler[0]}
+    ${messageHandler[0]}
     this.api = api; this.loadPages = loadPages; this.getToken = () => token;
+    this.noteBlockedSave = noteBlockedSave; this.dismissEditModal = dismissEditModal; this.restoreUnsavedEdit = restoreUnsavedEdit;
+    this.scheduleUnsavedEditStash = scheduleUnsavedEditStash; this.clearSelectedUnsaved = () => clearUnsavedEdit(selected);
+    this.setField = (mode, key) => { modalMode = mode; activeField = key ? { key } : null; };
+    this.getBlocked = () => blockedSave;
     this.counts = () => ({ logoutCalls, bootCalls, closeModalCalls });`, ctx);
   return ctx;
 }
@@ -217,6 +258,133 @@ for (const loginStatus of [401, 502]) {
   await submitBanner(ctx);
   const header = vm.runInContext('authHeaders().authorization', ctx);
   assert.equal(header, 'Bearer jwt.fresh.c', 'retry save sends the new token');
+  checked += 1;
+}
+
+// 9. A save refused by expiry is retried once, automatically, after the
+//    banner sign in; a later token does not resubmit again.
+{
+  const ctx = makeCtx({ status: 401 });
+  await assert.rejects(ctx.api('/admin/api/overrides?id=draft-1', { method: 'PUT' }));
+  ctx.noteBlockedSave();
+  assert.ok(ctx.store.get('otra_admin_unsaved:draft-1'), 'blocked save text kept at once');
+  ctx.$('sessionExpiredEmail').value = 'bot@example.test';
+  ctx.$('sessionExpiredPassword').value = 'pw';
+  await submitBanner(ctx);
+  assert.equal(ctx.submits, 1, 'blocked save retried once');
+  assert.match(ctx.$('status').textContent, /Saving your edits/);
+  assert.equal(ctx.getBlocked(), null);
+  assert.equal(ctx.$('description').value, 'typed but not saved');
+  await submitBanner(ctx);
+  assert.equal(ctx.submits, 1, 'no second automatic retry');
+  assert.deepEqual({ ...ctx.counts() }, { logoutCalls: 0, bootCalls: 0, closeModalCalls: 0 });
+  checked += 1;
+}
+
+// 10. No retry when the dialog was closed or another field is open.
+{
+  const ctx = makeCtx({ status: 401 });
+  await assert.rejects(ctx.api('/admin/api/overrides?id=draft-1', { method: 'PUT' }));
+  ctx.noteBlockedSave();
+  ctx.setField('image', 'image:#hero');
+  ctx.$('sessionExpiredEmail').value = 'bot@example.test';
+  ctx.$('sessionExpiredPassword').value = 'pw';
+  await submitBanner(ctx);
+  assert.equal(ctx.submits, 0, 'different field is not resubmitted');
+  assert.match(ctx.$('status').textContent, /Save again/);
+  checked += 1;
+}
+
+// 11. Studio postMessage token: applied without wiping, retries the save,
+//     acknowledged; other senders and shapes ignored.
+{
+  const ctx = makeCtx({ status: 401 });
+  await assert.rejects(ctx.api('/admin/api/overrides?id=draft-1', { method: 'PUT' }));
+  assert.deepEqual(JSON.parse(JSON.stringify(ctx.toParent.map((m) => m.msg))), [{ source: 'otra-tickets', type: 'otra_admin_token_request' }], 'expiry asks the Studio parent for a token');
+  ctx.noteBlockedSave();
+  const fire = (event) => ctx.window.__listeners.message(event);
+  const parent = ctx.window.parent;
+  const good = { source: 'otra-studio', type: 'otra_admin_token', token: JWT };
+  const acks = [];
+  const reply = { postMessage: (msg, origin) => acks.push({ msg, origin }) };
+  // Ignored: wrong sender, wrong shape, not a JWT.
+  fire({ source: { postMessage() {} }, origin: 'https://evil.test', data: good });
+  fire({ source: parent, origin: 'https://calendar.test', data: { type: 'otra_admin_token', token: JWT } });
+  fire({ source: parent, origin: 'https://calendar.test', data: { ...good, token: 'not a jwt' } });
+  fire({ source: parent, origin: 'https://calendar.test', data: 'otra_admin_token ' + JWT });
+  assert.equal(ctx.getToken(), 'jwt.a.b', 'ignored messages leave the token');
+  assert.equal(bannerShown(ctx), true);
+  // Accepted from the framing parent.
+  parent.postMessage = reply.postMessage;
+  fire({ source: parent, origin: 'https://calendar.test', data: good });
+  assert.equal(ctx.getToken(), JWT, 'memory token from postMessage');
+  assert.equal(ctx.store.get('otra_admin_token'), JWT, 'sessionStorage token from postMessage');
+  assert.equal(bannerShown(ctx), false, 'banner cleared');
+  assert.equal(ctx.$('description').value, 'typed but not saved', 'typed value kept');
+  assert.equal(ctx.$('editModal').classList.contains('hidden'), false, 'dialog still open');
+  assert.equal(ctx.submits, 1, 'blocked save retried with the new token');
+  assert.deepEqual({ ...ctx.counts() }, { logoutCalls: 0, bootCalls: 0, closeModalCalls: 0 });
+  assert.deepEqual(JSON.parse(JSON.stringify(acks)), [{ msg: { source: 'otra-tickets', type: 'otra_admin_token_applied' }, origin: 'https://calendar.test' }], 'ack sent to the sender origin');
+  checked += 1;
+}
+
+// 12. Not framed: only this window itself (same origin) may post a token.
+{
+  const ctx = makeCtx({ status: 401, framed: false });
+  const fire = (event) => ctx.window.__listeners.message(event);
+  fire({ source: { postMessage() {} }, origin: 'https://evil.test', data: { source: 'otra-studio', type: 'otra_admin_token', token: JWT } });
+  assert.equal(ctx.getToken(), 'jwt.a.b');
+  fire({ source: ctx.window, origin: 'http://127.0.0.1:8790', data: { source: 'otra-studio', type: 'otra_admin_token', token: JWT } });
+  assert.equal(ctx.getToken(), JWT);
+  await assert.rejects(ctx.api('/admin/api/overrides?id=draft-1', { method: 'PUT' }));
+  assert.equal(ctx.toParent.length, 0, 'no token request when not framed');
+  checked += 1;
+}
+
+// 13. Typed text kept per page (debounced), never the password; Cancel while
+//     expired keeps it, reopening the same field restores it, a successful
+//     save or a Cancel while signed in clears it.
+{
+  const ctx = makeCtx({ status: 401 });
+  ctx.$('sessionExpiredPassword').value = 'secret-pw';
+  ctx.$('description').value = 'my long new text';
+  ctx.scheduleUnsavedEditStash();
+  assert.equal(ctx.store.get('otra_admin_unsaved:draft-1'), undefined, 'debounced, nothing yet');
+  ctx.timers.at(-1)();
+  const kept = JSON.parse(ctx.store.get('otra_admin_unsaved:draft-1'));
+  assert.equal(kept.values.description, 'my long new text');
+  assert.equal(kept.mode, 'text');
+  assert.equal(kept.fieldKey, 'text:#evBody');
+  assert.ok(!ctx.store.get('otra_admin_unsaved:draft-1').includes('secret-pw'), 'password never kept');
+  await assert.rejects(ctx.api('/admin/api/overrides?id=draft-1', { method: 'PUT' }));
+  ctx.dismissEditModal();
+  assert.equal(ctx.$('editModal').classList.contains('hidden'), true, 'Cancel closed the dialog');
+  assert.ok(ctx.store.get('otra_admin_unsaved:draft-1'), 'Cancel while expired keeps the text');
+  // Reopen same field after sign in or reload: openEditor fills the saved
+  // value, then restoreUnsavedEdit puts the typed text back.
+  ctx.$('editModal').classList.remove('hidden');
+  ctx.$('description').value = 'server text';
+  assert.equal(ctx.restoreUnsavedEdit(), true);
+  assert.equal(ctx.$('description').value, 'my long new text', 'typed text restored');
+  assert.match(ctx.$('status').textContent, /Restored/);
+  // Another field on the page is not overwritten.
+  ctx.setField('text', 'text:#evTitle');
+  ctx.$('description').value = 'title text';
+  assert.equal(ctx.restoreUnsavedEdit(), false);
+  assert.equal(ctx.$('description').value, 'title text');
+  // Successful save clears it.
+  ctx.clearSelectedUnsaved();
+  assert.equal(ctx.store.get('otra_admin_unsaved:draft-1'), undefined, 'cleared after save');
+  checked += 1;
+}
+{
+  const ctx = makeCtx({ status: 200 });
+  ctx.$('description').value = 'draft text';
+  ctx.scheduleUnsavedEditStash();
+  ctx.timers.at(-1)();
+  assert.ok(ctx.store.get('otra_admin_unsaved:draft-1'));
+  ctx.dismissEditModal();
+  assert.equal(ctx.store.get('otra_admin_unsaved:draft-1'), undefined, 'Cancel while signed in discards');
   checked += 1;
 }
 

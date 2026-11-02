@@ -21,7 +21,7 @@ function extractFunction(name) {
   throw new Error(`${name} not closed`);
 }
 
-const names = ['isJwtShape', 'readStudioHandoffToken', 'stripStudioHandoffFromUrl', 'consumeStudioHandoff', 'readEditParam'];
+const names = ['isJwtShape', 'readStudioHandoffToken', 'stripStudioHandoffFromUrl', 'storeStaffToken', 'consumeStudioHandoff', 'readEditParam'];
 const source = names.map(extractFunction).join('\n');
 const keysDecl = html.match(/const STUDIO_HANDOFF_KEYS = \[[^\]]*\];/);
 assert.ok(keysDecl, 'STUDIO_HANDOFF_KEYS declared');

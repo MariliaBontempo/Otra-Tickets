@@ -249,6 +249,7 @@ async function runUploadScenario({ file, activeField, optimizedFile, holdPipelin
     },
     persistCurrentOverride: async () => { calls.persistCurrent += 1; },
     closeModal: () => { calls.closeModal += 1; },
+    clearUnsavedEdit: () => {},
     refreshPreview: () => { calls.refreshPreview += 1; },
     hideUploadProgress: () => { calls.hideProgress += 1; },
   };
