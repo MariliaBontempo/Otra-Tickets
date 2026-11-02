@@ -720,15 +720,22 @@ async function createDraftFromExistingEvent(context, accessToken, project, event
   }));
   if (!rates.length) throw new Error("selected Otra Guide event has no ticket types");
 
+  // A blank Studio clone keeps the template's rates heading (the blank shell
+  // already carries it); rates still come from the Guide tickets. Normal
+  // admin binds keep today's "Tickets from Otra Guide" heading.
+  const design = project.claudeDesign || {};
+  const keepTemplateRatesTitle =
+    project.blankOtOnlyFields === true && typeof design.ratesTitle === "string" && design.ratesTitle.trim() !== "";
+
   return {
     ...project,
     title: detail.title || project.title,
     description: detail.description || project.description,
     image: detail.full_web_image_url || detail.half_web_image_url || detail.card_image_url || project.image,
     claudeDesign: {
-      ...(project.claudeDesign || {}),
+      ...design,
       rates,
-      ratesTitle: "Tickets from Otra Guide",
+      ratesTitle: keepTemplateRatesTitle ? design.ratesTitle : "Tickets from Otra Guide",
     },
     teamId: cleanInteger(detail.team && detail.team.id),
     teamName: detail.team && detail.team.name ? detail.team.name : project.teamName,

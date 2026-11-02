@@ -170,6 +170,8 @@ try {
     assert.equal(p.blankOtOnlyFields, true);
     assertBlankDesign(p.claudeDesign, 'studio clone', { bound: true });
     assert.equal(p.claudeDesign.rates[0].price, '25.00', 'rates come from the bound Guide event');
+    assert.equal(p.claudeDesign.ratesTitle, 'Rates', 'blank bind keeps the template ratesTitle');
+    assert.notEqual(p.claudeDesign.ratesTitle, 'Tickets from Otra Guide', 'blank bind never overwrites ratesTitle');
     const doc = JSON.parse(kv.values.get(`event:${p.id}`));
     assert.deepEqual(doc, { accentColor: '#aa3366', id: p.id }, 'only accent color survives; no fields, video, story or hides');
     const stored = JSON.parse(kv.values.get(`site-event:${p.id}`));
@@ -213,6 +215,7 @@ try {
     assert.equal(p.claudeDesign.displayTitle, 'Sunday Social Club', 'default bind keeps the source displayTitle (no design sync)');
     assert.equal(p.claudeDesign.description, 'Old story paragraph.', 'default bind keeps the source design description');
     assert.equal(p.claudeDesign.image, '/override-images/x/hero.jpg', 'default bind keeps the source design image');
+    assert.equal(p.claudeDesign.ratesTitle, 'Tickets from Otra Guide', 'default bind keeps today\'s rates heading');
     const doc = JSON.parse(kv.values.get(`event:${p.id}`));
     assert.equal(doc.id, p.id);
     assert.equal(doc.fields['text:#evStoryText'].value, 'Override story text', 'default clone copies override fields');
@@ -286,7 +289,18 @@ try {
     checked += 1;
   }
 
-  // 9. Unknown source.
+  // 9. Blank bind with a template that has no ratesTitle: today's heading.
+  {
+    const design = fullDesign();
+    delete design.ratesTitle;
+    const kv = memoryKV({ [`site-event:${SOURCE_ID}`]: sourceProject({ claudeDesign: design }) });
+    const { status, data } = await clone({ kv, body: studioBody({ blankOtOnlyFields: true }) });
+    assert.equal(status, 201);
+    assert.equal(data.project.claudeDesign.ratesTitle, 'Tickets from Otra Guide', 'no template heading falls back to today');
+    checked += 1;
+  }
+
+  // 10. Unknown source.
   {
     const kv = memoryKV();
     const r = await clone({ kv, id: 'draft-0-deadbeef', body: studioBody({ blankOtOnlyFields: true }) });

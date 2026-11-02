@@ -19,7 +19,7 @@ function extractFunction(name) {
   throw new Error(`${name} not closed`);
 }
 
-const names = ['readEditParam', 'resolveEditPageId', 'clearEditParam', 'openEditDeepLink', 'loadPages', 'boot'];
+const names = ['readEditParam', 'resolveEditPageId', 'clearEditParam', 'openEditDeepLink', 'loadPages', 'boot', 'hideSessionExpired'];
 const source = names.map(extractFunction).join('\n');
 
 assert.match(html, /let pendingEditId = readEditParam\(location\.search\);/, 'edit param read on load');

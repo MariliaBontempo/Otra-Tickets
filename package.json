@@ -26,6 +26,7 @@
     "check:clone-blank-ot-only": "node scripts/check-clone-blank-ot-only-fields.mjs",
     "check:admin-edit-deep-link": "node scripts/check-admin-edit-deep-link.mjs",
     "check:admin-studio-handoff": "node scripts/check-admin-studio-handoff.mjs",
+    "check:admin-session-expired": "node scripts/check-admin-session-expired.mjs",
     "check:homepage-hero": "node scripts/check-homepage-hero-image.mjs",
     "check:homepage-title": "node scripts/check-homepage-card-title.mjs",
     "check:overrides": "node scripts/check-overrides-idempotent.mjs",

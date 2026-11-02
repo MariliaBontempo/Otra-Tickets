@@ -340,6 +340,8 @@
   .status.error { color: var(--danger); }
   .status.ok { color: var(--ok); }
   .hidden { display: none !important; }
+  .session-expired { position: sticky; top: 0; z-index: 1000; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 14px; background: #fff4e5; color: #7a3e00; border-bottom: 1px solid #f0c27a; font-size: 14px; }
+  .session-expired strong { font-weight: 700; }
 
   .modal-backdrop {
     position: fixed;
@@ -574,6 +576,10 @@
 </style>
 </head>
 <body>
+  <div class="session-expired hidden" id="sessionExpiredBanner" role="alert">
+    <span><strong>Session expired.</strong> Nothing was saved. Your edits are still on screen: copy them, or reopen the editor from Studio to get a new sign in, then save again.</span>
+    <button class="btn ghost" id="sessionExpiredSignInBtn" type="button">Sign in again</button>
+  </div>
   <section class="login" id="loginView">
     <form class="login-box stack" id="loginForm">
       <div class="stack" style="gap:8px">
@@ -1116,12 +1122,43 @@
     const resp = await fetch(path, options);
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) {
-      const error = new Error(data.error || "Request failed");
+      // 401 on a signed in call means the staff token expired. Keep the
+      // editor and every typed value on screen; only show the banner.
+      const expired = resp.status === 401 && !!token && path !== "/admin/api/login";
+      const error = new Error(expired ? SESSION_EXPIRED_MESSAGE : data.error || "Request failed");
       error.data = data;
+      error.status = resp.status;
+      error.sessionExpired = expired;
+      if (expired) showSessionExpired();
       throw error;
     }
     return data;
   }
+
+  const SESSION_EXPIRED_MESSAGE = "Session expired. Nothing was saved; your edits are still on screen.";
+
+  // Never clears the token, the views or the form fields: staff can copy
+  // what they typed, or get a fresh Studio token and save again.
+  function showSessionExpired() {
+    $("sessionExpiredBanner").classList.remove("hidden");
+  }
+
+  function hideSessionExpired() {
+    $("sessionExpiredBanner").classList.add("hidden");
+  }
+
+  $("sessionExpiredSignInBtn").addEventListener("click", () => {
+    if (!confirm("Sign in again? Unsaved edits on screen will be lost. Copy them first if you need them.")) return;
+    logout();
+  });
+
+  // Studio can hand a fresh token by changing only the iframe hash, which
+  // does not reload the page, so the typed edits stay and can be saved.
+  window.addEventListener("hashchange", () => {
+    if (!consumeStudioHandoff()) return;
+    hideSessionExpired();
+    setStatus("Session renewed. Save again to keep your edits.", "ok");
+  });
 
   $("loginForm").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -1136,6 +1173,7 @@
         body: JSON.stringify({ email: $("email").value, password: $("password").value }),
       });
       token = data.token;
+      hideSessionExpired();
       sessionStorage.setItem(tokenKey, token);
       await boot();
     } catch (err) {
@@ -1153,6 +1191,7 @@
   });
 
   function logout() {
+    hideSessionExpired();
     sessionStorage.removeItem(tokenKey);
     token = "";
     $("historyPanel").classList.add("hidden");
@@ -2586,6 +2625,13 @@
         setStatus("No editable pages found.", "error");
       }
     } catch (err) {
+      // A reload after a save hit an expired token while a page is open in
+      // the editor: keep the editor as is (banner already shown).
+      if (err && err.sessionExpired && selected && !appView.classList.contains("hidden")) {
+        setStatus(err.message, "error");
+        return;
+      }
+      hideSessionExpired();
       sessionStorage.removeItem(tokenKey);
       token = "";
       appView.classList.add("hidden");
