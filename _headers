@@ -10,7 +10,12 @@
 # Private admin interface: keep it out of search and answer-engine indexes.
 # Only Otra Guide Studio (prod and local http on any port) or the admin
 # itself may frame it; staging and dev hosts are left out on purpose.
+# "/admin" (no slash) is listed too: the production server serves the real
+# admin app there (directory index), and "/admin/*" does not match it.
 /admin/*
+  X-Robots-Tag: noindex, nofollow
+  Content-Security-Policy: frame-ancestors 'self' https://otraguide.com https://www.otraguide.com http://localhost:* http://127.0.0.1:*
+/admin
   X-Robots-Tag: noindex, nofollow
   Content-Security-Policy: frame-ancestors 'self' https://otraguide.com https://www.otraguide.com http://localhost:* http://127.0.0.1:*
 

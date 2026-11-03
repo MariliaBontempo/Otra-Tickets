@@ -60,8 +60,11 @@ export function createAssets(distDir, headersFile) {
       if (!existsSync(file) && !extname(file)) file = file + ".html"; // /event -> event.html
       if (!existsSync(file) || !statSync(file).isFile()) return new Response("Not Found", { status: 404 });
       const headers = new Headers({ "content-type": MIME[extname(file).toLowerCase()] || "application/octet-stream" });
+      // Match header rules on the same normalized path used to pick the file,
+      // so "//admin/" or "/./admin/" get the rules of the file they serve.
+      const rulePath = "/" + rel;
       for (const rule of rules)
-        if (matches(rule.pattern, pathname))
+        if (matches(rule.pattern, rulePath))
           for (const [k, v] of rule.headers) headers.set(k, v);
       return new Response(Readable.toWeb(createReadStream(file)), { status: 200, headers });
     },

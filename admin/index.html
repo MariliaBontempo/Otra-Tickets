@@ -1282,10 +1282,13 @@
   // (captured when Save was pressed, not when the 401 came back), so a new
   // token can retry that same submit once. Text typed while the request was
   // in flight differs from the snapshot and therefore needs a manual Save.
-  function noteBlockedSave(submittedValues) {
+  // The dialog (page, mode, field) is also the one captured at Save press,
+  // so closing it and opening another field mid request never retargets it.
+  function noteBlockedSave(submittedValues, submittedTarget) {
     stashUnsavedEdit();
     const values = submittedValues && typeof submittedValues === "object" ? submittedValues : null;
-    blockedSave = Object.assign(editTarget(), { values });
+    const target = submittedTarget && typeof submittedTarget === "object" ? submittedTarget : null;
+    blockedSave = target ? Object.assign({}, target, { values }) : null;
   }
 
   function imageFileChosen() {
@@ -2444,6 +2447,7 @@
     if (!selected) return;
     // Exactly what this Save sends; a retry after re-auth may only resend this.
     const submittedValues = dialogValues();
+    const submittedTarget = editTarget();
     if (modalMode === "rename") {
       const name = $("description").value.trim();
       if (!name) return setStatus("Name is required.", "error");
@@ -2462,7 +2466,7 @@
         setStatus(`Draft renamed to "${data.project.title}".`, "ok");
         await loadPages(selected.id);
       } catch (err) {
-        if (err.sessionExpired) noteBlockedSave(submittedValues);
+        if (err.sessionExpired) noteBlockedSave(submittedValues, submittedTarget);
         setStatus(err.message, "error");
       } finally {
         $("saveBtn").disabled = false;
@@ -2491,7 +2495,7 @@
       await maybeSyncTicketPrice(savedField, savedValue);
       await maybeSyncEventDate(savedField, savedValue);
     } catch (err) {
-      if (err.sessionExpired && !overrideSaved) noteBlockedSave(submittedValues);
+      if (err.sessionExpired && !overrideSaved) noteBlockedSave(submittedValues, submittedTarget);
       setStatus(err.sessionExpired && overrideSaved
         ? "Text saved, but the session expired before the ticket price or date could update. Sign in, then save this field again."
         : err.message, "error");

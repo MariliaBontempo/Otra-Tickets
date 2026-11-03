@@ -53,9 +53,9 @@ assert.ok(hashHandler && /afterTokenRenewed\(\)/.test(hashHandler[0]), 'hash tok
 assert.ok(!/addEventListener\("message"|postMessage\(|otra_admin_token_|STUDIO_TOKEN_/.test(html), 'no postMessage token path in this ship (hash only)');
 assert.ok(!/logout\(|boot\(|closeModal\(|reload\(/.test(hashHandler[0] + extractFunction('afterTokenRenewed')), 'token refresh never wipes the editor');
 const submitHandler = html.match(/\$\("editForm"\)\.addEventListener\("submit", async \(e\) => \{[\s\S]*?\n  \}\);/)[0];
-assert.equal((submitHandler.match(/if \(err\.sessionExpired\) noteBlockedSave\(submittedValues\);/g) || []).length, 1, 'rename remembers a save refused by expiry');
-assert.equal((submitHandler.match(/if \(err\.sessionExpired && !overrideSaved\) noteBlockedSave\(submittedValues\);/g) || []).length, 1, 'field save remembers only a refused override save, never a 401 on the later price/date sync');
-assert.match(submitHandler, /if \(!selected\) return;\s*\/\/[^\n]*\n\s*const submittedValues = dialogValues\(\);/, 'values snapshotted when Save is pressed, before any request');
+assert.equal((submitHandler.match(/if \(err\.sessionExpired\) noteBlockedSave\(submittedValues, submittedTarget\);/g) || []).length, 1, 'rename remembers a save refused by expiry');
+assert.equal((submitHandler.match(/if \(err\.sessionExpired && !overrideSaved\) noteBlockedSave\(submittedValues, submittedTarget\);/g) || []).length, 1, 'field save remembers only a refused override save, never a 401 on the later price/date sync');
+assert.match(submitHandler, /if \(!selected\) return;\s*\/\/[^\n]*\n\s*const submittedValues = dialogValues\(\);\s*const submittedTarget = editTarget\(\);/, 'values and dialog snapshotted when Save is pressed, before any request');
 assert.match(html, /removeVideoFields\(next, activeKey\)\);\s*clearBlockedSave\(\);/, 'Remove video success clears a leftover blocked save');
 assert.ok(!/Nothing was saved/.test(html.match(/id="sessionExpiredBanner"[\s\S]{0,400}/)[0]), 'banner does not claim nothing was saved (a sync 401 can follow a saved override)');
 assert.match(submitHandler, /await persistCurrentOverride\(\);\s*overrideSaved = true;/, 'override marked saved before the price/date sync');
@@ -134,7 +134,7 @@ function makeCtx({ status, stored = 'jwt.a.b', selectedPage = { id: 'draft-1' },
     ${source}
     ${bannerHandler[0]}
     this.api = api; this.loadPages = loadPages; this.getToken = () => token;
-    const realNoteBlockedSave = noteBlockedSave; this.noteBlockedSave = (v) => realNoteBlockedSave(v === undefined ? dialogValues() : v); this.dialogValues = dialogValues; this.dismissEditModal = dismissEditModal; this.restoreUnsavedEdit = restoreUnsavedEdit;
+    const realNoteBlockedSave = noteBlockedSave; this.noteBlockedSave = (v, t) => realNoteBlockedSave(v === undefined ? dialogValues() : v, t === undefined ? editTarget() : t); this.editTarget = editTarget; this.dialogValues = dialogValues; this.dismissEditModal = dismissEditModal; this.restoreUnsavedEdit = restoreUnsavedEdit;
     this.scheduleUnsavedEditStash = scheduleUnsavedEditStash; this.clearSelectedUnsaved = () => clearUnsavedEdit(selected);
     this.setField = (mode, key) => { modalMode = mode; activeField = key ? { key } : null; };
     this.getBlocked = () => blockedSave; this.clearBlockedSave = clearBlockedSave; this.retryBlockedSave = retryBlockedSave;
@@ -397,6 +397,29 @@ async function signInFromBanner(ctx) {
   ctx.noteBlockedSave(submitted);
   await signInFromBanner(ctx);
   assert.equal(ctx.submits, 1);
+  checked += 1;
+}
+{
+  // Save pressed on one field, dialog switched to another field with the
+  // same text during the request: the retry stays bound to the first field
+  // and does not submit the second.
+  const ctx = makeCtx({ status: 401 });
+  ctx.$('description').value = '$50';
+  const submitted = ctx.dialogValues();
+  const target = ctx.editTarget();
+  ctx.setField('text', 'text:#evPrice');
+  await assert.rejects(ctx.api('/admin/api/overrides?id=draft-1', { method: 'PUT' }));
+  ctx.noteBlockedSave(submitted, target);
+  assert.equal(ctx.getBlocked().fieldKey, 'text:#evBody', 'target is the field Save was pressed on');
+  await signInFromBanner(ctx);
+  assert.equal(ctx.submits, 0, 'another field is never auto submitted');
+  checked += 1;
+}
+{
+  // No captured dialog: never retried.
+  const ctx = makeCtx({ status: 401 });
+  ctx.noteBlockedSave(ctx.dialogValues(), null);
+  assert.equal(ctx.getBlocked(), null);
   checked += 1;
 }
 {
