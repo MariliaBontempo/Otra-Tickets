@@ -1,27 +1,28 @@
-// Held tiers that open only once other tiers sell out (the Kaya Kaya way:
-// quantity sold out -> next tier, no manual switch).
+// Held tiers that stay off the page until Guide itself starts selling them.
 //
 // Strange Bird Saturday 28 Nov (Guide 8270): Flight 3 stays off sale until
-// Flight 1 AND Flight 2 have no sellable tickets left. Calendar applies the
-// same rule to the checkout embed from the same live Guide feed; nothing is
-// shared between the two sides but that feed.
+// Flight 1 AND Flight 2 sell out. Calendar owns that rule (PR #1828): Guide's
+// sale list holds Flight 3 (types 543/544/549) back until the Flight 1 pool
+// (538) and the Flight 2 pool (541) are sold out, so the checkout embed does
+// not offer it and a direct purchase is rejected.
 //
-// Same predicate as Calendar's Kaya style release (TicketType
-// release_after_sold_out / release_after_pools_sold_out): Flight 3 (top level
-// type 543) releases after the Flight 1 pool (parent 538) and the Flight 2
-// pool (parent 541) are sold out. Tiers 539/547 and 542/548 sell from those
-// parent pools; a Regular that is not active yet does not sell.
+// Release signal (agreed with Calendar): a Flight 3 tier appears in the live
+// public feed GET /api/ticket/purchase/tickets/8270/. OT does not judge sold
+// out itself. remaining_quantity on Flight 1/Flight 2 is NOT a release
+// signal: once the parent sale window closes on 13 Nov it can read 0 while
+// Flight 3 must stay held, which would show Flight 3 rate cards the checkout
+// cannot sell. Guide is the source of truth: whatever it lists, the page shows.
 
 export const FLIGHT_RELEASE_GATES = Object.freeze({
   "8270": Object.freeze({
-    // Parent 543, Early Bird 544, Regular 549. Matched by name because the
-    // page payload carries names only (Guide feed and site design rates).
-    held: Object.freeze({ label: "Flight 3", namePattern: /^\s*flight\s*3(?!\d)/i }),
-    releaseWhenSoldOut: Object.freeze([
-      // Parent pool first, then the tiers that sell from it.
-      Object.freeze({ label: "Flight 1", parentPool: 538, ticketTypeIds: Object.freeze([538, 539, 547]) }),
-      Object.freeze({ label: "Flight 2", parentPool: 541, ticketTypeIds: Object.freeze([541, 542, 548]) }),
-    ]),
+    // Parent 543, Early Bird 544, Regular 549. The page payload carries
+    // names only (Guide feed tickets and site design rates), so hiding goes
+    // by name; the release check also accepts these ids.
+    held: Object.freeze({
+      label: "Flight 3",
+      namePattern: /^\s*flight\s*3(?!\d)/i,
+      ticketTypeIds: Object.freeze([543, 544, 549]),
+    }),
   }),
 });
 
@@ -30,40 +31,27 @@ export function flightReleaseGate(guideEventId) {
   return Object.prototype.hasOwnProperty.call(FLIGHT_RELEASE_GATES, key) ? FLIGHT_RELEASE_GATES[key] : null;
 }
 
-// Sellable tickets left in one group, from the public Guide ticket feed: the
-// group's paid ticket types that the feed lists. Guide lists only active,
-// released types, and it opens a tier by its parent's window, not the tier's
-// own dates, so a listed paid tier counts whatever its own sale dates say (an
-// Early Bird past its own end while its parent is still open is still stock).
-// A tier sells from its parent's pool, so a tier counts when its id or its
-// parent's id is in the group. A Regular that is not active is not listed and
-// does not count.
-// null means unknown (the caller keeps the held tier hidden): a malformed row,
-// a price that is not a number, or a remaining count that is not a number.
-// This is the one place the sold out rule lives; swap it here if Calendar
-// exposes a named field for it.
-export function groupSellableRemaining(feed, group) {
-  if (!feed || !Array.isArray(feed.results)) return null;
-  const ids = new Set(group.ticketTypeIds.map(Number));
-  let total = 0;
-  for (const t of feed.results) {
-    if (!t || typeof t !== "object") return null;
-    if (!ids.has(Number(t.id)) && !(t.parent_ticket_type != null && ids.has(Number(t.parent_ticket_type)))) continue;
-    const price = typeof t.price === "string" && t.price.trim() !== "" ? Number(t.price) : t.price;
-    if (typeof price !== "number" || !Number.isFinite(price)) return null;
-    if (!(price > 0)) continue;
-    const left = t.remaining_quantity;
-    if (typeof left !== "number" || !Number.isFinite(left)) return null;
-    total += Math.max(0, left);
-  }
-  return total;
+function paidPrice(price) {
+  const n = typeof price === "string" && price.trim() !== "" ? Number(price) : price;
+  return typeof n === "number" && Number.isFinite(n) && n > 0;
 }
 
-// True only when the feed is live and every group it waits on is sold out.
+// One feed row is a sellable held tier: a paid row named like the held tier,
+// or carrying one of its ids (as id or parent).
+function feedRowIsHeldTier(gate, row) {
+  if (!row || typeof row !== "object") return false;
+  const ids = new Set(gate.held.ticketTypeIds.map(Number));
+  const byName = typeof row.name === "string" && gate.held.namePattern.test(row.name);
+  const byId = ids.has(Number(row.id)) || (row.parent_ticket_type != null && ids.has(Number(row.parent_ticket_type)));
+  return (byName || byId) && paidPrice(row.price);
+}
+
+// True only when the live Guide feed lists the held tier for sale. A missing,
+// failed, empty or unreadable feed keeps it held (fail closed).
 export function heldTierReleased(feed, gate) {
   if (!gate) return true;
   if (!feed || !Array.isArray(feed.results) || !feed.results.length) return false;
-  return gate.releaseWhenSoldOut.every((group) => groupSellableRemaining(feed, group) === 0);
+  return feed.results.some((row) => feedRowIsHeldTier(gate, row));
 }
 
 function isHeld(gate, item) {
