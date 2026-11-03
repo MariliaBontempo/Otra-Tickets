@@ -53,8 +53,11 @@ assert.ok(hashHandler && /afterTokenRenewed\(\)/.test(hashHandler[0]), 'hash tok
 assert.ok(!/addEventListener\("message"|postMessage\(|otra_admin_token_|STUDIO_TOKEN_/.test(html), 'no postMessage token path in this ship (hash only)');
 assert.ok(!/logout\(|boot\(|closeModal\(|reload\(/.test(hashHandler[0] + extractFunction('afterTokenRenewed')), 'token refresh never wipes the editor');
 const submitHandler = html.match(/\$\("editForm"\)\.addEventListener\("submit", async \(e\) => \{[\s\S]*?\n  \}\);/)[0];
-assert.equal((submitHandler.match(/if \(err\.sessionExpired\) noteBlockedSave\(\);/g) || []).length, 1, 'rename remembers a save refused by expiry');
-assert.equal((submitHandler.match(/if \(err\.sessionExpired && !overrideSaved\) noteBlockedSave\(\);/g) || []).length, 1, 'field save remembers only a refused override save, never a 401 on the later price/date sync');
+assert.equal((submitHandler.match(/if \(err\.sessionExpired\) noteBlockedSave\(submittedValues\);/g) || []).length, 1, 'rename remembers a save refused by expiry');
+assert.equal((submitHandler.match(/if \(err\.sessionExpired && !overrideSaved\) noteBlockedSave\(submittedValues\);/g) || []).length, 1, 'field save remembers only a refused override save, never a 401 on the later price/date sync');
+assert.match(submitHandler, /if \(!selected\) return;\s*\/\/[^\n]*\n\s*const submittedValues = dialogValues\(\);/, 'values snapshotted when Save is pressed, before any request');
+assert.match(html, /removeVideoFields\(next, activeKey\)\);\s*clearBlockedSave\(\);/, 'Remove video success clears a leftover blocked save');
+assert.ok(!/Nothing was saved/.test(html.match(/id="sessionExpiredBanner"[\s\S]{0,400}/)[0]), 'banner does not claim nothing was saved (a sync 401 can follow a saved override)');
 assert.match(submitHandler, /await persistCurrentOverride\(\);\s*overrideSaved = true;/, 'override marked saved before the price/date sync');
 assert.match(submitHandler, /Text saved, but the session expired before the ticket price or date could update/, 'sync 401 after a saved override does not say nothing was saved');
 assert.equal((submitHandler.match(/clearBlockedSave\(\);\s*clearUnsavedEdit\(selected\);\s*closeModal\(\);/g) || []).length, 2, 'a successful save clears a leftover blocked save, the banner and the kept text');
@@ -70,7 +73,7 @@ const msgDecl = html.match(/const SESSION_EXPIRED_MESSAGE = "[^"]*";/)[0];
 const source = ['api', 'showSessionExpired', 'sessionExpiredShown', 'hideSessionExpired', 'staffLogin', 'storeStaffToken',
   'afterTokenRenewed', 'unsavedEditKey', 'unsavedEditInputs',
   'editTarget', 'sameEditTarget', 'stashUnsavedEdit', 'scheduleUnsavedEditStash', 'readUnsavedEdit', 'clearUnsavedEdit',
-  'restoreUnsavedEdit', 'noteBlockedSave', 'imageFileChosen', 'retryBlockedSave', 'clearBlockedSave', 'dismissEditModal', 'loadPages', 'setStatus'].map(extractFunction).join('\n');
+  'restoreUnsavedEdit', 'dialogValues', 'noteBlockedSave', 'imageFileChosen', 'retryBlockedSave', 'clearBlockedSave', 'dismissEditModal', 'loadPages', 'setStatus'].map(extractFunction).join('\n');
 const prefixDecl = html.match(/const UNSAVED_EDIT_PREFIX = "[^"]*";/)[0];
 
 function el(id) {
@@ -131,7 +134,7 @@ function makeCtx({ status, stored = 'jwt.a.b', selectedPage = { id: 'draft-1' },
     ${source}
     ${bannerHandler[0]}
     this.api = api; this.loadPages = loadPages; this.getToken = () => token;
-    this.noteBlockedSave = noteBlockedSave; this.dismissEditModal = dismissEditModal; this.restoreUnsavedEdit = restoreUnsavedEdit;
+    const realNoteBlockedSave = noteBlockedSave; this.noteBlockedSave = (v) => realNoteBlockedSave(v === undefined ? dialogValues() : v); this.dialogValues = dialogValues; this.dismissEditModal = dismissEditModal; this.restoreUnsavedEdit = restoreUnsavedEdit;
     this.scheduleUnsavedEditStash = scheduleUnsavedEditStash; this.clearSelectedUnsaved = () => clearUnsavedEdit(selected);
     this.setField = (mode, key) => { modalMode = mode; activeField = key ? { key } : null; };
     this.getBlocked = () => blockedSave; this.clearBlockedSave = clearBlockedSave; this.retryBlockedSave = retryBlockedSave;
@@ -367,6 +370,33 @@ async function signInFromBanner(ctx) {
   assert.equal(bannerShown(ctx), false, 'successful save hides the stale banner');
   assert.equal(ctx.retryBlockedSave(), false);
   assert.equal(ctx.submits, 0, 'nothing resubmitted later');
+  checked += 1;
+}
+{
+  // Typed while the refused save was in flight: snapshot is from Save time,
+  // so the newer text differs and is not auto submitted.
+  const ctx = makeCtx({ status: 401 });
+  ctx.$('description').value = '$50';
+  const submitted = ctx.dialogValues();
+  ctx.$('description').value = '$500';
+  await assert.rejects(ctx.api('/admin/api/overrides?id=draft-1', { method: 'PUT' }));
+  ctx.noteBlockedSave(submitted);
+  assert.equal(ctx.getBlocked().values.description, '$50', 'snapshot is what Save sent');
+  await signInFromBanner(ctx);
+  assert.equal(ctx.submits, 0, 'text typed during the refused request is never auto submitted');
+  assert.equal(ctx.$('description').value, '$500', 'newer text kept on screen for a manual Save');
+  assert.match(ctx.$('status').textContent, /Save again/);
+  checked += 1;
+}
+{
+  // Typed during flight then put back to exactly what was sent: same request, retried once.
+  const ctx = makeCtx({ status: 401 });
+  ctx.$('description').value = '$50';
+  const submitted = ctx.dialogValues();
+  await assert.rejects(ctx.api('/admin/api/overrides?id=draft-1', { method: 'PUT' }));
+  ctx.noteBlockedSave(submitted);
+  await signInFromBanner(ctx);
+  assert.equal(ctx.submits, 1);
   checked += 1;
 }
 {
