@@ -10,6 +10,7 @@ import { mintFrozenSlug, liveSlugBase, persistedFrozenSlug } from "../../_lib/ev
 import { defaultUnlistedSlug, isUnlistedProject, pickUnlistedSlug, reservesUnlistedLink } from "../../_lib/unlisted.js";
 import { buildHomepageFeed, invalidatePublicFeed, snapshotEvents } from "../../_lib/homepage-feed.js";
 import { normalizeCloneSaleWindows, shiftCloneEventDay, toDay } from "../../_lib/clone-sale-windows.js";
+import { blankOtOnlyCloneOverride, blankOtOnlyCloneProjectFields, blankOtOnlyMappedDesignFromGuide, wantsBlankOtOnlyFields } from "../../_lib/clone-blank-ot-only.js";
 import { rewriteProjectDate } from "./events.js";
 import { contentSnapshot, validateContentPatch } from "./_draft-content.js";
 import { isOtraGuideId, isPublishedBound, readOverrideDoc, resolvePageOverride } from "../../_lib/page-override.js";
@@ -166,8 +167,13 @@ export async function onRequestPost(context) {
       return json({ error: error.message }, 400);
     }
 
+    // Studio clones ask for a template shell: OT only page content with no
+    // Studio mapping starts blank, while Guide mapped fields are refilled
+    // from the bound event. Without the flag the clone keeps today's
+    // behavior and looks identical to the source.
+    const blankOtOnly = wantsBlankOtOnlyFields(body);
     const cloneId = `draft-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
-    const clone = {
+    let clone = {
       ...source,
       id: cloneId,
       title: cloneProjectTitle(source.title, body && body.title),
@@ -188,9 +194,11 @@ export async function onRequestPost(context) {
       syncError: "",
       createdAt: new Date().toISOString(),
     };
+    if (blankOtOnly) clone = blankOtOnlyCloneProjectFields(clone);
     await putProject(kv, clone);
 
     // Bring the page overrides along so the clone starts looking identical.
+    // A blank clone keeps style keys only (accent color), never field edits.
     try {
       // A live page shows its published draft edits with the later edits
       // on top, so the clone copies that same view.
@@ -202,7 +210,16 @@ export async function onRequestPost(context) {
       const override =
         (livePageId ? (await resolvePageOverride(kv, livePageId)).override : null) ||
         (await readOverrideDoc(kv, source.id));
-      if (override && typeof override === "object") {
+      const shell = blankOtOnly ? blankOtOnlyCloneOverride(override, cloneId) : null;
+      if (blankOtOnly) {
+        if (shell) await kv.put(`event:${cloneId}`, JSON.stringify(shell));
+        await appendAudit(kv, {
+          actor: await actorForAudit(session.token, session.role, context.env),
+          action: "save",
+          pageId: cloneId,
+          changedFields: ["clone", "blankOtOnlyFields"],
+        });
+      } else if (override && typeof override === "object") {
         const { draftEditsFrom: _merged, draftEditsHidden: _hidden, pageEditsVersion: _version, ...copy } = override;
         await kv.put(`event:${cloneId}`, JSON.stringify({ ...copy, id: cloneId }));
         await appendAudit(kv, {
@@ -222,6 +239,9 @@ export async function onRequestPost(context) {
       const existingEventId = cleanInteger(body && body.existingEventId);
       if (existingEventId) {
         bound = await createDraftFromExistingEvent(context, accessToken, clone, existingEventId);
+        // Blank Studio clone: Guide mapped fields fill the design too, so the
+        // editor is not empty where Studio already set title/description/image.
+        if (blankOtOnly) bound = blankOtOnlyMappedDesignFromGuide(bound);
         await putProject(kv, bound);
         // Existing bind reuses live ticket types. Windows were confirmed above
         // before the draft was created; Checkout remains the write path.
@@ -700,15 +720,22 @@ async function createDraftFromExistingEvent(context, accessToken, project, event
   }));
   if (!rates.length) throw new Error("selected Otra Guide event has no ticket types");
 
+  // A blank Studio clone keeps the template's rates heading (the blank shell
+  // already carries it); rates still come from the Guide tickets. Normal
+  // admin binds keep today's "Tickets from Otra Guide" heading.
+  const design = project.claudeDesign || {};
+  const keepTemplateRatesTitle =
+    project.blankOtOnlyFields === true && typeof design.ratesTitle === "string" && design.ratesTitle.trim() !== "";
+
   return {
     ...project,
     title: detail.title || project.title,
     description: detail.description || project.description,
     image: detail.full_web_image_url || detail.half_web_image_url || detail.card_image_url || project.image,
     claudeDesign: {
-      ...(project.claudeDesign || {}),
+      ...design,
       rates,
-      ratesTitle: "Tickets from Otra Guide",
+      ratesTitle: keepTemplateRatesTitle ? design.ratesTitle : "Tickets from Otra Guide",
     },
     teamId: cleanInteger(detail.team && detail.team.id),
     teamName: detail.team && detail.team.name ? detail.team.name : project.teamName,

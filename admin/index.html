@@ -340,6 +340,11 @@
   .status.error { color: var(--danger); }
   .status.ok { color: var(--ok); }
   .hidden { display: none !important; }
+  .session-expired { position: sticky; top: 0; z-index: 1000; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 14px; background: #fff4e5; color: #7a3e00; border-bottom: 1px solid #f0c27a; font-size: 14px; }
+  .session-expired strong { font-weight: 700; }
+  .session-expired-login { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .session-expired-login input { min-height: 36px; width: auto; min-width: 180px; padding: 7px 10px; }
+  .session-expired-login .status { flex: 1 1 100%; }
 
   .modal-backdrop {
     position: fixed;
@@ -574,6 +579,17 @@
 </style>
 </head>
 <body>
+  <div class="session-expired hidden" id="sessionExpiredBanner" role="alert">
+    <span><strong>Session expired.</strong> Your last save did not go through. Your edits are still on screen: sign in here to keep them, then check the message below and save again if asked.</span>
+    <!-- Signs in without leaving the page: the editor, any open dialog and
+         every typed value stay as they are. -->
+    <form class="session-expired-login" id="sessionExpiredLoginForm">
+      <input id="sessionExpiredEmail" type="email" autocomplete="username" placeholder="Staff email" aria-label="Staff email" required />
+      <input id="sessionExpiredPassword" type="password" autocomplete="current-password" placeholder="Password" aria-label="Password" required />
+      <button class="btn primary" id="sessionExpiredLoginBtn" type="submit">Sign in and keep edits</button>
+      <div class="status" id="sessionExpiredStatus" role="status"></div>
+    </form>
+  </div>
   <section class="login" id="loginView">
     <form class="login-box stack" id="loginForm">
       <div class="stack" style="gap:8px">
@@ -1035,8 +1051,19 @@
 
 <script>
   const tokenKey = "otra_admin_token";
+  // URL names the Studio iframe may use to pass a staff JWT (see consumeStudioHandoff).
+  const STUDIO_HANDOFF_KEYS = ["access_token", "studio_token"];
   const INFO_CELL_VALUE_PREFIX = "otra-info-cell:";
   let token = sessionStorage.getItem(tokenKey) || "";
+  // Deep link: /admin/?edit=<pageId> opens that page in the editor once
+  // staff are signed in. Kept until the editor opens, so it survives login.
+  let pendingEditId = readEditParam(location.search);
+  // Studio handoff: the Calendar Studio iframe opens
+  // /admin/?edit=<id>#access_token=<staff JWT> so staff skip the login form
+  // (hash only; a token in the query is stripped and ignored).
+  // The token is stored like a password login and removed from the URL
+  // before anything else loads; every admin API still checks it is staff.
+  consumeStudioHandoff();
   let pages = [];
   let selected = null;
   let currentOverride = null;
@@ -1105,12 +1132,231 @@
     const resp = await fetch(path, options);
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) {
-      const error = new Error(data.error || "Request failed");
+      // 401 on a signed in call means the staff token expired. Keep the
+      // editor and every typed value on screen; only show the banner.
+      const expired = resp.status === 401 && !!token && path !== "/admin/api/login";
+      const error = new Error(expired ? SESSION_EXPIRED_MESSAGE : data.error || "Request failed");
       error.data = data;
+      error.status = resp.status;
+      error.sessionExpired = expired;
+      if (expired) showSessionExpired();
       throw error;
     }
     return data;
   }
+
+  const SESSION_EXPIRED_MESSAGE = "Session expired. Nothing was saved; your edits are still on screen.";
+
+  // Never clears the token, the views or the form fields: staff can sign in
+  // from the banner, or Studio can hand over a fresh #access_token, and
+  // save again.
+  function showSessionExpired() {
+    $("sessionExpiredBanner").classList.remove("hidden");
+  }
+
+  function sessionExpiredShown() {
+    return !$("sessionExpiredBanner").classList.contains("hidden");
+  }
+
+  function hideSessionExpired() {
+    $("sessionExpiredBanner").classList.add("hidden");
+    $("sessionExpiredPassword").value = "";
+    $("sessionExpiredStatus").textContent = "";
+    $("sessionExpiredStatus").className = "status";
+  }
+
+  // Shared by the login form and the session expired banner. Only swaps the
+  // staff token (memory and sessionStorage); never touches views or fields.
+  async function staffLogin(email, password) {
+    const data = await api("/admin/api/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    storeStaffToken(data.token);
+    return token;
+  }
+
+  // The one place a staff token is kept: in memory for authHeaders() and in
+  // sessionStorage so a reload in this tab stays signed in.
+  function storeStaffToken(jwt) {
+    token = jwt;
+    sessionStorage.setItem(tokenKey, jwt);
+  }
+
+  // A fresh token arrived mid edit (banner sign in or Studio hash). Hide the banner and retry the save the expiry refused;
+  // never logout(), boot() or close the dialog, so typed edits stay.
+  function afterTokenRenewed() {
+    const wasExpired = sessionExpiredShown();
+    hideSessionExpired();
+    if (retryBlockedSave()) return;
+    if (!wasExpired) return;
+    setStatus(readUnsavedEdit(selected) && $("editModal").classList.contains("hidden")
+      ? "Signed in again. Open the same spot to get your unsaved edits back, then save."
+      : "Signed in again. Save again to keep your edits.", "ok");
+  }
+
+  // Unsaved edit dialog text, kept per page in sessionStorage so a session
+  // expiry, a Cancel while expired or a reload in this tab does not lose it.
+  // Only the dialog text inputs for the open field; never a password or file.
+  const UNSAVED_EDIT_PREFIX = "otra_admin_unsaved:";
+  let unsavedEditTimer = null;
+  // The edit dialog save a session expiry refused, retried once on a new token.
+  let blockedSave = null;
+
+  function unsavedEditKey(page) {
+    const id = page ? overrideIdForPage(page) : "";
+    return id ? UNSAVED_EDIT_PREFIX + id : "";
+  }
+
+  function unsavedEditInputs(mode, field) {
+    if (mode === "image") return ["imageUrl"];
+    if (mode === "checkout") return ["checkoutEventId"];
+    if (field && field.emptyInfoCell) return ["infoCellTitle", "infoCellSubtitle"];
+    return ["description"];
+  }
+
+  function editTarget() {
+    return { pageId: selected ? String(selected.id) : "", mode: modalMode || "", fieldKey: activeField ? activeField.key : "" };
+  }
+
+  function sameEditTarget(a, b) {
+    return !!a && !!b && a.pageId === b.pageId && a.mode === b.mode && a.fieldKey === b.fieldKey;
+  }
+
+  function stashUnsavedEdit() {
+    clearTimeout(unsavedEditTimer);
+    const key = unsavedEditKey(selected);
+    if (!key || !modalMode || $("editModal").classList.contains("hidden")) return;
+    const values = {};
+    unsavedEditInputs(modalMode, activeField).forEach((id) => { values[id] = $(id).value; });
+    try {
+      sessionStorage.setItem(key, JSON.stringify(Object.assign(editTarget(), { values, savedAt: Date.now() })));
+    } catch {}
+  }
+
+  function scheduleUnsavedEditStash() {
+    clearTimeout(unsavedEditTimer);
+    unsavedEditTimer = setTimeout(stashUnsavedEdit, 400);
+  }
+
+  function readUnsavedEdit(page) {
+    const key = unsavedEditKey(page);
+    if (!key) return null;
+    try {
+      const stash = JSON.parse(sessionStorage.getItem(key) || "null");
+      return stash && typeof stash === "object" && stash.values && typeof stash.values === "object" ? stash : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function clearUnsavedEdit(page) {
+    clearTimeout(unsavedEditTimer);
+    const key = unsavedEditKey(page);
+    if (key) sessionStorage.removeItem(key);
+  }
+
+  // Called at the end of openEditor: puts back what was typed for this same
+  // page and field before an expiry or reload.
+  function restoreUnsavedEdit() {
+    const stash = readUnsavedEdit(selected);
+    if (!stash || !sameEditTarget(stash, editTarget())) return false;
+    unsavedEditInputs(modalMode, activeField).forEach((id) => {
+      if (typeof stash.values[id] === "string") $(id).value = stash.values[id];
+    });
+    if (modalMode === "image") showImage($("imageUrl").value);
+    setStatus("Restored edits you had not saved yet. Save to keep them.", "ok");
+    return true;
+  }
+
+  // The open dialog's text inputs, read when Save is pressed.
+  function dialogValues() {
+    const values = {};
+    unsavedEditInputs(modalMode, activeField).forEach((id) => { values[id] = $(id).value; });
+    return values;
+  }
+
+  // A save refused because the session expired: keep the text and remember
+  // which dialog it was and the exact values sent with the refused request
+  // (captured when Save was pressed, not when the 401 came back), so a new
+  // token can retry that same submit once. Text typed while the request was
+  // in flight differs from the snapshot and therefore needs a manual Save.
+  // The dialog (page, mode, field) is also the one captured at Save press,
+  // so closing it and opening another field mid request never retargets it.
+  function noteBlockedSave(submittedValues, submittedTarget) {
+    stashUnsavedEdit();
+    const values = submittedValues && typeof submittedValues === "object" ? submittedValues : null;
+    const target = submittedTarget && typeof submittedTarget === "object" ? submittedTarget : null;
+    blockedSave = target ? Object.assign({}, target, { values }) : null;
+  }
+
+  function imageFileChosen() {
+    const files = $("imageInput").files;
+    return !!(files && files.length);
+  }
+
+  // Nothing was saved on a 401, so resending the same dialog with the new
+  // token is safe only when it would send exactly what staff already
+  // submitted: same dialog still open on the same field, every value
+  // unchanged since the refused Save, and no file picked (uploads are never
+  // auto retried). Anything else waits for a manual Save.
+  function retryBlockedSave() {
+    const pending = blockedSave;
+    blockedSave = null;
+    if (!pending || $("editModal").classList.contains("hidden") || !sameEditTarget(pending, editTarget())) return false;
+    const ids = unsavedEditInputs(modalMode, activeField);
+    const unchanged = !!pending.values && ids.every((id) => pending.values[id] === $(id).value);
+    if (!unchanged || imageFileChosen()) return false;
+    setStatus("Signed in again. Saving your edits...");
+    $("editForm").requestSubmit();
+    return true;
+  }
+
+  // Any save that succeeds proves the token works: drop a leftover refused
+  // save and the expiry banner so nothing is resubmitted later.
+  function clearBlockedSave() {
+    blockedSave = null;
+    if (sessionExpiredShown()) hideSessionExpired();
+  }
+
+  // Cancel, close or backdrop click. While the session is expired the text
+  // is kept for later; otherwise Cancel means discard.
+  function dismissEditModal() {
+    if (!mediaUploadBusy) {
+      if (sessionExpiredShown()) stashUnsavedEdit();
+      else clearUnsavedEdit(selected);
+      blockedSave = null;
+    }
+    closeModal();
+  }
+
+  // Sign in again from the banner while the editor stays open: no logout(),
+  // no boot(), no closed dialog, so the typed edits can be saved as they are.
+  $("sessionExpiredLoginForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const btn = $("sessionExpiredLoginBtn");
+    const bannerStatus = $("sessionExpiredStatus");
+    btn.disabled = true;
+    bannerStatus.className = "status";
+    bannerStatus.textContent = "Signing in...";
+    try {
+      await staffLogin($("sessionExpiredEmail").value, $("sessionExpiredPassword").value);
+      afterTokenRenewed();
+    } catch (err) {
+      bannerStatus.className = "status error";
+      bannerStatus.textContent = err.message;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  // Studio can hand a fresh token by changing only the iframe hash, which
+  // does not reload the page, so the typed edits stay and can be saved.
+  window.addEventListener("hashchange", () => {
+    if (!consumeStudioHandoff()) return;
+    afterTokenRenewed();
+  });
 
   $("loginForm").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -1119,13 +1365,8 @@
     btn.disabled = true;
     loginStatus.textContent = "Signing in...";
     try {
-      const data = await api("/admin/api/login", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email: $("email").value, password: $("password").value }),
-      });
-      token = data.token;
-      sessionStorage.setItem(tokenKey, token);
+      await staffLogin($("email").value, $("password").value);
+      hideSessionExpired();
       await boot();
     } catch (err) {
       loginStatus.textContent = err.message;
@@ -1142,6 +1383,8 @@
   });
 
   function logout() {
+    hideSessionExpired();
+    blockedSave = null;
     sessionStorage.removeItem(tokenKey);
     token = "";
     $("historyPanel").classList.add("hidden");
@@ -1776,11 +2019,14 @@
     $("historyBtn").textContent = open ? "Hide history" : "History";
     if (open) loadPageHistory();
   }
-  $("closeModalBtn").addEventListener("click", closeModal);
-  $("cancelBtn").addEventListener("click", closeModal);
+  $("closeModalBtn").addEventListener("click", dismissEditModal);
+  $("cancelBtn").addEventListener("click", dismissEditModal);
   $("editModal").addEventListener("click", (e) => {
-    if (e.target === $("editModal")) closeModal();
+    if (e.target === $("editModal")) dismissEditModal();
   });
+  // Keep typed dialog text in sessionStorage as staff type (see stashUnsavedEdit).
+  $("editForm").addEventListener("input", scheduleUnsavedEditStash);
+  $("editForm").addEventListener("change", scheduleUnsavedEditStash);
   $("closePublishModalBtn").addEventListener("click", closePublishModal);
   $("cancelPublishBtn").addEventListener("click", closePublishModal);
   $("publishModal").addEventListener("click", (e) => {
@@ -2104,6 +2350,8 @@
         await persistCurrentOverride();
       }
       $("imageInput").value = "";
+      clearBlockedSave();
+      clearUnsavedEdit(selected);
       closeModal(true);
       refreshPreview();
       setStatus("Upload complete and saved.", "ok");
@@ -2142,6 +2390,7 @@
     try {
       const activeKey = activeField.key;
       await persistOverrideFields((next) => removeVideoFields(next, activeKey));
+      clearBlockedSave();
       closeModal(true);
       refreshPreview();
       setStatus("Video removed and saved. The image is shown instead.", "ok");
@@ -2196,6 +2445,9 @@
   $("editForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!selected) return;
+    // Exactly what this Save sends; a retry after re-auth may only resend this.
+    const submittedValues = dialogValues();
+    const submittedTarget = editTarget();
     if (modalMode === "rename") {
       const name = $("description").value.trim();
       if (!name) return setStatus("Name is required.", "error");
@@ -2208,10 +2460,13 @@
           headers: authHeaders({ "content-type": "application/json" }),
           body: JSON.stringify({ name }),
         });
+        clearBlockedSave();
+        clearUnsavedEdit(selected);
         closeModal();
         setStatus(`Draft renamed to "${data.project.title}".`, "ok");
         await loadPages(selected.id);
       } catch (err) {
+        if (err.sessionExpired) noteBlockedSave(submittedValues, submittedTarget);
         setStatus(err.message, "error");
       } finally {
         $("saveBtn").disabled = false;
@@ -2228,15 +2483,22 @@
     const savedValue = activeField && activeField.emptyInfoCell
       ? serializeInfoCellValue($("infoCellTitle").value, $("infoCellSubtitle").value)
       : $("description").value;
+    let overrideSaved = false;
     try {
       await persistCurrentOverride();
+      overrideSaved = true;
+      clearBlockedSave();
+      clearUnsavedEdit(selected);
       closeModal();
       refreshPreview();
       setStatus("Saved.", "ok");
       await maybeSyncTicketPrice(savedField, savedValue);
       await maybeSyncEventDate(savedField, savedValue);
     } catch (err) {
-      setStatus(err.message, "error");
+      if (err.sessionExpired && !overrideSaved) noteBlockedSave(submittedValues, submittedTarget);
+      setStatus(err.sessionExpired && overrideSaved
+        ? "Text saved, but the session expired before the ticket price or date could update. Sign in, then save this field again."
+        : err.message, "error");
     } finally {
       $("saveBtn").disabled = false;
     }
@@ -2437,9 +2699,112 @@
     homepageView.classList.add("hidden");
     hubView.classList.remove("hidden");
     $("hubStatus").textContent = "";
+    if (pendingEditId) await openEditDeepLink(pendingEditId);
   }
 
-  async function loadPages(preferredId) {
+  // Accepts draft ids (draft-<ms>-<hex>) and numeric Otra Guide ids only.
+  function readEditParam(search) {
+    const id = String(new URLSearchParams(search || "").get("edit") || "").trim();
+    return /^(?:draft-[A-Za-z0-9-]{1,80}|\d{1,12})$/.test(id) ? id : "";
+  }
+
+  // Shape check only (three base64url parts). The server decides if it is staff.
+  function isJwtShape(value) {
+    const text = typeof value === "string" ? value.trim() : "";
+    if (!text || text.length > 8192) return false;
+    const parts = text.split(".");
+    return parts.length === 3 && parts.every((part) => /^[A-Za-z0-9_-]+$/.test(part));
+  }
+
+  // Hash only: the hash never reaches the server, so the token stays out of
+  // access logs. A bare JWT as the whole hash is accepted too. Query
+  // access_token / studio_token are never used to sign in.
+  function readStudioHandoffToken(hash) {
+    const rawHash = String(hash || "").replace(/^#/, "");
+    const hashParams = new URLSearchParams(rawHash);
+    for (const key of STUDIO_HANDOFF_KEYS) {
+      const value = String(hashParams.get(key) || "").trim();
+      if (isJwtShape(value)) return value;
+    }
+    if (isJwtShape(rawHash)) return rawHash.trim();
+    return "";
+  }
+
+  // Removes handoff tokens (valid or not) from query and hash, keeping
+  // ?edit= and any other params. A token sent by mistake in the query is
+  // removed too, but never stored.
+  function stripStudioHandoffFromUrl() {
+    try {
+      const url = new URL(location.href);
+      let changed = false;
+      for (const key of STUDIO_HANDOFF_KEYS) {
+        if (url.searchParams.has(key)) {
+          url.searchParams.delete(key);
+          changed = true;
+        }
+      }
+      const rawHash = url.hash.replace(/^#/, "");
+      if (rawHash) {
+        if (isJwtShape(rawHash)) {
+          url.hash = "";
+          changed = true;
+        } else {
+          const hashParams = new URLSearchParams(rawHash);
+          let hashChanged = false;
+          for (const key of STUDIO_HANDOFF_KEYS) {
+            if (hashParams.has(key)) {
+              hashParams.delete(key);
+              hashChanged = true;
+            }
+          }
+          if (hashChanged) {
+            const rest = hashParams.toString();
+            url.hash = rest ? "#" + rest : "";
+            changed = true;
+          }
+        }
+      }
+      if (changed) history.replaceState(null, "", url.pathname + url.search + url.hash);
+    } catch {}
+  }
+
+  function consumeStudioHandoff() {
+    const jwt = readStudioHandoffToken(location.hash);
+    stripStudioHandoffFromUrl();
+    if (!jwt) return false;
+    storeStaffToken(jwt);
+    return true;
+  }
+
+  // A published draft is listed under its Otra Guide id with projectId set
+  // to the draft id, so a draft link still finds the live page.
+  function resolveEditPageId(list, id) {
+    if (!id) return "";
+    const want = String(id);
+    const exact = (list || []).find((page) => String(page.id) === want);
+    if (exact) return String(exact.id);
+    const bound = (list || []).find((page) => page.projectId && String(page.projectId) === want);
+    return bound ? String(bound.id) : "";
+  }
+
+  function clearEditParam() {
+    pendingEditId = "";
+    try {
+      const url = new URL(location.href);
+      if (!url.searchParams.has("edit")) return;
+      url.searchParams.delete("edit");
+      history.replaceState(null, "", url.pathname + url.search + url.hash);
+    } catch {}
+  }
+
+  async function openEditDeepLink(editId) {
+    hubView.classList.add("hidden");
+    appView.classList.remove("hidden");
+    setStatus("Loading pages...");
+    await loadPages(editId, { deepLink: true });
+  }
+
+  async function loadPages(preferredId, options = {}) {
     try {
       const data = await api("/admin/api/pages", { headers: authHeaders() });
       pages = data.pages || [];
@@ -2448,7 +2813,19 @@
       const pagesNote = $("pagesNote");
       pagesNote.textContent = data.upstreamError ? `Some events may be missing from this list: ${data.upstreamError}.` : "";
       pagesNote.classList.toggle("hidden", !data.upstreamError);
-      const initial = preferredId && pages.some((page) => page.id === preferredId) ? preferredId : pages[0] && pages[0].id;
+      if (options.deepLink) {
+        const target = resolveEditPageId(pages, preferredId);
+        clearEditParam();
+        if (!target) {
+          appView.classList.add("hidden");
+          hubView.classList.remove("hidden");
+          $("hubStatus").textContent = `Could not find page ${preferredId} to edit. Open Edit existing and pick it from the list.`;
+          return;
+        }
+        preferredId = target;
+      }
+      const match = preferredId ? pages.find((page) => String(page.id) === String(preferredId)) : null;
+      const initial = match ? match.id : pages[0] && pages[0].id;
       renderPageSelectOptions(initial);
       if (initial) await selectPage(initial);
       else {
@@ -2459,6 +2836,13 @@
         setStatus("No editable pages found.", "error");
       }
     } catch (err) {
+      // A reload after a save hit an expired token while a page is open in
+      // the editor: keep the editor as is (banner already shown).
+      if (err && err.sessionExpired && selected && !appView.classList.contains("hidden")) {
+        setStatus(err.message, "error");
+        return;
+      }
+      hideSessionExpired();
       sessionStorage.removeItem(tokenKey);
       token = "";
       appView.classList.add("hidden");
@@ -2734,7 +3118,9 @@
         headers: authHeaders(),
       });
       fillForm(data.override);
-      setStatus(data.override ? "Override loaded." : "No override yet.");
+      setStatus(readUnsavedEdit(selected)
+        ? "You have edits on this page you had not saved. Open the same spot to get them back."
+        : data.override ? "Override loaded." : "No override yet.");
       await loadPageHistory();
     } catch (err) {
       setStatus(err.message, "error");
@@ -3962,6 +4348,7 @@
     }
 
     $("editModal").classList.remove("hidden");
+    restoreUnsavedEdit();
     setTimeout(() => {
       const first = isInfoCellText ? $("infoCellTitle") : isText ? $("description") : isImage ? $("imageInput") : $("checkoutEventId");
       first.focus();

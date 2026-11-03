@@ -66,3 +66,22 @@ test("extensionless /admin resolves the real admin app (directory index), not th
   assert.equal(body.includes('location.replace("/admin/")'), false);
   assert.match(body, /login-box|<textarea/);
 });
+
+// Admin framing: every path that serves the real admin app must carry the
+// frame-ancestors CSP from _headers, including the bare and doubled-slash
+// forms the production server resolves to the same file.
+const ADMIN_CSP = "frame-ancestors 'self' https://otraguide.com https://www.otraguide.com http://localhost:* http://127.0.0.1:*";
+for (const path of ["/admin/", "/admin", "//admin/", "/admin/index.html", "/./admin/", "//admin"]) {
+  test(`admin app at ${path} gets frame-ancestors CSP and noindex`, async () => {
+    const res = await assets.fetch(new Request("https://otratickets.com" + path));
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get("content-security-policy"), ADMIN_CSP);
+    assert.equal(res.headers.get("x-robots-tag"), "noindex, nofollow");
+  });
+}
+test("public pages do not get the admin CSP", async () => {
+  for (const path of ["/", "/event.html", "/index.html", "/admin.html"]) {
+    const res = await assets.fetch(new Request("https://otratickets.com" + path));
+    assert.equal(res.headers.get("content-security-policy"), null, path);
+  }
+});
