@@ -3,16 +3,17 @@ import test from "node:test";
 import { onRequestGet as getEvent } from "../../functions/api/event.js";
 import { forgetGuideStatuses } from "../../functions/_lib/guide-event-hidden.js";
 import {
-  FLIGHT_RELEASE_GATES, flightReleaseGate, groupSellableRemaining, heldTierReleased, withHeldTiersHidden,
+  FLIGHT_RELEASE_GATES, flightReleaseGate, heldTierReleased, withHeldTiersHidden,
 } from "../../functions/_lib/flight-release-gate.js";
 
-// Strange Bird Saturday (Guide 8270): Flight 3 stays off the page until
-// Flight 1 and Flight 2 both have no sellable tickets left.
+// Strange Bird Saturday (Guide 8270): Flight 3 stays off the page until Guide
+// itself lists a Flight 3 tier in /api/ticket/purchase/tickets/8270/ (Calendar
+// holds it there until Flights 1 and 2 sell out). Flight 1/2 remaining
+// counts are never a release signal.
 const DAY = 24 * 60 * 60 * 1000;
 const now = Date.now();
 const iso = (ms) => new Date(ms).toISOString();
 const OPEN = [iso(now - 10 * DAY), iso(now + 10 * DAY)];
-const LATER = [iso(now + 10 * DAY), iso(now + 20 * DAY)];
 
 const tt = (id, parent, name, remaining, [start, end] = OPEN, price = 25) => ({
   id, name, price, event: 8270, description: "", base_currency: { code: "XCG" },
@@ -22,10 +23,15 @@ const tt = (id, parent, name, remaining, [start, end] = OPEN, price = 25) => ({
 const F1 = "Flight 1 · 6:00–7:00 PM Family-Friendly";
 const F2 = "Flight 2 · 7:30–8:30 PM Live Show";
 const F3 = "Flight 3 · 9:00–10:00 PM Live Show";
-const feedOf = ({ f1 = 250, f2 = 250, f3 = 250, regular = false } = {}) => ({
-  results: regular
-    ? [tt(547, 538, `${F1} · Regular`, f1, OPEN, 35), tt(548, 541, `${F2} · Regular`, f2, OPEN, 35), tt(549, 543, `${F3} · Regular`, f3, OPEN, 35)]
-    : [tt(539, 538, `${F1} · Early Bird`, f1), tt(542, 541, `${F2} · Early Bird`, f2), tt(544, 543, `${F3} · Early Bird`, f3)],
+// Live today: Guide lists only the F1 and F2 Early Birds. f3: true adds the
+// Flight 3 tier the way Guide lists it once Calendar releases it.
+const feedOf = ({ f1 = 250, f2 = 250, f3 = false, regular = false } = {}) => ({
+  results: [
+    ...(regular
+      ? [tt(547, 538, `${F1} · Regular`, f1, OPEN, 35), tt(548, 541, `${F2} · Regular`, f2, OPEN, 35)]
+      : [tt(539, 538, `${F1} · Early Bird`, f1), tt(542, 541, `${F2} · Early Bird`, f2)]),
+    ...(f3 ? [regular ? tt(549, 543, `${F3} · Regular`, 250, OPEN, 35) : tt(544, 543, `${F3} · Early Bird`, 250)] : []),
+  ],
   addons: [],
 });
 const gate = FLIGHT_RELEASE_GATES["8270"];
@@ -37,81 +43,56 @@ test("only Guide 8270 is gated", () => {
   assert.equal(flightReleaseGate(""), null);
   assert.equal(flightReleaseGate("constructor"), null);
   assert.equal(flightReleaseGate(undefined), null);
+  assert.equal(heldTierReleased(null, null), true, "no gate never holds anything");
 });
 
-test("both flights selling: Flight 3 held", () => {
-  assert.equal(heldTierReleased(feedOf(), gate, now), false);
+test("live today: F1 and F2 on sale, no Flight 3 in the feed -> held", () => {
+  assert.equal(heldTierReleased(feedOf(), gate), false);
 });
 
-test("only one flight sold out: Flight 3 still held, either way round", () => {
-  assert.equal(heldTierReleased(feedOf({ f1: 0 }), gate, now), false);
-  assert.equal(heldTierReleased(feedOf({ f2: 0 }), gate, now), false);
-  assert.equal(heldTierReleased(feedOf({ f1: 0, f2: 1 }), gate, now), false);
+test("F1 and F2 listed with remaining 0 but no Flight 3 in the feed -> still held (13 Nov pitfall)", () => {
+  assert.equal(heldTierReleased(feedOf({ f1: 0, f2: 0 }), gate), false);
+  assert.equal(heldTierReleased(feedOf({ f1: 0, f2: 0, regular: true }), gate), false);
+  assert.equal(heldTierReleased(feedOf({ f1: -2, f2: 0 }), gate), false);
+  // Parent sale window closed: remaining reads 0, nothing else listed.
+  const closed = { results: [tt(539, 538, `${F1} · Early Bird`, 0, [iso(now - 20 * DAY), iso(now - 60e3)]), tt(542, 541, `${F2} · Early Bird`, 0, [iso(now - 20 * DAY), iso(now - 60e3)])] };
+  assert.equal(heldTierReleased(closed, gate), false);
 });
 
-test("Flight 1 and Flight 2 both sold out: Flight 3 released", () => {
-  assert.equal(heldTierReleased(feedOf({ f1: 0, f2: 0 }), gate, now), true);
-  assert.equal(heldTierReleased(feedOf({ f1: 0, f2: 0, regular: true }), gate, now), true);
-  // Negative remaining (oversold) counts as none left.
-  assert.equal(heldTierReleased(feedOf({ f1: -2, f2: 0 }), gate, now), true);
+test("Flight 3 listed by Guide -> released, whatever F1/F2 stock says", () => {
+  assert.equal(heldTierReleased(feedOf({ f1: 0, f2: 0, f3: true }), gate), true);
+  assert.equal(heldTierReleased(feedOf({ f3: true }), gate), true, "Guide is the source of truth");
+  assert.equal(heldTierReleased(feedOf({ f3: true, regular: true }), gate), true);
+  assert.equal(heldTierReleased({ results: [tt(544, 543, `${F3} · Early Bird`, 250)] }, gate), true);
+  // Parent row on its own, or a price sent as a decimal string.
+  assert.equal(heldTierReleased({ results: [tt(543, null, F3, 250, OPEN, "25.00")] }, gate), true);
+  // Matched by id when Guide renames the tier, or by name when ids change.
+  assert.equal(heldTierReleased({ results: [tt(549, 543, "Late show · Regular", 10, OPEN, 35)] }, gate), true);
+  assert.equal(heldTierReleased({ results: [tt(9001, 9000, "flight 3 · Early Bird", 10)] }, gate), true);
 });
 
-test("Regular tiers after 13 Nov count by id or by parent", () => {
-  assert.equal(heldTierReleased(feedOf({ f1: 3, f2: 0, regular: true }), gate, now), false);
-  assert.equal(groupSellableRemaining(feedOf({ f1: 7, regular: true }), gate.releaseWhenSoldOut[0], now), 7);
-  const parentOnly = { results: [tt(538, null, F1, 4)] };
-  assert.equal(groupSellableRemaining(parentOnly, gate.releaseWhenSoldOut[0], now), 4);
-});
-
-test("a listed paid tier counts whatever its own sale dates say (Guide opens tiers by the parent window)", () => {
-  // 13 Nov cutover: Early Bird past its own end, parents still open, Regular
-  // not active yet. 250 left in each pool keeps Flight 3 held.
-  const pastEnd = [iso(now - 20 * DAY), iso(now - 60 * 1000)];
-  const feed = { results: [
-    tt(539, 538, `${F1} · Early Bird`, 250, pastEnd),
-    tt(542, 541, `${F2} · Early Bird`, 250, pastEnd),
-    tt(544, 543, `${F3} · Early Bird`, 250, pastEnd),
-  ] };
-  assert.equal(heldTierReleased(feed, gate), false);
-  // A Regular listed before its own start still holds stock.
-  const early = { results: [tt(547, 538, `${F1} · Regular`, 250, LATER, 35), tt(542, 541, `${F2} · Early Bird`, 0)] };
-  assert.equal(heldTierReleased(early, gate), false);
-  // Free types never count as stock.
-  const free = { results: [tt(539, 538, `${F1} · Early Bird`, 0), tt(542, 541, `${F2} · Early Bird`, 0), tt(9999, 541, "Kid free", 250, OPEN, 0)] };
-  assert.equal(heldTierReleased(free, gate), true);
-  // Guide may send prices as decimal strings.
-  const strPrice = { results: [tt(539, 538, `${F1} · Early Bird`, 3, OPEN, "25.00"), tt(542, 541, `${F2} · Early Bird`, 0)] };
-  assert.equal(heldTierReleased(strPrice, gate), false);
-});
-
-test("a malformed row or a price that is not a number keeps Flight 3 held", () => {
-  const junk = feedOf({ f1: 0, f2: 0 });
-  junk.results.push(null);
-  assert.equal(heldTierReleased(junk, gate), false);
-  const noPrice = feedOf({ f1: 0, f2: 0 });
+test("only a paid Flight 3 row releases; look alikes and junk do not", () => {
+  assert.equal(heldTierReleased({ results: [tt(9999, 541, `${F3} kid`, 10, OPEN, 0)] }, gate), false, "free");
+  assert.equal(heldTierReleased({ results: [tt(544, 543, F3, 10, OPEN, "abc")] }, gate), false, "bad price");
+  const noPrice = { results: [tt(544, 543, F3, 10)] };
   delete noPrice.results[0].price;
-  assert.equal(heldTierReleased(noPrice, gate), false);
-  const badPrice = feedOf({ f1: 0, f2: 0 });
-  badPrice.results[1].price = "abc";
-  assert.equal(heldTierReleased(badPrice, gate), false);
+  assert.equal(heldTierReleased(noPrice, gate), false, "no price");
+  assert.equal(heldTierReleased({ results: [tt(9001, 9000, "Flight 30 lounge", 10)] }, gate), false, "flight 30");
+  assert.equal(heldTierReleased({ results: [null, "Flight 3", 3] }, gate), false, "junk rows");
+  const elsewhere = { results: [{ ...tt(544, 543, F3, 10), event: 7601 }] };
+  assert.equal(heldTierReleased(elsewhere, gate), false, "row of another event");
+  // Junk rows are skipped and do not block a real Flight 3 row.
+  const mixed = feedOf({ f3: true });
+  mixed.results.unshift(null);
+  assert.equal(heldTierReleased(mixed, gate), true);
 });
 
-test("a flight missing from a live feed counts as sold out (inactive is not stock)", () => {
-  const feed = { results: [tt(544, 543, `${F3} · Early Bird`, 250)] };
-  assert.equal(heldTierReleased(feed, gate, now), true);
-});
-
-test("unknown stock keeps Flight 3 held", () => {
-  assert.equal(heldTierReleased(null, gate, now), false);
-  assert.equal(heldTierReleased(undefined, gate, now), false);
-  assert.equal(heldTierReleased({}, gate, now), false);
-  assert.equal(heldTierReleased({ results: [] }, gate, now), false);
-  const hiddenQty = feedOf({ f1: 0, f2: 0 });
-  hiddenQty.results[0].remaining_quantity = null;
-  assert.equal(heldTierReleased(hiddenQty, gate, now), false);
-  const textQty = feedOf({ f1: 0, f2: 0 });
-  textQty.results[1].remaining_quantity = "0";
-  assert.equal(heldTierReleased(textQty, gate, now), false);
+test("unknown or empty feed keeps Flight 3 held (fail closed)", () => {
+  assert.equal(heldTierReleased(null, gate), false);
+  assert.equal(heldTierReleased(undefined, gate), false);
+  assert.equal(heldTierReleased({}, gate), false);
+  assert.equal(heldTierReleased({ results: [] }, gate), false);
+  assert.equal(heldTierReleased({ results: "Flight 3" }, gate), false);
 });
 
 test("hiding takes Flight 3 out of tickets and design rates only", () => {
@@ -191,16 +172,16 @@ test("route: F1 and F2 on sale, the page lists no Flight 3 rate or design rate",
   });
 });
 
-test("route: F1 sold out but F2 selling keeps Flight 3 off", async () => {
-  feed8270 = feedOf({ f1: 0 });
+test("route: F1 and F2 at remaining 0 with no Flight 3 in the feed keeps Flight 3 off", async () => {
+  feed8270 = feedOf({ f1: 0, f2: 0 });
   await withUpstream(async () => {
     const { body } = await get("8270", docs);
     assert.ok(!body.tickets.some((t) => /flight 3/i.test(t.name)));
   });
 });
 
-test("route: F1 and F2 sold out, Flight 3 appears automatically", async () => {
-  feed8270 = feedOf({ f1: 0, f2: 0 });
+test("route: Guide lists Flight 3, Flight 3 appears automatically", async () => {
+  feed8270 = feedOf({ f1: 0, f2: 0, f3: true });
   await withUpstream(async () => {
     const { body } = await get("8270", docs);
     assert.deepEqual(body.tickets.map((t) => t.name), [`${F1} · Early Bird`, `${F2} · Early Bird`, `${F3} · Early Bird`]);
@@ -209,7 +190,7 @@ test("route: F1 and F2 sold out, Flight 3 appears automatically", async () => {
 });
 
 test("route: Guide feed down keeps Flight 3 off (fail closed)", async () => {
-  feed8270 = feedOf({ f1: 0, f2: 0 });
+  feed8270 = feedOf({ f1: 0, f2: 0, f3: true });
   await withUpstream(async () => {
     const { body } = await get("8270", docs);
     assert.ok(!body.design.rates.some((r) => /flight 3/i.test(r.name)));
@@ -226,7 +207,7 @@ test("route: the draft id URL and a checkout override onto 8270 are gated too", 
     assert.equal(viaOverride.body.checkoutEventId, "8270");
     assert.deepEqual(viaOverride.body.tickets.map((t) => t.name), [`${F1} · Early Bird`, `${F2} · Early Bird`]);
   });
-  feed8270 = feedOf({ f1: 0, f2: 0 });
+  feed8270 = feedOf({ f1: 0, f2: 0, f3: true });
   await withUpstream(async () => {
     const { body } = await get("draft-sb-sat", docs);
     assert.equal(body.tickets.filter((t) => /flight 3/i.test(t.name)).length, 3);

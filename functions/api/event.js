@@ -108,9 +108,9 @@ export async function onRequestGet(context) {
       payload = { ...payload, tickets: [], addons: [], ticketsUnknown: true };
     }
   }
-  // A tier held until others sell out (Strange Bird Saturday Flight 3) stays
-  // off the page until the live Guide feed shows them sold out. Unknown
-  // stock keeps it held.
+  // A held tier (Strange Bird Saturday Flight 3) stays off the page until the
+  // live Guide feed lists it (Calendar releases it there once Flights 1 and 2
+  // sell out). An unknown feed keeps it held.
   const gate = flightReleaseGate(checkoutId);
   if (gate) {
     if (checkoutFeed === undefined && /^\d+$/.test(checkoutId)) checkoutFeed = await guideTicketFeed(apiBase(context.env), checkoutId);
