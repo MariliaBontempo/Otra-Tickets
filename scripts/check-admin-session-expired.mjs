@@ -53,9 +53,13 @@ assert.ok(hashHandler && /afterTokenRenewed\(\)/.test(hashHandler[0]), 'hash tok
 assert.ok(!/addEventListener\("message"|postMessage\(|otra_admin_token_|STUDIO_TOKEN_/.test(html), 'no postMessage token path in this ship (hash only)');
 assert.ok(!/logout\(|boot\(|closeModal\(|reload\(/.test(hashHandler[0] + extractFunction('afterTokenRenewed')), 'token refresh never wipes the editor');
 const submitHandler = html.match(/\$\("editForm"\)\.addEventListener\("submit", async \(e\) => \{[\s\S]*?\n  \}\);/)[0];
-assert.equal((submitHandler.match(/if \(err\.sessionExpired\) noteBlockedSave\(\);/g) || []).length, 2, 'rename and field saves remember a save refused by expiry');
-assert.equal((submitHandler.match(/clearUnsavedEdit\(selected\);\s*closeModal\(\);/g) || []).length, 2, 'a successful save clears the kept text');
-assert.match(extractFunction('uploadCurrentImage'), /clearUnsavedEdit\(selected\);\s*closeModal\(true\);/, 'a saved upload clears the kept text');
+assert.equal((submitHandler.match(/if \(err\.sessionExpired\) noteBlockedSave\(\);/g) || []).length, 1, 'rename remembers a save refused by expiry');
+assert.equal((submitHandler.match(/if \(err\.sessionExpired && !overrideSaved\) noteBlockedSave\(\);/g) || []).length, 1, 'field save remembers only a refused override save, never a 401 on the later price/date sync');
+assert.match(submitHandler, /await persistCurrentOverride\(\);\s*overrideSaved = true;/, 'override marked saved before the price/date sync');
+assert.match(submitHandler, /Text saved, but the session expired before the ticket price or date could update/, 'sync 401 after a saved override does not say nothing was saved');
+assert.equal((submitHandler.match(/clearBlockedSave\(\);\s*clearUnsavedEdit\(selected\);\s*closeModal\(\);/g) || []).length, 2, 'a successful save clears a leftover blocked save, the banner and the kept text');
+assert.match(extractFunction('uploadCurrentImage'), /clearBlockedSave\(\);\s*clearUnsavedEdit\(selected\);\s*closeModal\(true\);/, 'a saved upload clears a leftover blocked save and the kept text');
+assert.ok(!/noteBlockedSave|requestSubmit/.test(extractFunction('uploadCurrentImage')), 'uploads are never remembered for an automatic retry');
 assert.match(extractFunction('openEditor'), /\$\("editModal"\)\.classList\.remove\("hidden"\);\s*restoreUnsavedEdit\(\);/, 'reopening the same field restores kept text');
 assert.match(extractFunction('selectPage'), /readUnsavedEdit\(selected\)/, 'opening a page says it has kept text');
 for (const id of ['closeModalBtn', 'cancelBtn']) assert.match(html, new RegExp(`\\$\\("${id}"\\)\\.addEventListener\\("click", dismissEditModal\\);`), `${id} keeps text while expired`);
@@ -66,7 +70,7 @@ const msgDecl = html.match(/const SESSION_EXPIRED_MESSAGE = "[^"]*";/)[0];
 const source = ['api', 'showSessionExpired', 'sessionExpiredShown', 'hideSessionExpired', 'staffLogin', 'storeStaffToken',
   'afterTokenRenewed', 'unsavedEditKey', 'unsavedEditInputs',
   'editTarget', 'sameEditTarget', 'stashUnsavedEdit', 'scheduleUnsavedEditStash', 'readUnsavedEdit', 'clearUnsavedEdit',
-  'restoreUnsavedEdit', 'noteBlockedSave', 'retryBlockedSave', 'dismissEditModal', 'loadPages', 'setStatus'].map(extractFunction).join('\n');
+  'restoreUnsavedEdit', 'noteBlockedSave', 'imageFileChosen', 'retryBlockedSave', 'clearBlockedSave', 'dismissEditModal', 'loadPages', 'setStatus'].map(extractFunction).join('\n');
 const prefixDecl = html.match(/const UNSAVED_EDIT_PREFIX = "[^"]*";/)[0];
 
 function el(id) {
@@ -130,7 +134,7 @@ function makeCtx({ status, stored = 'jwt.a.b', selectedPage = { id: 'draft-1' },
     this.noteBlockedSave = noteBlockedSave; this.dismissEditModal = dismissEditModal; this.restoreUnsavedEdit = restoreUnsavedEdit;
     this.scheduleUnsavedEditStash = scheduleUnsavedEditStash; this.clearSelectedUnsaved = () => clearUnsavedEdit(selected);
     this.setField = (mode, key) => { modalMode = mode; activeField = key ? { key } : null; };
-    this.getBlocked = () => blockedSave;
+    this.getBlocked = () => blockedSave; this.clearBlockedSave = clearBlockedSave; this.retryBlockedSave = retryBlockedSave;
     this.counts = () => ({ logoutCalls, bootCalls, closeModalCalls });`, ctx);
   return ctx;
 }
@@ -306,6 +310,71 @@ for (const loginStatus of [401, 502]) {
   assert.equal(ctx.submits, 1, 'blocked save retried once on the hash token');
   assert.equal(ctx.$('description').value, 'typed but not saved');
   assert.deepEqual({ ...ctx.counts() }, { logoutCalls: 0, bootCalls: 0, closeModalCalls: 0 });
+  checked += 1;
+}
+
+// 12. The automatic retry only resends exactly what was refused: text
+//     edited after the 401, a file picked after the 401, or a later
+//     successful manual save all stop it.
+async function signInFromBanner(ctx) {
+  ctx.$('sessionExpiredEmail').value = 'bot@example.test';
+  ctx.$('sessionExpiredPassword').value = 'pw';
+  await submitBanner(ctx);
+}
+{
+  const ctx = makeCtx({ status: 401 });
+  await assert.rejects(ctx.api('/admin/api/overrides?id=draft-1', { method: 'PUT' }));
+  ctx.noteBlockedSave();
+  assert.equal(ctx.getBlocked().values.description, 'typed but not saved', 'refused values snapshotted');
+  ctx.$('description').value = 'edited after the expiry';
+  await signInFromBanner(ctx);
+  assert.equal(ctx.submits, 0, 'text changed after the refused save is not auto submitted');
+  assert.equal(ctx.getBlocked(), null);
+  assert.match(ctx.$('status').textContent, /Save again/);
+  assert.equal(ctx.$('description').value, 'edited after the expiry', 'edit kept on screen');
+  checked += 1;
+}
+{
+  const ctx = makeCtx({ status: 401 });
+  ctx.setField('image', 'image:#hero');
+  ctx.$('imageUrl').value = 'https://example.test/a.jpg';
+  await assert.rejects(ctx.api('/admin/api/overrides?id=draft-1', { method: 'PUT' }));
+  ctx.noteBlockedSave();
+  ctx.$('imageInput').files = [{ name: 'picked.jpg' }];
+  await signInFromBanner(ctx);
+  assert.equal(ctx.submits, 0, 'a file picked after the refused save is never auto uploaded');
+  checked += 1;
+}
+{
+  const ctx = makeCtx({ status: 401 });
+  ctx.setField('image', 'image:#hero');
+  ctx.$('imageUrl').value = 'https://example.test/a.jpg';
+  await assert.rejects(ctx.api('/admin/api/overrides?id=draft-1', { method: 'PUT' }));
+  ctx.noteBlockedSave();
+  ctx.$('imageInput').files = [];
+  await signInFromBanner(ctx);
+  assert.equal(ctx.submits, 1, 'unchanged image URL with no file is retried once');
+  checked += 1;
+}
+{
+  // Stale retry: a 401 (e.g. Guide hiccup) then a manual Save that works.
+  const ctx = makeCtx({ status: 401 });
+  await assert.rejects(ctx.api('/admin/api/overrides?id=draft-1', { method: 'PUT' }));
+  ctx.noteBlockedSave();
+  assert.equal(bannerShown(ctx), true);
+  ctx.clearBlockedSave();
+  assert.equal(ctx.getBlocked(), null, 'successful save drops the blocked save');
+  assert.equal(bannerShown(ctx), false, 'successful save hides the stale banner');
+  assert.equal(ctx.retryBlockedSave(), false);
+  assert.equal(ctx.submits, 0, 'nothing resubmitted later');
+  checked += 1;
+}
+{
+  // Blocked save with no snapshot (defensive) is never retried.
+  const ctx = makeCtx({ status: 401 });
+  vm.runInContext('blockedSave = editTarget();', ctx);
+  assert.equal(ctx.retryBlockedSave(), false);
+  assert.equal(ctx.submits, 0);
   checked += 1;
 }
 

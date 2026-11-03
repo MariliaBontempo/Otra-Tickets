@@ -1271,21 +1271,42 @@
   }
 
   // A save refused because the session expired: keep the text and remember
-  // which dialog it was, so a new token can retry it once.
+  // which dialog it was and the exact values that were refused, so a new
+  // token can retry that same submit once.
   function noteBlockedSave() {
     stashUnsavedEdit();
-    blockedSave = editTarget();
+    const values = {};
+    unsavedEditInputs(modalMode, activeField).forEach((id) => { values[id] = $(id).value; });
+    blockedSave = Object.assign(editTarget(), { values });
+  }
+
+  function imageFileChosen() {
+    const files = $("imageInput").files;
+    return !!(files && files.length);
   }
 
   // Nothing was saved on a 401, so resending the same dialog with the new
-  // token is safe; only when that dialog is still open on the same field.
+  // token is safe only when it would send exactly what staff already
+  // submitted: same dialog still open on the same field, every value
+  // unchanged since the refused Save, and no file picked (uploads are never
+  // auto retried). Anything else waits for a manual Save.
   function retryBlockedSave() {
     const pending = blockedSave;
     blockedSave = null;
     if (!pending || $("editModal").classList.contains("hidden") || !sameEditTarget(pending, editTarget())) return false;
+    const ids = unsavedEditInputs(modalMode, activeField);
+    const unchanged = !!pending.values && ids.every((id) => pending.values[id] === $(id).value);
+    if (!unchanged || imageFileChosen()) return false;
     setStatus("Signed in again. Saving your edits...");
     $("editForm").requestSubmit();
     return true;
+  }
+
+  // Any save that succeeds proves the token works: drop a leftover refused
+  // save and the expiry banner so nothing is resubmitted later.
+  function clearBlockedSave() {
+    blockedSave = null;
+    if (sessionExpiredShown()) hideSessionExpired();
   }
 
   // Cancel, close or backdrop click. While the session is expired the text
@@ -2318,6 +2339,7 @@
         await persistCurrentOverride();
       }
       $("imageInput").value = "";
+      clearBlockedSave();
       clearUnsavedEdit(selected);
       closeModal(true);
       refreshPreview();
@@ -2423,6 +2445,7 @@
           headers: authHeaders({ "content-type": "application/json" }),
           body: JSON.stringify({ name }),
         });
+        clearBlockedSave();
         clearUnsavedEdit(selected);
         closeModal();
         setStatus(`Draft renamed to "${data.project.title}".`, "ok");
@@ -2445,8 +2468,11 @@
     const savedValue = activeField && activeField.emptyInfoCell
       ? serializeInfoCellValue($("infoCellTitle").value, $("infoCellSubtitle").value)
       : $("description").value;
+    let overrideSaved = false;
     try {
       await persistCurrentOverride();
+      overrideSaved = true;
+      clearBlockedSave();
       clearUnsavedEdit(selected);
       closeModal();
       refreshPreview();
@@ -2454,8 +2480,10 @@
       await maybeSyncTicketPrice(savedField, savedValue);
       await maybeSyncEventDate(savedField, savedValue);
     } catch (err) {
-      if (err.sessionExpired) noteBlockedSave();
-      setStatus(err.message, "error");
+      if (err.sessionExpired && !overrideSaved) noteBlockedSave();
+      setStatus(err.sessionExpired && overrideSaved
+        ? "Text saved, but the session expired before the ticket price or date could update. Sign in, then save this field again."
+        : err.message, "error");
     } finally {
       $("saveBtn").disabled = false;
     }
