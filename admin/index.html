@@ -1210,14 +1210,31 @@
   // Studio may push a fresh staff token with
   //   iframe.contentWindow.postMessage({ source: "otra-studio", type: "otra_admin_token", token: "<jwt>" }, "<admin origin>")
   // Accepted only from the window that frames this page (or this window
-  // itself) and only with that exact shape and a JWT shaped token; every
-  // admin API still checks the token is staff.
+  // itself), only from an allowed Studio origin (STUDIO_TOKEN_ORIGINS or
+  // local Studio), and only with that exact shape and a JWT shaped token;
+  // every admin API still checks the token is staff.
   const STUDIO_TOKEN_MESSAGE = { source: "otra-studio", type: "otra_admin_token" };
+  // Studio origins allowed to push a token. Exact match, plus local Studio
+  // on http://localhost or http://127.0.0.1 with any port, plus this admin
+  // page's own origin. Staging and dev Studio hosts (dev., otra-dev.,
+  // do-staging., staging-do.) are left out on purpose: they use the hash.
+  const STUDIO_TOKEN_ORIGINS = ["https://otraguide.com", "https://www.otraguide.com"];
+  const STUDIO_TOKEN_LOCAL_HOSTS = ["localhost", "127.0.0.1"];
+
+  function isStudioTokenOrigin(origin) {
+    if (typeof origin !== "string" || !origin || origin === "null") return false;
+    if (origin === location.origin) return true;
+    if (STUDIO_TOKEN_ORIGINS.includes(origin)) return true;
+    let url;
+    try { url = new URL(origin); } catch { return false; }
+    if (url.origin !== origin) return false;
+    return url.protocol === "http:" && STUDIO_TOKEN_LOCAL_HOSTS.includes(url.hostname);
+  }
 
   function readStudioTokenMessage(event) {
     if (!event) return "";
     const framed = !!window.parent && window.parent !== window;
-    const fromParent = framed && event.source === window.parent;
+    const fromParent = framed && event.source === window.parent && isStudioTokenOrigin(event.origin);
     const fromSelf = event.source === window && event.origin === location.origin;
     if (!fromParent && !fromSelf) return "";
     const data = event.data;
@@ -1233,7 +1250,7 @@
     storeStaffToken(jwt);
     afterTokenRenewed();
     try {
-      event.source.postMessage({ source: "otra-tickets", type: "otra_admin_token_applied" }, event.origin && event.origin !== "null" ? event.origin : "*");
+      event.source.postMessage({ source: "otra-tickets", type: "otra_admin_token_applied" }, event.origin);
     } catch {}
   });
 

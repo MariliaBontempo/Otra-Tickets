@@ -64,10 +64,12 @@ assert.ok(!/password/i.test(extractFunction('unsavedEditInputs')), 'passwords ar
 
 const msgDecl = html.match(/const SESSION_EXPIRED_MESSAGE = "[^"]*";/)[0];
 const source = ['api', 'showSessionExpired', 'sessionExpiredShown', 'hideSessionExpired', 'staffLogin', 'storeStaffToken',
-  'afterTokenRenewed', 'requestStudioToken', 'readStudioTokenMessage', 'isJwtShape', 'unsavedEditKey', 'unsavedEditInputs',
+  'afterTokenRenewed', 'requestStudioToken', 'isStudioTokenOrigin', 'readStudioTokenMessage', 'isJwtShape', 'unsavedEditKey', 'unsavedEditInputs',
   'editTarget', 'sameEditTarget', 'stashUnsavedEdit', 'scheduleUnsavedEditStash', 'readUnsavedEdit', 'clearUnsavedEdit',
   'restoreUnsavedEdit', 'noteBlockedSave', 'retryBlockedSave', 'dismissEditModal', 'loadPages', 'setStatus'].map(extractFunction).join('\n');
-const tokenMsgDecl = html.match(/const STUDIO_TOKEN_MESSAGE = \{[^}]*\};/)[0];
+const tokenMsgDecl = [/const STUDIO_TOKEN_MESSAGE = \{[^}]*\};/, /const STUDIO_TOKEN_ORIGINS = \[[^\]]*\];/, /const STUDIO_TOKEN_LOCAL_HOSTS = \[[^\]]*\];/]
+  .map((re) => { const m = html.match(re); assert.ok(m, `${re} declared`); return m[0]; }).join(' ');
+assert.match(extractFunction('readStudioTokenMessage'), /event\.source === window\.parent && isStudioTokenOrigin\(event\.origin\)/, 'parent messages must pass the origin allowlist');
 const prefixDecl = html.match(/const UNSAVED_EDIT_PREFIX = "[^"]*";/)[0];
 
 function el(id) {
@@ -107,7 +109,7 @@ function makeCtx({ status, stored = 'jwt.a.b', selectedPage = { id: 'draft-1' },
     sessionStorage: { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)), removeItem: (k) => store.delete(k) },
     timers: [], submits: 0, toParent: [],
     setTimeout: (fn) => { ctx.timers.push(fn); return ctx.timers.length; }, clearTimeout: () => {},
-    location: { origin: 'http://127.0.0.1:8790' },
+    location: { origin: 'http://127.0.0.1:8790' }, URL,
   };
   const win = { postMessage() {}, __listeners: {}, addEventListener(type, fn) { this.__listeners[type] = fn; } };
   win.parent = framed ? { postMessage: (msg, origin) => ctx.toParent.push({ msg, origin }) } : win;
@@ -134,7 +136,7 @@ function makeCtx({ status, stored = 'jwt.a.b', selectedPage = { id: 'draft-1' },
     this.noteBlockedSave = noteBlockedSave; this.dismissEditModal = dismissEditModal; this.restoreUnsavedEdit = restoreUnsavedEdit;
     this.scheduleUnsavedEditStash = scheduleUnsavedEditStash; this.clearSelectedUnsaved = () => clearUnsavedEdit(selected);
     this.setField = (mode, key) => { modalMode = mode; activeField = key ? { key } : null; };
-    this.getBlocked = () => blockedSave;
+    this.getBlocked = () => blockedSave; this.isStudioTokenOrigin = isStudioTokenOrigin;
     this.counts = () => ({ logoutCalls, bootCalls, closeModalCalls });`, ctx);
   return ctx;
 }
@@ -309,6 +311,9 @@ for (const loginStatus of [401, 502]) {
   const reply = { postMessage: (msg, origin) => acks.push({ msg, origin }) };
   // Ignored: wrong sender, wrong shape, not a JWT.
   fire({ source: { postMessage() {} }, origin: 'https://evil.test', data: good });
+  fire({ source: parent, origin: 'https://calendar.test', data: good });
+  fire({ source: parent, origin: 'https://otraguide.com.evil.test', data: good });
+  fire({ source: parent, origin: 'null', data: good });
   fire({ source: parent, origin: 'https://calendar.test', data: { type: 'otra_admin_token', token: JWT } });
   fire({ source: parent, origin: 'https://calendar.test', data: { ...good, token: 'not a jwt' } });
   fire({ source: parent, origin: 'https://calendar.test', data: 'otra_admin_token ' + JWT });
@@ -316,7 +321,7 @@ for (const loginStatus of [401, 502]) {
   assert.equal(bannerShown(ctx), true);
   // Accepted from the framing parent.
   parent.postMessage = reply.postMessage;
-  fire({ source: parent, origin: 'https://calendar.test', data: good });
+  fire({ source: parent, origin: 'https://otraguide.com', data: good });
   assert.equal(ctx.getToken(), JWT, 'memory token from postMessage');
   assert.equal(ctx.store.get('otra_admin_token'), JWT, 'sessionStorage token from postMessage');
   assert.equal(bannerShown(ctx), false, 'banner cleared');
@@ -324,7 +329,39 @@ for (const loginStatus of [401, 502]) {
   assert.equal(ctx.$('editModal').classList.contains('hidden'), false, 'dialog still open');
   assert.equal(ctx.submits, 1, 'blocked save retried with the new token');
   assert.deepEqual({ ...ctx.counts() }, { logoutCalls: 0, bootCalls: 0, closeModalCalls: 0 });
-  assert.deepEqual(JSON.parse(JSON.stringify(acks)), [{ msg: { source: 'otra-tickets', type: 'otra_admin_token_applied' }, origin: 'https://calendar.test' }], 'ack sent to the sender origin');
+  assert.deepEqual(JSON.parse(JSON.stringify(acks)), [{ msg: { source: 'otra-tickets', type: 'otra_admin_token_applied' }, origin: 'https://otraguide.com' }], 'ack sent only once, to the allowed sender origin');
+  checked += 1;
+}
+
+// 11b. Origin allowlist: exact Otra Guide origins, local Studio on any
+//      port over http, this admin origin; everything else rejected, and a
+//      rejected parent message neither applies the token nor gets an ack.
+{
+  const ctx = makeCtx({ status: 401 });
+  for (const origin of ['https://otraguide.com', 'https://www.otraguide.com', 'http://localhost:3000', 'http://localhost:8131', 'http://127.0.0.1:8131', 'http://127.0.0.1:8000', 'http://localhost:8000', 'http://localhost', 'http://127.0.0.1:8790']) {
+    assert.equal(ctx.isStudioTokenOrigin(origin), true, `${origin} allowed`);
+  }
+  for (const origin of ['http://otraguide.com', 'https://otraguide.com:8443', 'https://staging.otraguide.com', 'https://dev.otraguide.com', 'https://otra-dev.otraguide.com',
+    'https://do-staging.otraguide.com', 'https://staging-do.otraguide.com', 'https://otraguide.com.evil.test',
+    'https://evil.test', 'https://localhost:3000', 'http://localhost.evil.test', 'http://127.0.0.2:8000', 'http://localhost:3000/path', 'null', '', undefined]) {
+    assert.equal(ctx.isStudioTokenOrigin(origin), false, `${origin} rejected`);
+  }
+  const acks = [];
+  const parent = ctx.window.parent;
+  parent.postMessage = (msg, origin) => acks.push({ msg, origin });
+  const good = { source: 'otra-studio', type: 'otra_admin_token', token: JWT };
+  await assert.rejects(ctx.api('/admin/api/overrides?id=draft-1', { method: 'PUT' }));
+  acks.length = 0;
+  ctx.window.__listeners.message({ source: parent, origin: 'https://evil.test', data: good });
+  assert.equal(ctx.getToken(), 'jwt.a.b', 'foreign origin token not applied');
+  assert.equal(bannerShown(ctx), true, 'banner stays for a foreign origin');
+  assert.equal(acks.length, 0, 'no applied reply to a foreign origin');
+  ctx.window.__listeners.message({ source: parent, origin: 'https://do-staging.otraguide.com', data: good });
+  assert.equal(ctx.getToken(), 'jwt.a.b', 'staging origin token not applied');
+  assert.equal(acks.length, 0, 'no applied reply to staging');
+  ctx.window.__listeners.message({ source: parent, origin: 'http://localhost:5173', data: good });
+  assert.equal(ctx.getToken(), JWT, 'local Studio token applied');
+  assert.equal(acks.length, 1);
   checked += 1;
 }
 
