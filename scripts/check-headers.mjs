@@ -105,6 +105,18 @@ for (const block of blocks) {
   }
 }
 
+// 5b. Admin may only be framed by Otra Guide Studio (prod, local http on
+//     any port) or itself; staging and dev Studio hosts must not appear.
+const ADMIN_FRAME_ANCESTORS = "frame-ancestors 'self' https://otraguide.com https://www.otraguide.com http://localhost:* http://127.0.0.1:*";
+{
+  const block = blocks.find((b) => b.path === "/admin/*");
+  const csp = block ? block.headers.get("content-security-policy") || "" : "";
+  if (!block) fail("Missing path rule for /admin/*");
+  else if (csp !== ADMIN_FRAME_ANCESTORS) fail(`/admin/* Content-Security-Policy is "${csp}", expected "${ADMIN_FRAME_ANCESTORS}"`);
+  if (/dev\.otraguide|otra-dev|staging|\*\.otraguide|https?:\/\/\*(\s|$)|(^|\s)\*(\s|$)/.test(csp)) fail(`/admin/* frame-ancestors must not allow staging, dev or wildcard hosts: "${csp}"`);
+  if (block && block.headers.get("x-robots-tag") !== "noindex, nofollow") fail("/admin/* must keep X-Robots-Tag: noindex, nofollow");
+}
+
 // 6. build-pages.mjs references "_headers".
 try {
   const buildText = readFileSync(buildScriptPath, "utf8");

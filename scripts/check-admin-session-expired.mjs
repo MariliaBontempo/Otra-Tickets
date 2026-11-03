@@ -2,8 +2,9 @@
 // "Session expired" banner and keeps the editor, the token and every typed
 // value on screen. The banner has its own sign in form that swaps only the
 // token (memory and sessionStorage) without logout(), boot() or closing the
-// open dialog. Studio can also push a fresh token by postMessage. A save
-// refused by the expiry is retried once on the new token, and the dialog
+// open dialog. Studio can also hand over a fresh #access_token hash (the
+// postMessage path is deferred, so none is listened for). A save refused by
+// the expiry is retried once on the new token, and the dialog
 // text is kept per page in sessionStorage (never the password) so a Cancel
 // while expired or a reload can get it back. Only Sign out (or a failed
 // first load with no page open) returns to the login form.
@@ -49,9 +50,8 @@ assert.ok(loginFormHandler && /staffLogin\(/.test(loginFormHandler[0]) && /boot\
 assert.match(bannerHandler[0], /afterTokenRenewed\(\)/, 'banner sign in retries the blocked save');
 const hashHandler = html.match(/window\.addEventListener\("hashchange", \(\) => \{[\s\S]*?\n  \}\);/);
 assert.ok(hashHandler && /afterTokenRenewed\(\)/.test(hashHandler[0]), 'hash token refresh shares afterTokenRenewed');
-const messageHandler = html.match(/window\.addEventListener\("message", \(event\) => \{[\s\S]*?\n  \}\);/);
-assert.ok(messageHandler && /storeStaffToken\(jwt\)/.test(messageHandler[0]) && /afterTokenRenewed\(\)/.test(messageHandler[0]), 'postMessage token applied');
-assert.ok(!/logout\(|boot\(|closeModal\(|reload\(/.test(messageHandler[0] + extractFunction('afterTokenRenewed')), 'token refresh never wipes the editor');
+assert.ok(!/addEventListener\("message"|postMessage\(|otra_admin_token_|STUDIO_TOKEN_/.test(html), 'no postMessage token path in this ship (hash only)');
+assert.ok(!/logout\(|boot\(|closeModal\(|reload\(/.test(hashHandler[0] + extractFunction('afterTokenRenewed')), 'token refresh never wipes the editor');
 const submitHandler = html.match(/\$\("editForm"\)\.addEventListener\("submit", async \(e\) => \{[\s\S]*?\n  \}\);/)[0];
 assert.equal((submitHandler.match(/if \(err\.sessionExpired\) noteBlockedSave\(\);/g) || []).length, 2, 'rename and field saves remember a save refused by expiry');
 assert.equal((submitHandler.match(/clearUnsavedEdit\(selected\);\s*closeModal\(\);/g) || []).length, 2, 'a successful save clears the kept text');
@@ -64,12 +64,9 @@ assert.ok(!/password/i.test(extractFunction('unsavedEditInputs')), 'passwords ar
 
 const msgDecl = html.match(/const SESSION_EXPIRED_MESSAGE = "[^"]*";/)[0];
 const source = ['api', 'showSessionExpired', 'sessionExpiredShown', 'hideSessionExpired', 'staffLogin', 'storeStaffToken',
-  'afterTokenRenewed', 'requestStudioToken', 'isStudioTokenOrigin', 'readStudioTokenMessage', 'isJwtShape', 'unsavedEditKey', 'unsavedEditInputs',
+  'afterTokenRenewed', 'unsavedEditKey', 'unsavedEditInputs',
   'editTarget', 'sameEditTarget', 'stashUnsavedEdit', 'scheduleUnsavedEditStash', 'readUnsavedEdit', 'clearUnsavedEdit',
   'restoreUnsavedEdit', 'noteBlockedSave', 'retryBlockedSave', 'dismissEditModal', 'loadPages', 'setStatus'].map(extractFunction).join('\n');
-const tokenMsgDecl = [/const STUDIO_TOKEN_MESSAGE = \{[^}]*\};/, /const STUDIO_TOKEN_ORIGINS = \[[^\]]*\];/, /const STUDIO_TOKEN_LOCAL_HOSTS = \[[^\]]*\];/]
-  .map((re) => { const m = html.match(re); assert.ok(m, `${re} declared`); return m[0]; }).join(' ');
-assert.match(extractFunction('readStudioTokenMessage'), /event\.source === window\.parent && isStudioTokenOrigin\(event\.origin\)/, 'parent messages must pass the origin allowlist');
 const prefixDecl = html.match(/const UNSAVED_EDIT_PREFIX = "[^"]*";/)[0];
 
 function el(id) {
@@ -87,7 +84,7 @@ function el(id) {
 const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
 const JWT = `${b64({ alg: 'HS256' })}.${b64({ user_id: 9 })}.c2ln`;
 
-function makeCtx({ status, stored = 'jwt.a.b', selectedPage = { id: 'draft-1' }, inEditor = true, loginStatus = 200, framed = true }) {
+function makeCtx({ status, stored = 'jwt.a.b', selectedPage = { id: 'draft-1' }, inEditor = true, loginStatus = 200 }) {
   const els = new Map();
   const $ = (id) => { if (!els.has(id)) els.set(id, el(id)); return els.get(id); };
   $('sessionExpiredBanner').classList.add('hidden');
@@ -107,13 +104,11 @@ function makeCtx({ status, stored = 'jwt.a.b', selectedPage = { id: 'draft-1' },
       return { ok: status < 400, status, json: async () => (status === 401 ? { error: 'unauthorized' } : { pages: [] }) };
     },
     sessionStorage: { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)), removeItem: (k) => store.delete(k) },
-    timers: [], submits: 0, toParent: [],
+    timers: [], submits: 0,
     setTimeout: (fn) => { ctx.timers.push(fn); return ctx.timers.length; }, clearTimeout: () => {},
     location: { origin: 'http://127.0.0.1:8790' }, URL,
   };
-  const win = { postMessage() {}, __listeners: {}, addEventListener(type, fn) { this.__listeners[type] = fn; } };
-  win.parent = framed ? { postMessage: (msg, origin) => ctx.toParent.push({ msg, origin }) } : win;
-  ctx.window = win;
+  ctx.window = { __listeners: {}, addEventListener(type, fn) { this.__listeners[type] = fn; } };
   $('editForm').requestSubmit = () => { ctx.submits += 1; };
   vm.createContext(ctx);
   vm.runInContext(`const tokenKey = "otra_admin_token"; ${msgDecl}
@@ -128,15 +123,14 @@ function makeCtx({ status, stored = 'jwt.a.b', selectedPage = { id: 'draft-1' },
     function logout() { logoutCalls += 1; } async function boot() { bootCalls += 1; } function closeModal() { closeModalCalls += 1; $("editModal").classList.add("hidden"); }
     function overrideIdForPage(page) { return page ? String(page.id) : ""; } function showImage() {}
     var modalMode = "text", activeField = { key: "text:#evBody" }, mediaUploadBusy = false;
-    ${tokenMsgDecl} ${prefixDecl} let unsavedEditTimer = null; let blockedSave = null;
+    ${prefixDecl} let unsavedEditTimer = null; let blockedSave = null;
     ${source}
     ${bannerHandler[0]}
-    ${messageHandler[0]}
     this.api = api; this.loadPages = loadPages; this.getToken = () => token;
     this.noteBlockedSave = noteBlockedSave; this.dismissEditModal = dismissEditModal; this.restoreUnsavedEdit = restoreUnsavedEdit;
     this.scheduleUnsavedEditStash = scheduleUnsavedEditStash; this.clearSelectedUnsaved = () => clearUnsavedEdit(selected);
     this.setField = (mode, key) => { modalMode = mode; activeField = key ? { key } : null; };
-    this.getBlocked = () => blockedSave; this.isStudioTokenOrigin = isStudioTokenOrigin;
+    this.getBlocked = () => blockedSave;
     this.counts = () => ({ logoutCalls, bootCalls, closeModalCalls });`, ctx);
   return ctx;
 }
@@ -297,84 +291,21 @@ for (const loginStatus of [401, 502]) {
   checked += 1;
 }
 
-// 11. Studio postMessage token: applied without wiping, retries the save,
-//     acknowledged; other senders and shapes ignored.
+// 11. Studio hash token mid edit: same no wipe path, blocked save retried
+//     once (the real hashchange handler with a stubbed consumeStudioHandoff).
 {
   const ctx = makeCtx({ status: 401 });
   await assert.rejects(ctx.api('/admin/api/overrides?id=draft-1', { method: 'PUT' }));
-  assert.deepEqual(JSON.parse(JSON.stringify(ctx.toParent.map((m) => m.msg))), [{ source: 'otra-tickets', type: 'otra_admin_token_request' }], 'expiry asks the Studio parent for a token');
   ctx.noteBlockedSave();
-  const fire = (event) => ctx.window.__listeners.message(event);
-  const parent = ctx.window.parent;
-  const good = { source: 'otra-studio', type: 'otra_admin_token', token: JWT };
-  const acks = [];
-  const reply = { postMessage: (msg, origin) => acks.push({ msg, origin }) };
-  // Ignored: wrong sender, wrong shape, not a JWT.
-  fire({ source: { postMessage() {} }, origin: 'https://evil.test', data: good });
-  fire({ source: parent, origin: 'https://calendar.test', data: good });
-  fire({ source: parent, origin: 'https://otraguide.com.evil.test', data: good });
-  fire({ source: parent, origin: 'null', data: good });
-  fire({ source: parent, origin: 'https://calendar.test', data: { type: 'otra_admin_token', token: JWT } });
-  fire({ source: parent, origin: 'https://calendar.test', data: { ...good, token: 'not a jwt' } });
-  fire({ source: parent, origin: 'https://calendar.test', data: 'otra_admin_token ' + JWT });
-  assert.equal(ctx.getToken(), 'jwt.a.b', 'ignored messages leave the token');
-  assert.equal(bannerShown(ctx), true);
-  // Accepted from the framing parent.
-  parent.postMessage = reply.postMessage;
-  fire({ source: parent, origin: 'https://otraguide.com', data: good });
-  assert.equal(ctx.getToken(), JWT, 'memory token from postMessage');
-  assert.equal(ctx.store.get('otra_admin_token'), JWT, 'sessionStorage token from postMessage');
+  vm.runInContext(`function consumeStudioHandoff() { storeStaffToken(${JSON.stringify(JWT)}); return true; }
+    ${hashHandler[0]}`, ctx);
+  ctx.window.__listeners.hashchange();
+  assert.equal(ctx.getToken(), JWT, 'hash token applied');
+  assert.equal(ctx.store.get('otra_admin_token'), JWT);
   assert.equal(bannerShown(ctx), false, 'banner cleared');
-  assert.equal(ctx.$('description').value, 'typed but not saved', 'typed value kept');
-  assert.equal(ctx.$('editModal').classList.contains('hidden'), false, 'dialog still open');
-  assert.equal(ctx.submits, 1, 'blocked save retried with the new token');
+  assert.equal(ctx.submits, 1, 'blocked save retried once on the hash token');
+  assert.equal(ctx.$('description').value, 'typed but not saved');
   assert.deepEqual({ ...ctx.counts() }, { logoutCalls: 0, bootCalls: 0, closeModalCalls: 0 });
-  assert.deepEqual(JSON.parse(JSON.stringify(acks)), [{ msg: { source: 'otra-tickets', type: 'otra_admin_token_applied' }, origin: 'https://otraguide.com' }], 'ack sent only once, to the allowed sender origin');
-  checked += 1;
-}
-
-// 11b. Origin allowlist: exact Otra Guide origins, local Studio on any
-//      port over http, this admin origin; everything else rejected, and a
-//      rejected parent message neither applies the token nor gets an ack.
-{
-  const ctx = makeCtx({ status: 401 });
-  for (const origin of ['https://otraguide.com', 'https://www.otraguide.com', 'http://localhost:3000', 'http://localhost:8131', 'http://127.0.0.1:8131', 'http://127.0.0.1:8000', 'http://localhost:8000', 'http://localhost', 'http://127.0.0.1:8790']) {
-    assert.equal(ctx.isStudioTokenOrigin(origin), true, `${origin} allowed`);
-  }
-  for (const origin of ['http://otraguide.com', 'https://otraguide.com:8443', 'https://staging.otraguide.com', 'https://dev.otraguide.com', 'https://otra-dev.otraguide.com',
-    'https://do-staging.otraguide.com', 'https://staging-do.otraguide.com', 'https://otraguide.com.evil.test',
-    'https://evil.test', 'https://localhost:3000', 'http://localhost.evil.test', 'http://127.0.0.2:8000', 'http://localhost:3000/path', 'null', '', undefined]) {
-    assert.equal(ctx.isStudioTokenOrigin(origin), false, `${origin} rejected`);
-  }
-  const acks = [];
-  const parent = ctx.window.parent;
-  parent.postMessage = (msg, origin) => acks.push({ msg, origin });
-  const good = { source: 'otra-studio', type: 'otra_admin_token', token: JWT };
-  await assert.rejects(ctx.api('/admin/api/overrides?id=draft-1', { method: 'PUT' }));
-  acks.length = 0;
-  ctx.window.__listeners.message({ source: parent, origin: 'https://evil.test', data: good });
-  assert.equal(ctx.getToken(), 'jwt.a.b', 'foreign origin token not applied');
-  assert.equal(bannerShown(ctx), true, 'banner stays for a foreign origin');
-  assert.equal(acks.length, 0, 'no applied reply to a foreign origin');
-  ctx.window.__listeners.message({ source: parent, origin: 'https://do-staging.otraguide.com', data: good });
-  assert.equal(ctx.getToken(), 'jwt.a.b', 'staging origin token not applied');
-  assert.equal(acks.length, 0, 'no applied reply to staging');
-  ctx.window.__listeners.message({ source: parent, origin: 'http://localhost:5173', data: good });
-  assert.equal(ctx.getToken(), JWT, 'local Studio token applied');
-  assert.equal(acks.length, 1);
-  checked += 1;
-}
-
-// 12. Not framed: only this window itself (same origin) may post a token.
-{
-  const ctx = makeCtx({ status: 401, framed: false });
-  const fire = (event) => ctx.window.__listeners.message(event);
-  fire({ source: { postMessage() {} }, origin: 'https://evil.test', data: { source: 'otra-studio', type: 'otra_admin_token', token: JWT } });
-  assert.equal(ctx.getToken(), 'jwt.a.b');
-  fire({ source: ctx.window, origin: 'http://127.0.0.1:8790', data: { source: 'otra-studio', type: 'otra_admin_token', token: JWT } });
-  assert.equal(ctx.getToken(), JWT);
-  await assert.rejects(ctx.api('/admin/api/overrides?id=draft-1', { method: 'PUT' }));
-  assert.equal(ctx.toParent.length, 0, 'no token request when not framed');
   checked += 1;
 }
 

@@ -1148,10 +1148,10 @@
   const SESSION_EXPIRED_MESSAGE = "Session expired. Nothing was saved; your edits are still on screen.";
 
   // Never clears the token, the views or the form fields: staff can sign in
-  // from the banner, or Studio can send a fresh token, and save again.
+  // from the banner, or Studio can hand over a fresh #access_token, and
+  // save again.
   function showSessionExpired() {
     $("sessionExpiredBanner").classList.remove("hidden");
-    requestStudioToken();
   }
 
   function sessionExpiredShown() {
@@ -1184,8 +1184,7 @@
     sessionStorage.setItem(tokenKey, jwt);
   }
 
-  // A fresh token arrived mid edit (banner sign in, Studio hash or Studio
-  // postMessage). Hide the banner and retry the save the expiry refused;
+  // A fresh token arrived mid edit (banner sign in or Studio hash). Hide the banner and retry the save the expiry refused;
   // never logout(), boot() or close the dialog, so typed edits stay.
   function afterTokenRenewed() {
     const wasExpired = sessionExpiredShown();
@@ -1196,63 +1195,6 @@
       ? "Signed in again. Open the same spot to get your unsaved edits back, then save."
       : "Signed in again. Save again to keep your edits.", "ok");
   }
-
-  // Ask the Studio parent (if any) for a fresh token. Carries no secret, so
-  // any parent origin is fine; Studio answers with STUDIO_TOKEN_MESSAGE.
-  function requestStudioToken() {
-    try {
-      if (window.parent && window.parent !== window) {
-        window.parent.postMessage({ source: "otra-tickets", type: "otra_admin_token_request" }, "*");
-      }
-    } catch {}
-  }
-
-  // Studio may push a fresh staff token with
-  //   iframe.contentWindow.postMessage({ source: "otra-studio", type: "otra_admin_token", token: "<jwt>" }, "<admin origin>")
-  // Accepted only from the window that frames this page (or this window
-  // itself), only from an allowed Studio origin (STUDIO_TOKEN_ORIGINS or
-  // local Studio), and only with that exact shape and a JWT shaped token;
-  // every admin API still checks the token is staff.
-  const STUDIO_TOKEN_MESSAGE = { source: "otra-studio", type: "otra_admin_token" };
-  // Studio origins allowed to push a token. Exact match, plus local Studio
-  // on http://localhost or http://127.0.0.1 with any port, plus this admin
-  // page's own origin. Staging and dev Studio hosts (dev., otra-dev.,
-  // do-staging., staging-do.) are left out on purpose: they use the hash.
-  const STUDIO_TOKEN_ORIGINS = ["https://otraguide.com", "https://www.otraguide.com"];
-  const STUDIO_TOKEN_LOCAL_HOSTS = ["localhost", "127.0.0.1"];
-
-  function isStudioTokenOrigin(origin) {
-    if (typeof origin !== "string" || !origin || origin === "null") return false;
-    if (origin === location.origin) return true;
-    if (STUDIO_TOKEN_ORIGINS.includes(origin)) return true;
-    let url;
-    try { url = new URL(origin); } catch { return false; }
-    if (url.origin !== origin) return false;
-    return url.protocol === "http:" && STUDIO_TOKEN_LOCAL_HOSTS.includes(url.hostname);
-  }
-
-  function readStudioTokenMessage(event) {
-    if (!event) return "";
-    const framed = !!window.parent && window.parent !== window;
-    const fromParent = framed && event.source === window.parent && isStudioTokenOrigin(event.origin);
-    const fromSelf = event.source === window && event.origin === location.origin;
-    if (!fromParent && !fromSelf) return "";
-    const data = event.data;
-    if (!data || typeof data !== "object") return "";
-    if (data.source !== STUDIO_TOKEN_MESSAGE.source || data.type !== STUDIO_TOKEN_MESSAGE.type) return "";
-    const jwt = typeof data.token === "string" ? data.token.trim() : "";
-    return isJwtShape(jwt) ? jwt : "";
-  }
-
-  window.addEventListener("message", (event) => {
-    const jwt = readStudioTokenMessage(event);
-    if (!jwt) return;
-    storeStaffToken(jwt);
-    afterTokenRenewed();
-    try {
-      event.source.postMessage({ source: "otra-tickets", type: "otra_admin_token_applied" }, event.origin);
-    } catch {}
-  });
 
   // Unsaved edit dialog text, kept per page in sessionStorage so a session
   // expiry, a Cancel while expired or a reload in this tab does not lose it.
