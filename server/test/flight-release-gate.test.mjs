@@ -79,6 +79,8 @@ test("only a paid Flight 3 row releases; look alikes and junk do not", () => {
   assert.equal(heldTierReleased(noPrice, gate), false, "no price");
   assert.equal(heldTierReleased({ results: [tt(9001, 9000, "Flight 30 lounge", 10)] }, gate), false, "flight 30");
   assert.equal(heldTierReleased({ results: [null, "Flight 3", 3] }, gate), false, "junk rows");
+  const elsewhere = { results: [{ ...tt(544, 543, F3, 10), event: 7601 }] };
+  assert.equal(heldTierReleased(elsewhere, gate), false, "row of another event");
   // Junk rows are skipped and do not block a real Flight 3 row.
   const mixed = feedOf({ f3: true });
   mixed.results.unshift(null);

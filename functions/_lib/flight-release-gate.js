@@ -15,6 +15,7 @@
 
 export const FLIGHT_RELEASE_GATES = Object.freeze({
   "8270": Object.freeze({
+    guideEventId: 8270,
     // Parent 543, Early Bird 544, Regular 549. The page payload carries
     // names only (Guide feed tickets and site design rates), so hiding goes
     // by name; the release check also accepts these ids.
@@ -36,10 +37,12 @@ function paidPrice(price) {
   return typeof n === "number" && Number.isFinite(n) && n > 0;
 }
 
-// One feed row is a sellable held tier: a paid row named like the held tier,
-// or carrying one of its ids (as id or parent).
+// One feed row is a sellable held tier: a paid row of the gated event named
+// like the held tier, or carrying one of its ids (as id or parent). A row
+// that names another event never counts.
 function feedRowIsHeldTier(gate, row) {
   if (!row || typeof row !== "object") return false;
+  if (row.event != null && Number(row.event) !== Number(gate.guideEventId)) return false;
   const ids = new Set(gate.held.ticketTypeIds.map(Number));
   const byName = typeof row.name === "string" && gate.held.namePattern.test(row.name);
   const byId = ids.has(Number(row.id)) || (row.parent_ticket_type != null && ids.has(Number(row.parent_ticket_type)));
