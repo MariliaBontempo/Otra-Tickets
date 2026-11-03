@@ -15,6 +15,7 @@ import { setNoStore } from "../_lib/no-store.js";
 import { hasEnded } from "../_lib/event-ended.js";
 import { heroMetaItems } from "../_lib/hero-meta-text.js";
 import { ticketSaleState, withSaleState } from "../_lib/ticket-sale-state.js";
+import { flightReleaseGate, heldTierReleased, withHeldTiersHidden } from "../_lib/flight-release-gate.js";
 import { HIDDEN_DETAIL_EXCEPTIONS, guideApiBase, guideDetailMissing, guideEventDetail, guideTicketFeed, keepsSellingWhileHidden } from "../_lib/guide-event-hidden.js";
 
 const API = "https://otraguide.com/api";
@@ -36,6 +37,9 @@ const SERVED_PAGE = Symbol("servedPage");
 // The stored page record behind a draft payload (never serialized), so the
 // private Guide event check does not read it from KV again.
 const DRAFT_RECORD = Symbol("draftRecord");
+// The raw Guide ticket feed the base payload was built from (never
+// serialized), so a held tier gate reads stock without a second fetch.
+const RAW_FEED = Symbol("rawFeed");
 
 const ACCENT_OVERRIDES = {
   "6113": "#1fa9a0", // Clearboat — turquoise from the original handoff design
@@ -89,9 +93,12 @@ export async function onRequestGet(context) {
   // Whether the tiers' windows describe the sale: only for a single dated
   // event, judged on the event checkout actually sells.
   let windowed = !payload.isRecurring && !payload.isPerennial;
+  // Live Guide feed of the event checkout sells, when already read.
+  let checkoutFeed = checkoutId === String(base.checkoutEventId || "") ? base[RAW_FEED] : undefined;
   if (!isDraftId(id) && /^\d+$/.test(checkoutId) && checkoutId !== String(base.checkoutEventId || "")) {
     const api = apiBase(context.env);
     const [checkoutTickets, checkoutDetail] = await Promise.all([guideTicketFeed(api, checkoutId), guideEventDetail(api, checkoutId)]);
+    checkoutFeed = checkoutTickets;
     // Without the checkout event's detail its kind is unknown: claim no window.
     windowed = !!checkoutDetail && !checkoutDetail.is_recurring && !checkoutDetail.has_mini_events && !checkoutDetail.is_perennial;
     if (checkoutTickets) {
@@ -100,6 +107,14 @@ export async function onRequestGet(context) {
       // Unknown rates: show none rather than the wrong event's, and say nothing about the sale.
       payload = { ...payload, tickets: [], addons: [], ticketsUnknown: true };
     }
+  }
+  // A tier held until others sell out (Strange Bird Saturday Flight 3) stays
+  // off the page until the live Guide feed shows them sold out. Unknown
+  // stock keeps it held.
+  const gate = flightReleaseGate(checkoutId);
+  if (gate) {
+    if (checkoutFeed === undefined && /^\d+$/.test(checkoutId)) checkoutFeed = await guideTicketFeed(apiBase(context.env), checkoutId);
+    payload = withHeldTiersHidden(payload, gate, heldTierReleased(checkoutFeed, gate));
   }
   // A series or a perennial sells dates the parent windows do not describe.
   if (windowed) payload.tickets = withSaleState(payload.tickets);
@@ -183,7 +198,7 @@ async function getBasePayload(context, id, url, project, livePage) {
       const draftPayload = await getDraftPayload(context.env, livePage.id);
       if (!draftPayload) return null;
       // The draft key locates site content; the public event ID is the Guide ID.
-      const served = { ...draftPayload, id: Number(id), [SERVED_PAGE]: livePage };
+      const served = { ...draftPayload, id: Number(id), [SERVED_PAGE]: livePage, [RAW_FEED]: ticketData };
       // Legacy pages (8088 and the others on the old list) are still on sale
       // while their feed is live, so their own (single day) dates never mark
       // them past. A page on the switch keeps its dates: once its event is
@@ -230,11 +245,11 @@ async function getBasePayload(context, id, url, project, livePage) {
     addons,
   };
 
-  if (staffView) return { ...base, staffView: true };
+  if (staffView) return { ...base, staffView: true, [RAW_FEED]: ticketData };
   // Internal server cache entry only (never sent to a browser): it keeps its
   // own 10 minute TTL, apart from the revalidate header of public answers.
   if (!project) context.waitUntil(cache.put(cacheKey, edgeEntry(base)));
-  return base;
+  return { ...base, [RAW_FEED]: ticketData };
 }
 
 function isPastPayload(payload, ownCheckoutId) {
