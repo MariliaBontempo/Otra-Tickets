@@ -12,8 +12,6 @@
 // pool (parent 541) are sold out. Tiers 539/547 and 542/548 sell from those
 // parent pools; a Regular that is not active yet does not sell.
 
-import { ticketSale } from "./ticket-sale-state.js";
-
 export const FLIGHT_RELEASE_GATES = Object.freeze({
   "8270": Object.freeze({
     // Parent 543, Early Bird 544, Regular 549. Matched by name because the
@@ -33,21 +31,27 @@ export function flightReleaseGate(guideEventId) {
 }
 
 // Sellable tickets left in one group, from the public Guide ticket feed: the
-// group's paid ticket types that the feed lists (only active, released types
-// are listed) and whose sale window is open. A tier sells from its parent's
-// pool, so a tier counts when its id or its parent's id is in the group.
-// null means unknown (the caller keeps the held tier hidden).
+// group's paid ticket types that the feed lists. Guide lists only active,
+// released types, and it opens a tier by its parent's window, not the tier's
+// own dates, so a listed paid tier counts whatever its own sale dates say (an
+// Early Bird past its own end while its parent is still open is still stock).
+// A tier sells from its parent's pool, so a tier counts when its id or its
+// parent's id is in the group. A Regular that is not active is not listed and
+// does not count.
+// null means unknown (the caller keeps the held tier hidden): a malformed row,
+// a price that is not a number, or a remaining count that is not a number.
 // This is the one place the sold out rule lives; swap it here if Calendar
 // exposes a named field for it.
-export function groupSellableRemaining(feed, group, now = Date.now()) {
+export function groupSellableRemaining(feed, group) {
   if (!feed || !Array.isArray(feed.results)) return null;
   const ids = new Set(group.ticketTypeIds.map(Number));
   let total = 0;
   for (const t of feed.results) {
-    if (!t || typeof t !== "object") continue;
+    if (!t || typeof t !== "object") return null;
     if (!ids.has(Number(t.id)) && !(t.parent_ticket_type != null && ids.has(Number(t.parent_ticket_type)))) continue;
-    if (!(Number(t.price) > 0)) continue;
-    if (ticketSale({ saleStartsAt: t.sale_start_time || null, saleEndsAt: t.sale_end_time || null }, now) !== "on_sale") continue;
+    const price = typeof t.price === "string" && t.price.trim() !== "" ? Number(t.price) : t.price;
+    if (typeof price !== "number" || !Number.isFinite(price)) return null;
+    if (!(price > 0)) continue;
     const left = t.remaining_quantity;
     if (typeof left !== "number" || !Number.isFinite(left)) return null;
     total += Math.max(0, left);
@@ -56,10 +60,10 @@ export function groupSellableRemaining(feed, group, now = Date.now()) {
 }
 
 // True only when the feed is live and every group it waits on is sold out.
-export function heldTierReleased(feed, gate, now = Date.now()) {
+export function heldTierReleased(feed, gate) {
   if (!gate) return true;
   if (!feed || !Array.isArray(feed.results) || !feed.results.length) return false;
-  return gate.releaseWhenSoldOut.every((group) => groupSellableRemaining(feed, group, now) === 0);
+  return gate.releaseWhenSoldOut.every((group) => groupSellableRemaining(feed, group) === 0);
 }
 
 function isHeld(gate, item) {

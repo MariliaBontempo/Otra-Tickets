@@ -63,15 +63,37 @@ test("Regular tiers after 13 Nov count by id or by parent", () => {
   assert.equal(groupSellableRemaining(parentOnly, gate.releaseWhenSoldOut[0], now), 4);
 });
 
-test("tiers not yet open, closed, or free never count as stock", () => {
+test("a listed paid tier counts whatever its own sale dates say (Guide opens tiers by the parent window)", () => {
+  // 13 Nov cutover: Early Bird past its own end, parents still open, Regular
+  // not active yet. 250 left in each pool keeps Flight 3 held.
+  const pastEnd = [iso(now - 20 * DAY), iso(now - 60 * 1000)];
   const feed = { results: [
-    tt(539, 538, `${F1} · Early Bird`, 0),
-    tt(547, 538, `${F1} · Regular`, 250, LATER, 35),
-    tt(542, 541, `${F2} · Early Bird`, 0),
-    tt(548, 541, `${F2} · Regular`, 250, [iso(now - 20 * DAY), iso(now - DAY)], 35),
-    tt(9999, 541, "Kid free", 250, OPEN, 0),
+    tt(539, 538, `${F1} · Early Bird`, 250, pastEnd),
+    tt(542, 541, `${F2} · Early Bird`, 250, pastEnd),
+    tt(544, 543, `${F3} · Early Bird`, 250, pastEnd),
   ] };
-  assert.equal(heldTierReleased(feed, gate, now), true);
+  assert.equal(heldTierReleased(feed, gate), false);
+  // A Regular listed before its own start still holds stock.
+  const early = { results: [tt(547, 538, `${F1} · Regular`, 250, LATER, 35), tt(542, 541, `${F2} · Early Bird`, 0)] };
+  assert.equal(heldTierReleased(early, gate), false);
+  // Free types never count as stock.
+  const free = { results: [tt(539, 538, `${F1} · Early Bird`, 0), tt(542, 541, `${F2} · Early Bird`, 0), tt(9999, 541, "Kid free", 250, OPEN, 0)] };
+  assert.equal(heldTierReleased(free, gate), true);
+  // Guide may send prices as decimal strings.
+  const strPrice = { results: [tt(539, 538, `${F1} · Early Bird`, 3, OPEN, "25.00"), tt(542, 541, `${F2} · Early Bird`, 0)] };
+  assert.equal(heldTierReleased(strPrice, gate), false);
+});
+
+test("a malformed row or a price that is not a number keeps Flight 3 held", () => {
+  const junk = feedOf({ f1: 0, f2: 0 });
+  junk.results.push(null);
+  assert.equal(heldTierReleased(junk, gate), false);
+  const noPrice = feedOf({ f1: 0, f2: 0 });
+  delete noPrice.results[0].price;
+  assert.equal(heldTierReleased(noPrice, gate), false);
+  const badPrice = feedOf({ f1: 0, f2: 0 });
+  badPrice.results[1].price = "abc";
+  assert.equal(heldTierReleased(badPrice, gate), false);
 });
 
 test("a flight missing from a live feed counts as sold out (inactive is not stock)", () => {
