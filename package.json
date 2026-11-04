@@ -49,6 +49,7 @@
     "check:band-text": "node scripts/check-band-text.mjs",
     "check:admin-override-conflict": "node scripts/check-admin-override-conflict.mjs",
     "check:admin-ticket-delete": "node scripts/check-admin-ticket-type-delete.mjs",
-    "check:override-email-mailto": "node scripts/check-override-email-mailto.mjs"
+    "check:override-email-mailto": "node scripts/check-override-email-mailto.mjs",
+    "check:card-venue-urls": "node scripts/check-card-venue-urls.mjs"
   }
 }

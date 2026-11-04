@@ -747,7 +747,7 @@ export async function buildPublishedSiteEvents(
           (Array.isArray(project.ticketTypeIds) && project.ticketTypeIds.length > 0) ||
           (Array.isArray(project.claudeDesign && project.claudeDesign.rates) &&
             project.claudeDesign.rates.length > 0),
-        venue: (localCard && localCard.venue) || projectVenue(project),
+        venue: cardVenueText(localCard && localCard.venue) || projectVenue(project),
         // KV drafts carry no Otra Guide location; dedupe backfills it from the
         // matching upstream event so the card location still comes from there.
         location: "",
@@ -1018,7 +1018,7 @@ export function dedupeEvents(events) {
       byId.set(id, event);
       continue;
     }
-    const loc = String(kept.location || event.location || "").trim();
+    const loc = cardVenueText(kept.location || event.location);
     if (loc) kept.venue = loc;
     if (event.hasTicketTypes === true) kept.hasTicketTypes = true;
     // A published draft's project.image is only a snapshot taken when it was
@@ -1150,19 +1150,45 @@ function homepageOverrideImage(override) {
 // Ignore a value that merely repeats the title — some events store the title
 // in that field instead of a real venue.
 function eventLocation(ev) {
-  const loc = ev && typeof ev.location === "string" ? ev.location.trim() : "";
+  const loc = cardVenueText(ev && ev.location);
   return loc && loc !== String((ev && ev.title) || "").trim() ? loc : "";
 }
 
-function cardVenue(ev) {
+// Cards show venue text only, never links. Venue sources (Event.location,
+// practical info Location, eyebrow) sometimes carry a Google Maps URL, e.g.
+// "Landhuis Daniel, Weg naar westpunt z/n · terrace · https://maps.app.goo.gl/x".
+// Strip every http(s) or bare www URL, then tidy the separators it leaves.
+// Returns "" when nothing but a link was there so callers fall back.
+const VENUE_HAS_URL_RE = /(?:https?:\/\/|www\.)/i;
+const VENUE_URL_RE = /(?:https?:\/\/|www\.)[^\s<>"'·|()[\]]+/gi;
+const VENUE_SEPARATOR_RE = /^[\s·|,;:\-–—]+|[\s·|,;:\-–—]+$/g;
+
+export function cardVenueText(value) {
+  if (typeof value !== "string") return "";
+  if (!VENUE_HAS_URL_RE.test(value)) return value.trim();
+  return value
+    .replace(VENUE_URL_RE, " ")
+    .replace(/\(\s*\)|\[\s*\]/g, " ")
+    .split("·")
+    .map((part) => part.replace(VENUE_SEPARATOR_RE, "").replace(/\s+/g, " "))
+    .filter(Boolean)
+    .join(" · ");
+}
+
+export function cardVenue(ev) {
   const loc = eventLocation(ev);
   if (loc) return loc;
   // Fallbacks for events whose Otra Guide location is empty or unhelpful.
   const local = LOCAL_CARD_INFO[String(ev.id)];
-  if (local && local.venue) return local.venue;
-  const fromDescription = venueFromText(ev.description || ev.group_description || "");
-  if (fromDescription) return fromDescription;
-  if (ev.group_name && ev.group_name !== ev.title) return ev.group_name;
+  const candidates = [
+    local && local.venue,
+    venueFromText(ev.description || ev.group_description || ""),
+    ev.group_name && ev.group_name !== ev.title ? ev.group_name : "",
+  ];
+  for (const candidate of candidates) {
+    const venue = cardVenueText(candidate);
+    if (venue) return venue;
+  }
   return "Curaçao";
 }
 
@@ -1172,15 +1198,16 @@ function cardDateLabel(ev) {
   return ev.is_perennial ? "Flexible dates" : "";
 }
 
-function projectVenue(project) {
+export function projectVenue(project) {
   const info = project.claudeDesign && Array.isArray(project.claudeDesign.practicalInfo)
     ? project.claudeDesign.practicalInfo
     : [];
   const location = info.find((item) => item && /^location$/i.test(item.key || ""));
-  if (location && location.value) return location.value;
+  const fromInfo = cardVenueText(location && location.value);
+  if (fromInfo) return fromInfo;
   const eyebrow = project.claudeDesign && typeof project.claudeDesign.eyebrow === "string" ? project.claudeDesign.eyebrow : "";
   const parts = eyebrow.split("·").map((part) => part.trim()).filter(Boolean);
-  return parts[1] || "Curaçao";
+  return cardVenueText(parts[1]) || "Curaçao";
 }
 
 export function projectCardTitle(project) {
