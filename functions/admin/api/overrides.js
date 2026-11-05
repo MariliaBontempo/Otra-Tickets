@@ -10,6 +10,7 @@ import { allowsDraftOnlyRemovals, withoutDraftOnlyRemovals } from "../../_lib/dr
 import { PAGE_EDITS_VERSION, TOP_LEVEL_KEYS, isLegacyDoc, isPublishedBound, isOtraGuideId, resolvePageOverride } from "../../_lib/page-override.js";
 import { OVERRIDE_CONFLICT_MESSAGE, mergeOverrideSave } from "../../_lib/override-conflict.js";
 import { invalidatePublicFeed } from "../../_lib/homepage-feed.js";
+import { normalizeRichTextField, normalizeRichInfoField, richTextAllowedForField } from "../../_lib/rich-text.js";
 
 const KEY = (id) => `event:${id}`;
 
@@ -193,6 +194,16 @@ function normalizeFields(raw) {
     if (!type) continue;
     const value = typeof field.value === "string" ? field.value.trim() : "";
     fields[key] = { type, value };
+    // Pencil rich text: only the allowed markup is kept, and the plain value
+    // is rebuilt from it so the two always match.
+    if (type === "text" && typeof field.html === "string" && field.html && richTextAllowedForField(key, fields[key])) {
+      const rich = normalizeRichTextField(value, field.html);
+      if (rich.html) fields[key] = { type, value: rich.value.trim(), html: rich.html };
+    }
+    if (field.type === "text") {
+      const richInfo = normalizeRichInfoField(value, field.htmlParts);
+      if (richInfo) fields[key] = { type: "text", ...richInfo };
+    }
     // Removal metadata is presentation-only, but retaining it lets the admin
     // offer the right restore control after the iframe element is gone.
     if (type === "remove" && field.kind === "price-card") {

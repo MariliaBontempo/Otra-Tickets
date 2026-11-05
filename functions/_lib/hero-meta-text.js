@@ -54,3 +54,15 @@ export function heroMetaItemText(value) {
 export function heroMetaItems(items) {
   return Array.isArray(items) ? items.map(heroMetaItemText) : items;
 }
+
+// Ranges let rich-text consumers apply the SAME display transform without
+// discarding markup, including when a day/time run spans formatting nodes.
+export function heroMetaTextReplacements(value) {
+  if (typeof value !== "string" || !value.includes(":")) return [];
+  const edits = [];
+  value.replace(DAYS_COLON_TIME, (match, lead, days, offset) => {
+    edits.push({ start: offset + lead.length + days.length, end: offset + match.length, text: META_SEPARATOR });
+    return match;
+  });
+  return edits;
+}

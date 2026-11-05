@@ -55,7 +55,7 @@ assert.ok(!/logout\(|boot\(|closeModal\(|reload\(/.test(hashHandler[0] + extract
 const submitHandler = html.match(/\$\("editForm"\)\.addEventListener\("submit", async \(e\) => \{[\s\S]*?\n  \}\);/)[0];
 assert.equal((submitHandler.match(/if \(err\.sessionExpired\) noteBlockedSave\(submittedValues, submittedTarget\);/g) || []).length, 1, 'rename remembers a save refused by expiry');
 assert.equal((submitHandler.match(/if \(err\.sessionExpired && !overrideSaved\) noteBlockedSave\(submittedValues, submittedTarget\);/g) || []).length, 1, 'field save remembers only a refused override save, never a 401 on the later price/date sync');
-assert.match(submitHandler, /if \(!selected\) return;\s*\/\/[^\n]*\n\s*const submittedValues = dialogValues\(\);\s*const submittedTarget = editTarget\(\);/, 'values and dialog snapshotted when Save is pressed, before any request');
+assert.match(submitHandler, /if \(!selected\) return;\s*\/\/[^\n]*\n\s*syncRichEditor\(\);\s*const submittedValues = dialogValues\(\);\s*const submittedTarget = editTarget\(\);/, 'values and dialog snapshotted when Save is pressed, before any request');
 assert.match(html, /removeVideoFields\(next, activeKey\)\);\s*clearBlockedSave\(\);/, 'Remove video success clears a leftover blocked save');
 assert.ok(!/Nothing was saved/.test(html.match(/id="sessionExpiredBanner"[\s\S]{0,400}/)[0]), 'banner does not claim nothing was saved (a sync 401 can follow a saved override)');
 assert.match(submitHandler, /await persistCurrentOverride\(\);\s*overrideSaved = true;/, 'override marked saved before the price/date sync');
@@ -130,6 +130,7 @@ function makeCtx({ status, stored = 'jwt.a.b', selectedPage = { id: 'draft-1' },
     function logout() { logoutCalls += 1; } async function boot() { bootCalls += 1; } function closeModal() { closeModalCalls += 1; $("editModal").classList.add("hidden"); }
     function overrideIdForPage(page) { return page ? String(page.id) : ""; } function showImage() {}
     var modalMode = "text", activeField = { key: "text:#evBody" }, mediaUploadBusy = false;
+    var richTextMode = false; function restoreRichEditors() {}
     ${prefixDecl} let unsavedEditTimer = null; let blockedSave = null;
     ${source}
     ${bannerHandler[0]}

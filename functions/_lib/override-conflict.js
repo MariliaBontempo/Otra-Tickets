@@ -16,7 +16,7 @@ export const OVERRIDE_CONFLICT_MESSAGE =
 
 function sameField(a, b) {
   if (!a || !b) return !a && !b;
-  return a.type === b.type && a.value === b.value && (a.kind || "") === (b.kind || "") && (a.label || "") === (b.label || "");
+  return a.type === b.type && a.value === b.value && (a.html || "") === (b.html || "") && JSON.stringify(a.htmlParts || {}) === JSON.stringify(b.htmlParts || {}) && (a.kind || "") === (b.kind || "") && (a.label || "") === (b.label || "");
 }
 
 // current: the stored override as the editor GET serves it (or null).
