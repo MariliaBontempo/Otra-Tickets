@@ -7,6 +7,7 @@ import { resolvePageOverride } from "../_lib/page-override.js";
 import { allowsDraftOnlyRemovals, withoutDraftOnlyRemovals } from "../_lib/draft-only-sections.js";
 import { isHeroMetaTextKey } from "../_lib/schedule-line.js";
 import { heroMetaItemText } from "../_lib/hero-meta-text.js";
+import { normalizeRichTextField, normalizeRichHeroMeta, normalizeRichInfoField, richTextAllowedForField } from "../_lib/rich-text.js";
 import { checkStaff } from "../admin/api/_auth.js";
 import { requestToken } from "../_lib/session.js";
 import { guideApiBase, guideDetailMissing, isHiddenGuideEvent, keepsSellingWhileHidden } from "../_lib/guide-event-hidden.js";
@@ -83,6 +84,15 @@ function normalizeFields(raw) {
       // A hero line edit reads like the card: "Days · times".
       value: field.type === "text" && isHeroMetaTextKey(key) ? heroMetaItemText(value) : value,
     };
+    // Pencil rich text, sanitized again on the way out.
+    if (field.type === "text" && typeof field.html === "string" && field.html && richTextAllowedForField(key, fields[key])) {
+      const rich = normalizeRichTextField(value, field.html);
+      if (rich.html) fields[key] = { type: "text", ...(isHeroMetaTextKey(key) ? normalizeRichHeroMeta(rich) : rich) };
+    }
+    if (field.type === "text") {
+      const richInfo = normalizeRichInfoField(value, field.htmlParts);
+      if (richInfo) fields[key] = { type: "text", ...richInfo };
+    }
   }
   return fields;
 }

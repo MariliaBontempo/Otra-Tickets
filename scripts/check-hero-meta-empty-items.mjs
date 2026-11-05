@@ -184,7 +184,7 @@ for (const c of cases) {
   tidy(withPencil);
   eq(withPencil.children[0].children.length, 1, "inline dot: an item holding an admin button is left alone");
 }
-assert(/\.ev-hero-meta > span > \.dot-inline \{ display: inline-block; margin: 0 22px; \}/.test(EVENT_HTML), "event.html spaces an inner dot like the line gap");
+assert(/\.ev-hero-meta > span \.dot-inline \{ display: inline-block; margin: 0 22px; \}/.test(EVENT_HTML), "event.html spaces an inner dot like the line gap");
 assert(/INLINE_DOT = " · "/.test(SOURCE), "site-overrides.js uses the same separator as hero-meta-text.js");
 
 // The whole line replaced with one text edit.

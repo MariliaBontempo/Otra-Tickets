@@ -346,6 +346,32 @@
   .session-expired-login input { min-height: 36px; width: auto; min-width: 180px; padding: 7px 10px; }
   .session-expired-login .status { flex: 1 1 100%; }
 
+  /* Pencil rich text editor: same markup and size rules as the live page
+     (site-overrides.js), so what staff see here matches the page. */
+  .rich-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .rich-toolbar .btn { min-height: 34px; padding: 6px 10px; }
+  .rich-toolbar select { width: auto; min-height: 34px; padding: 6px 8px; }
+  .rich-toolbar input[type="color"] { width: 42px; min-height: 34px; padding: 3px; }
+  .rich-toolbar .rich-sep { width: 1px; align-self: stretch; background: var(--line); margin: 0 2px; }
+  .rich-editor {
+    min-height: 180px;
+    max-height: 360px;
+    overflow: auto;
+    color: var(--text, #f3f5f7);
+    background: #0b0d11;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 11px 12px;
+    line-height: 1.5;
+    font-size: 16px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    outline: none;
+  }
+  .rich-editor:focus { border-color: var(--accent); }
+  .rich-editor [data-otra-size] { font-size: calc(1em * var(--otra-fs, 1) / var(--otra-parent-fs, 1)); }
+  .rich-hint { color: var(--muted); font-size: 12px; margin: 0; }
+
   .modal-backdrop {
     position: fixed;
     inset: 0;
@@ -772,17 +798,50 @@
       </div>
 
       <div class="stack hidden" id="textEditor">
+            <div class="rich-toolbar" id="richToolbar" role="toolbar" aria-label="Text style">
+              <button class="btn ghost" type="button" data-rich-cmd="bold" title="Bold" aria-label="Bold"><strong>B</strong></button>
+              <button class="btn ghost" type="button" data-rich-cmd="italic" title="Italic" aria-label="Italic"><em>I</em></button>
+              <button class="btn ghost" type="button" data-rich-cmd="underline" title="Underline" aria-label="Underline"><u>U</u></button>
+              <span class="rich-sep" aria-hidden="true"></span>
+              <select id="richSize" aria-label="Font size" title="Font size">
+                <option value="">Font size</option>
+                <option value="50">50% Tiny</option>
+                <option value="70">70%</option>
+                <option value="75">75% Small</option>
+                <option value="80">80%</option>
+                <option value="90">90%</option>
+                <option value="100">100% Normal</option>
+                <option value="110">110%</option>
+                <option value="125">125% Large</option>
+                <option value="150">150% Larger</option>
+                <option value="200">200% Huge</option>
+              </select>
+              <input id="richColor" type="color" value="#1c9ebd" aria-label="Text color" title="Text color" />
+              <button class="btn ghost" type="button" id="richColorApplyBtn" title="Apply this color">Color</button>
+              <button class="btn ghost" type="button" id="richColorResetBtn" title="Back to the page color">Default color</button>
+              <span class="rich-sep" aria-hidden="true"></span>
+              <button class="btn ghost" type="button" id="richClearBtn" title="Remove all styling">Clear formatting</button>
+            </div>
         <div class="stack" id="regularTextEditor">
-          <label>Description
+          <div class="stack hidden" id="richTextWrap">
+            <div class="rich-editor" id="richText" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Text"></div>
+            <p class="rich-hint">Select words to style them. With nothing selected, a size or color applies to all the text. Sizes are a percent of the normal size, so they scale on phones too.</p>
+            <input id="descriptionHtml" type="hidden" />
+          </div>
+          <label id="plainTextLabel">Text
             <textarea id="description" placeholder="Public description override"></textarea>
           </label>
         </div>
         <div class="stack hidden" id="infoCellTextEditor">
           <label>Title
-            <input id="infoCellTitle" type="text" placeholder="Example: Meeting point" />
+            <input id="infoCellTitle" type="text" class="hidden" />
+            <input id="infoCellTitleHtml" type="hidden" />
+            <div class="rich-editor" id="richInfoTitle" contenteditable="true" role="textbox" aria-label="Information title"></div>
           </label>
           <label>Subtitle
-            <textarea id="infoCellSubtitle" placeholder="Example: Curaçao Cruise Terminal"></textarea>
+            <textarea id="infoCellSubtitle" class="hidden"></textarea>
+            <input id="infoCellSubtitleHtml" type="hidden" />
+            <div class="rich-editor" id="richInfoSubtitle" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Information subtitle"></div>
           </label>
         </div>
       </div>
@@ -1074,6 +1133,13 @@
   const OVERRIDE_TOP_LEVEL_KEYS = ["description", "image", "checkoutEventId", "accentColor"];
   let modalMode = "";
   let activeField = null;
+  // True while the open text dialog uses the rich text editor.
+  let richTextMode = false;
+  let richSavedRange = null;
+  let richActiveEditorId = "richText";
+  let richLoadedLib = null;
+  let editorOriginalValue = "";
+  let editorOriginalFormatting = "";
   let mediaUploadBusy = false;
   let inspectedProject = null;
   let availableTeams = [];
@@ -1212,7 +1278,8 @@
   function unsavedEditInputs(mode, field) {
     if (mode === "image") return ["imageUrl"];
     if (mode === "checkout") return ["checkoutEventId"];
-    if (field && field.emptyInfoCell) return ["infoCellTitle", "infoCellSubtitle"];
+    if (field && field.emptyInfoCell) return ["infoCellTitle", "infoCellSubtitle", "infoCellTitleHtml", "infoCellSubtitleHtml"];
+    if (mode === "text") return ["description", "descriptionHtml"];
     return ["description"];
   }
 
@@ -1266,6 +1333,7 @@
       if (typeof stash.values[id] === "string") $(id).value = stash.values[id];
     });
     if (modalMode === "image") showImage($("imageUrl").value);
+    if (richTextMode) restoreRichEditors();
     setStatus("Restored edits you had not saved yet. Save to keep them.", "ok");
     return true;
   }
@@ -2446,6 +2514,7 @@
     e.preventDefault();
     if (!selected) return;
     // Exactly what this Save sends; a retry after re-auth may only resend this.
+    syncRichEditor();
     const submittedValues = dialogValues();
     const submittedTarget = editTarget();
     if (modalMode === "rename") {
@@ -2483,6 +2552,8 @@
     const savedValue = activeField && activeField.emptyInfoCell
       ? serializeInfoCellValue($("infoCellTitle").value, $("infoCellSubtitle").value)
       : $("description").value;
+    // Formatting alone must never change the real checkout price or date.
+    const styleOnly = isStyleOnlyEdit(editorOriginalValue, savedValue, editorOriginalFormatting, editorFormattingValue());
     let overrideSaved = false;
     try {
       await persistCurrentOverride();
@@ -2492,8 +2563,10 @@
       closeModal();
       refreshPreview();
       setStatus("Saved.", "ok");
-      await maybeSyncTicketPrice(savedField, savedValue);
-      await maybeSyncEventDate(savedField, savedValue);
+      if (!styleOnly) {
+        await maybeSyncTicketPrice(savedField, savedValue);
+        await maybeSyncEventDate(savedField, savedValue);
+      }
     } catch (err) {
       if (err.sessionExpired && !overrideSaved) noteBlockedSave(submittedValues, submittedTarget);
       setStatus(err.sessionExpired && overrideSaved
@@ -2557,7 +2630,7 @@
   }
 
   // Edit dialog inputs kept as typed when a save is refused with 409.
-  const OVERRIDE_CONFLICT_KEEP_INPUTS = ["description", "imageUrl", "checkoutEventId", "infoCellTitle", "infoCellSubtitle"];
+  const OVERRIDE_CONFLICT_KEEP_INPUTS = ["description", "descriptionHtml", "imageUrl", "checkoutEventId", "infoCellTitle", "infoCellSubtitle", "infoCellTitleHtml", "infoCellSubtitleHtml"];
 
   // The override to save, starting from what the editor shows now.
   function overrideToSave() {
@@ -2641,16 +2714,24 @@
         const info = saved && saved.type === "text"
           ? parseInfoCellValue(saved.value)
           : infoCellValueFromElement(activeField.infoCell || activeField.element);
+        const htmlParts = Object.assign({}, saved && saved.htmlParts || {});
         if (activeField.emptyInfoCell) {
+          htmlParts.title = richTextMode ? $("infoCellTitleHtml").value : "";
+          htmlParts.subtitle = richTextMode ? $("infoCellSubtitleHtml").value : "";
           info.title = $("infoCellTitle").value.trim();
           info.subtitle = $("infoCellSubtitle").value.trim();
         } else {
+          htmlParts[activeField.infoCellPart] = richTextMode ? $("descriptionHtml").value : "";
           info[activeField.infoCellPart] = $("description").value.trim();
         }
         // Keep an explicit empty composite value. Deleting it would reveal
         // the template's original text (for example the dynamically-added
         // Tickets cell) instead of restoring the decorative colour block.
         storeInfoCellFields(next.fields, storageKey, info);
+        const parts = {};
+        if (htmlParts.title) parts.title = htmlParts.title;
+        if (htmlParts.subtitle) parts.subtitle = htmlParts.subtitle;
+        if (Object.keys(parts).length) next.fields[storageKey].htmlParts = parts;
       } else {
         const value = activeField.type === "text"
           ? $("description").value
@@ -2659,6 +2740,9 @@
           type: activeField.type,
           value,
         };
+        // Rich text keeps the plain value too; a field without styling stays plain.
+        const html = activeField.type === "text" && richTextMode ? $("descriptionHtml").value : "";
+        if (html) next.fields[storageKey].html = html;
       }
     } else if (modalMode === "description") {
       next.description = $("description").value;
@@ -4301,6 +4385,9 @@
     if (!selected) return;
     activeField = field && field.key ? field : null;
     modalMode = activeField ? activeField.type : field;
+    richSavedRange = null;
+    richTextMode = false;
+    richActiveEditorId = activeField && activeField.emptyInfoCell ? "richInfoTitle" : "richText";
     const isRename = modalMode === "rename";
     const isText = modalMode === "text" || modalMode === "description" || isRename;
     const isInfoCellText = isText && !!(activeField && activeField.emptyInfoCell);
@@ -4333,7 +4420,33 @@
       } else {
         $("description").value = hasSavedText ? saved.value : textValueForField(activeField);
       }
+      $("descriptionHtml").value = "";
+      richTextMode = !isRename && isRichTextField(activeField);
+      if (richTextMode) {
+        const lib = richTextLib();
+        if (isInfoCellText) {
+          $("infoCellTitleHtml").value = lib.normalize(saved && saved.htmlParts && saved.htmlParts.title || "");
+          $("infoCellSubtitleHtml").value = lib.normalize(saved && saved.htmlParts && saved.htmlParts.subtitle || "");
+          restoreRichEditors();
+        } else {
+          const html = activeField.infoCellPart
+            ? saved && saved.htmlParts && saved.htmlParts[activeField.infoCellPart]
+            : saved && saved.html;
+          const savedHtml = typeof html === "string" ? lib.normalize(html) : "";
+          $("descriptionHtml").value = savedHtml;
+          loadRichEditor(savedHtml, $("description").value);
+        }
+      }
+    } else {
+      richTextMode = false;
     }
+    $("richToolbar").classList.toggle("hidden", !richTextMode);
+    $("richTextWrap").classList.toggle("hidden", !richTextMode || isInfoCellText);
+    $("plainTextLabel").classList.toggle("hidden", richTextMode);
+    $("infoCellTitle").classList.toggle("hidden", richTextMode);
+    $("infoCellSubtitle").classList.toggle("hidden", richTextMode);
+    $("richInfoTitle").classList.toggle("hidden", !richTextMode);
+    $("richInfoSubtitle").classList.toggle("hidden", !richTextMode);
     if (isImage) {
       const saved = activeField && fieldOverrideForKey(activeField.key);
       $("imageInput").value = "";
@@ -4347,13 +4460,309 @@
       $("checkoutEventId").value = currentOverride && currentOverride.checkoutEventId ? currentOverride.checkoutEventId : overrideIdForPage(selected);
     }
 
+    editorOriginalValue = activeField && activeField.emptyInfoCell
+      ? serializeInfoCellValue($("infoCellTitle").value, $("infoCellSubtitle").value)
+      : $("description").value;
+    editorOriginalFormatting = editorFormattingValue();
     $("editModal").classList.remove("hidden");
     restoreUnsavedEdit();
     setTimeout(() => {
-      const first = isInfoCellText ? $("infoCellTitle") : isText ? $("description") : isImage ? $("imageInput") : $("checkoutEventId");
+      const first = richTextMode ? richEditor() : isInfoCellText ? $("infoCellTitle") : isText ? $("description") : isImage ? $("imageInput") : $("checkoutEventId");
       first.focus();
     }, 0);
   }
+
+  // ---- Pencil rich text editor ------------------------------------------
+  // The parser and size rules live in site-overrides.js (window.otraRichText
+  // in the preview page), so the editor and the live page read the same
+  // markup. Without it (preview not loaded) a field opens as plain text.
+  function richTextLib() {
+    try {
+      const lib = $("previewFrame").contentWindow.otraRichText;
+      if (lib && typeof lib.parse === "function" && typeof lib.render === "function") richLoadedLib = lib;
+      return richLoadedLib;
+    } catch {
+      return richLoadedLib;
+    }
+  }
+
+  // Every text pencil uses the same rich toolbar. IDs, URLs and draft names
+  // are not page text and keep their existing plain form controls.
+  function isRichTextField(field) {
+    return !!field && field.type === "text" && !!richTextLib();
+  }
+
+  // No-op Save retains the existing semantic retry flow after a failed Guide
+  // sync. Only an actual formatting change with unchanged text skips it.
+  function isStyleOnlyEdit(beforeValue, afterValue, beforeFormatting, afterFormatting) {
+    return beforeValue === afterValue && beforeFormatting !== afterFormatting;
+  }
+
+  function editorFormattingValue() {
+    if (!richTextMode) return "";
+    return activeField && activeField.emptyInfoCell
+      ? JSON.stringify([$("infoCellTitleHtml").value, $("infoCellSubtitleHtml").value])
+      : $("descriptionHtml").value;
+  }
+
+  function richEditor() { return $(richActiveEditorId); }
+
+  function restoreRichEditors() {
+    if (activeField && activeField.emptyInfoCell) {
+      loadRichEditor($("infoCellTitleHtml").value, $("infoCellTitle").value, "richInfoTitle");
+      loadRichEditor($("infoCellSubtitleHtml").value, $("infoCellSubtitle").value, "richInfoSubtitle");
+    } else loadRichEditor($("descriptionHtml").value, $("description").value);
+  }
+
+  function plainToRichHtml(text) {
+    return String(text || "")
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/\r\n?/g, "\n")
+      .replace(/\n/g, "<br>");
+  }
+
+  function loadRichEditor(html, plain, editorId = "richText") {
+    const lib = richTextLib();
+    const editor = $(editorId);
+    if (!lib) return;
+    lib.render(editor, html || plainToRichHtml(plain), { paragraphs: false, linkify: false });
+    editor.__otraRichKey = "";
+    syncRichEditor(editorId);
+    updateRichToolbar();
+  }
+
+  // Editor DOM (contenteditable output, including what bold / italic produce)
+  // to the stored markup.
+  function richHtmlFromEditor(node) {
+    let out = "";
+    node.childNodes.forEach((child) => {
+      if (child.nodeType === 3) {
+        out += String(child.nodeValue || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        return;
+      }
+      if (child.nodeType !== 1) return;
+      const tag = child.tagName.toLowerCase();
+      if (tag === "br") { out += "<br>"; return; }
+      if (tag === "script" || tag === "style") return;
+      let inner = richHtmlFromEditor(child);
+      if ((tag === "div" || tag === "p") && out && !/<br>$/.test(out)) inner = "<br>" + inner;
+      const st = child.style || {};
+      const size = child.getAttribute("data-otra-size") || String(richTextLib().inlineSize(st.fontSize) || (tag === "font" ? {1:50,2:75,3:100,4:125,5:150,6:150,7:200}[child.getAttribute("size")] : "") || "");
+      const color = child.getAttribute("data-otra-color") || cssColorHex(st.color) || (tag === "font" ? cssColorHex(child.getAttribute("color")) : "");
+      if (tag === "b" || tag === "strong" || /^(?:bold|[6-9]00)$/.test(st.fontWeight || "")) inner = "<strong>" + inner + "</strong>";
+      if (tag === "i" || tag === "em" || st.fontStyle === "italic") inner = "<em>" + inner + "</em>";
+      if (tag === "u" || /underline/.test(st.textDecorationLine || st.textDecoration || "")) inner = "<u>" + inner + "</u>";
+      if (size || color) {
+        inner = "<span" + (size ? ' data-otra-size="' + size + '"' : "") + (color ? ' data-otra-color="' + color + '"' : "") + ">" + inner + "</span>";
+      }
+      out += inner;
+    });
+    return out;
+  }
+
+  function cssColorHex(value) {
+    const text = String(value || "").trim().toLowerCase();
+    if (/^#[0-9a-f]{6}$/.test(text)) return text;
+    if (/^#[0-9a-f]{3}$/.test(text)) return "#" + text.slice(1).split("").map((c) => c + c).join("");
+    const rgb = /^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})/.exec(text);
+    if (!rgb) return "";
+    return "#" + rgb.slice(1, 4).map((n) => Math.min(255, Number(n)).toString(16).padStart(2, "0")).join("");
+  }
+
+  // Keeps the hidden plain value and html in step with the editor.
+  function syncRichEditor(onlyEditorId) {
+    const lib = richTextLib();
+    if (!lib || !richTextMode) return;
+    const configs = activeField && activeField.emptyInfoCell
+      ? [["richInfoTitle", "infoCellTitle", "infoCellTitleHtml"], ["richInfoSubtitle", "infoCellSubtitle", "infoCellSubtitleHtml"]]
+      : [["richText", "description", "descriptionHtml"]];
+    configs.forEach(([id, plainId, htmlId]) => {
+      if (typeof onlyEditorId === "string" && id !== onlyEditorId) return;
+      const editor = $(id);
+      const setSizes = (el, parentSize) => {
+        Array.from(el.children).forEach((child) => {
+          const size = Number(child.getAttribute("data-otra-size")) || parentSize;
+          if (child.hasAttribute("data-otra-size")) {
+            child.style.setProperty("--otra-fs", String(size / 100));
+            child.style.setProperty("--otra-parent-fs", String(parentSize / 100));
+          }
+          setSizes(child, size);
+        });
+      };
+      setSizes(editor, 100);
+      const nodes = lib.parse(richHtmlFromEditor(editor));
+      $(plainId).value = lib.toPlain(nodes);
+      $(htmlId).value = lib.hasFormatting(nodes) ? lib.serialize(nodes) : "";
+    });
+  }
+
+  function richSelectionRange() {
+    const editor = richEditor();
+    const sel = window.getSelection();
+    let range = null;
+    if (sel && sel.rangeCount && editor.contains(sel.getRangeAt(0).commonAncestorContainer)) range = sel.getRangeAt(0);
+    else if (richSavedRange && editor.contains(richSavedRange.commonAncestorContainer)) range = richSavedRange;
+    if (!range || range.collapsed) {
+      range = document.createRange();
+      range.selectNodeContents(editor);
+    }
+    return range;
+  }
+
+  // Splits ancestor around node so node can drop the ancestor's style.
+  function isolateFromAncestor(node, ancestor) {
+    const after = document.createRange();
+    after.setStartAfter(node);
+    after.setEnd(ancestor, ancestor.childNodes.length);
+    const before = document.createRange();
+    before.setStart(ancestor, 0);
+    before.setEndBefore(node);
+    const afterFrag = after.extractContents();
+    const beforeFrag = before.extractContents();
+    const keep = (frag) => !!(frag.textContent || frag.querySelector("br"));
+    if (keep(afterFrag)) { const c = ancestor.cloneNode(false); c.appendChild(afterFrag); ancestor.after(c); }
+    if (keep(beforeFrag)) { const c = ancestor.cloneNode(false); c.appendChild(beforeFrag); ancestor.before(c); }
+  }
+
+  // name: "size" or "color"; value "" puts the page default back.
+  function applyRichStyle(name, value) {
+    const editor = richEditor();
+    const attr = name === "size" ? "data-otra-size" : "data-otra-color";
+    const range = richSelectionRange();
+    const span = document.createElement("span");
+    span.appendChild(range.extractContents());
+    span.querySelectorAll(name === "size" ? "[data-otra-size], [style], font[size]" : "[data-otra-color], [style], font[color]").forEach((el) => {
+      el.removeAttribute(attr);
+      if (name === "size") {
+        el.style.removeProperty("--otra-fs");
+        el.style.removeProperty("--otra-parent-fs");
+        el.style.fontSize = "";
+        if (el.tagName === "FONT") el.removeAttribute("size");
+      } else {
+        el.style.color = "";
+        if (el.tagName === "FONT") el.removeAttribute("color");
+      }
+    });
+    range.insertNode(span);
+    const selector = name === "size" ? "[data-otra-size], [style*=\"font-size\"], font[size]" : "[data-otra-color]";
+    let ancestor = span.parentElement && span.parentElement.closest(selector);
+    while (ancestor && ancestor !== editor && editor.contains(ancestor)) {
+      isolateFromAncestor(span, ancestor);
+      ancestor.removeAttribute(attr);
+      if (name === "size") {
+        ancestor.style.removeProperty("--otra-fs");
+        ancestor.style.removeProperty("--otra-parent-fs");
+        ancestor.style.fontSize = "";
+        if (ancestor.tagName === "FONT") ancestor.removeAttribute("size");
+      } else ancestor.style.color = "";
+      ancestor = span.parentElement && span.parentElement.closest(selector);
+    }
+    if (value) {
+      span.className = "otra-rt";
+      span.setAttribute(attr, value);
+      if (name === "size") span.style.setProperty("--otra-fs", String(Number(value) / 100));
+      else span.style.color = value;
+    }
+    editor.focus();
+    const sel = window.getSelection();
+    const selectRange = document.createRange();
+    selectRange.selectNodeContents(span);
+    sel.removeAllRanges();
+    sel.addRange(selectRange);
+    richSavedRange = selectRange.cloneRange();
+    syncRichEditor();
+    scheduleUnsavedEditStash();
+  }
+
+  function updateRichToolbar() {
+    if (!richTextMode) return;
+    const editor = richEditor();
+    const selection = window.getSelection();
+    let anchor = editor.firstChild;
+    if (selection && selection.rangeCount) {
+      const range = selection.getRangeAt(0);
+      if (editor.contains(range.startContainer)) {
+        anchor = range.startContainer;
+        // Focusing contenteditable commonly leaves the caret on the editor
+        // container itself, not the styled text node. Resolve its offset to
+        // content before reading its style; otherwise reopen falsely says100%.
+        if (anchor.nodeType === 1 && anchor.childNodes.length) {
+          anchor = anchor.childNodes[Math.min(range.startOffset, anchor.childNodes.length - 1)];
+        }
+      }
+    }
+    while (anchor && anchor.nodeType === 1 && anchor.firstChild) anchor = anchor.firstChild;
+    const el = anchor && (anchor.nodeType === 1 ? anchor : anchor.parentElement);
+    const sized = el && el.closest("[data-otra-size]");
+    const value = sized && editor.contains(sized) ? sized.getAttribute("data-otra-size") : "100";
+    $("richSize").value = value;
+    const colored = el && el.closest("[data-otra-color]");
+    if (colored && editor.contains(colored)) $("richColor").value = colored.getAttribute("data-otra-color");
+  }
+
+  document.addEventListener("selectionchange", () => {
+    if (!richTextMode) return;
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount && richEditor().contains(sel.getRangeAt(0).commonAncestorContainer)) {
+      richSavedRange = sel.getRangeAt(0).cloneRange();
+      updateRichToolbar();
+    }
+  });
+  ["richText", "richInfoTitle", "richInfoSubtitle"].forEach((id) => {
+    const editor = $(id);
+    editor.addEventListener("focus", () => {
+      if (richActiveEditorId !== id) richSavedRange = null;
+      richActiveEditorId = id;
+      updateRichToolbar();
+    });
+    editor.addEventListener("input", syncRichEditor);
+    editor.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.isComposing) {
+        e.preventDefault();
+        document.execCommand("insertLineBreak");
+      }
+    });
+    editor.addEventListener("paste", (e) => {
+      e.preventDefault();
+      const text = (e.clipboardData && e.clipboardData.getData("text/plain")) || "";
+      document.execCommand("insertText", false, text);
+    });
+    editor.addEventListener("drop", (e) => e.preventDefault());
+  });
+  // Buttons keep the text selection: no focus change on mousedown.
+  $("richToolbar").addEventListener("mousedown", (e) => {
+    if (e.target.closest("button")) e.preventDefault();
+  });
+  $("richToolbar").querySelectorAll("[data-rich-cmd]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const editor = richEditor();
+      editor.focus();
+      const sel = window.getSelection();
+      const range = richSelectionRange();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      document.execCommand("styleWithCSS", false, false);
+      document.execCommand(btn.dataset.richCmd, false, null);
+      syncRichEditor();
+      scheduleUnsavedEditStash();
+    });
+  });
+  $("richSize").addEventListener("change", () => {
+    const value = $("richSize").value;
+    if (!value) return;
+    applyRichStyle("size", value === "100" ? "" : value);
+    updateRichToolbar();
+  });
+  $("richColorApplyBtn").addEventListener("click", () => applyRichStyle("color", cssColorHex($("richColor").value)));
+  $("richColor").addEventListener("change", () => applyRichStyle("color", cssColorHex($("richColor").value)));
+  $("richColorResetBtn").addEventListener("click", () => applyRichStyle("color", ""));
+  $("richClearBtn").addEventListener("click", () => {
+    syncRichEditor();
+    const id = richActiveEditorId;
+    const plain = id === "richInfoTitle" ? $("infoCellTitle").value : id === "richInfoSubtitle" ? $("infoCellSubtitle").value : $("description").value;
+    loadRichEditor("", plain, id);
+    scheduleUnsavedEditStash();
+  });
 
   function closeModal(force) {
     if (mediaUploadBusy && force !== true) {
@@ -4363,6 +4772,8 @@
     $("editModal").classList.add("hidden");
     modalMode = "";
     activeField = null;
+    richTextMode = false;
+    richSavedRange = null;
   }
 
   function getPreviewDescription() {
@@ -5060,6 +5471,9 @@
   }
 
   function isEditableText(el, key) {
+    // Formatting spans are content of the original pencil, not extra fields.
+    const richHost = el.closest("[data-otra-rich]");
+    if (richHost && richHost !== el) return false;
     if (el.closest("[data-otra-admin-edit]")) return false;
     if (el.closest("header, nav, .dd-panel, script, style")) return false;
     if (el.textContent.trim()) return true;

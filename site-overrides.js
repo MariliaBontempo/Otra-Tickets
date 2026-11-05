@@ -2,12 +2,36 @@
   const INFO_CELL_VALUE_PREFIX = "otra-info-cell:";
   // Same separator as functions/_lib/hero-meta-text.js META_SEPARATOR.
   const INLINE_DOT = " · ";
+  // Same rules as functions/_lib/rich-text.js (server/test/rich-text.test.mjs
+  // checks the two agree).
+  const RICH_TEXT_SIZES = [50, 70, 75, 80, 90, 100, 110, 125, 150, 200];
+  const RICH_TEXT_MAX_HTML = 40000;
+  const RICH_TEXT_MAX_DEPTH = 6;
+  const RICH_FORMAT_TAGS = { strong: "strong", b: "strong", em: "em", i: "em", u: "u" };
   // One price fit per task, however many triggers fire (see fitPriceAmounts).
   let fitQueued = false;
   let priceCardObserver = null;
   // event.html renderMeta() calls this after it builds the hero line, and
   // this script runs it again after every pass of page edits.
   if (typeof window !== "undefined") window.otraTidyMetaLine = tidyMetaLine;
+  // Pencil rich text (font size, colour, bold, italic, underline). The admin
+  // editor reads this from the preview page so both use one parser.
+  if (typeof window !== "undefined") {
+    window.otraRichText = {
+      SIZES: RICH_TEXT_SIZES.slice(),
+      parse: parseRichText,
+      inlineSize: richInlineSize,
+      serialize: serializeRichText,
+      toPlain: richTextToPlain,
+      hasFormatting: richTextHasFormatting,
+      normalize: (html) => {
+        const nodes = parseRichText(html);
+        return richTextHasFormatting(nodes) ? serializeRichText(nodes) : "";
+      },
+      render: renderRichText,
+      ensureStyle: ensureRichTextStyle,
+    };
+  }
   tidyMetaLine();
   // The event can render before this script loads, so its render event is
   // missed; sync the band classes now and again on load as well.
@@ -143,20 +167,32 @@
       if (type === "text" && field.type === "text") {
         let value = typeof field.value === "string" ? field.value : "";
         if (isInfoCell(el)) {
-          applyInfoCellText(el, value);
+          applyInfoCellText(el, value, field.htmlParts);
           revealInfoSection(el);
           applied.add(key);
           continue;
         }
         if (isDescriptionBody(el)) {
-          applyDescriptionBody(el, value);
+          if (!applyRichField(el, field, true)) applyDescriptionBody(el, value);
           applied.add(key);
           continue;
         }
         const priceAmount = isPriceAmount(el);
+        if (applyRichField(el, field, false, priceAmount)) {
+          if (priceAmount) fitPriceAmount(el);
+          revealBandText(el, value);
+          const richCell = el.closest && el.closest(".ev-info-cell");
+          if (richCell) {
+            syncInfoCellDecorativeState(richCell);
+            revealInfoSection(richCell);
+          }
+          applied.add(key);
+          continue;
+        }
         if (priceAmount) value = value.replace(/\s+/g, " ").trim();
-        if (el.textContent !== value) {
+        if (el.textContent !== value || el.__otraRichKey) {
           el.textContent = value;
+          el.__otraRichKey = "";
           if (value.includes("\n")) el.style.whiteSpace = "pre-line";
         }
         if (priceAmount) fitPriceAmount(el);
@@ -298,7 +334,29 @@
   // same, so saved edits still compare equal and the admin editor still
   // reads the item as before. Only plain text items are touched.
   function markInlineDots(item) {
-    if (!item || (item.children && item.children.length)) return;
+    if (!item) return;
+    if (item.children && item.children.length) {
+      if (!item.hasAttribute || !item.hasAttribute("data-otra-rich")) return;
+      const walk = (parent) => Array.from(parent.childNodes || []).forEach((node) => {
+        if (node.nodeType === 1) {
+          if (!isAdminControl(node) && !(node.classList && node.classList.contains("dot"))) walk(node);
+          return;
+        }
+        if (node.nodeType !== 3 || !String(node.nodeValue || "").includes(INLINE_DOT)) return;
+        String(node.nodeValue).split(INLINE_DOT).forEach((part, index) => {
+          if (index) {
+            const dot = document.createElement("span");
+            dot.className = "dot dot-inline";
+            dot.textContent = INLINE_DOT;
+            parent.insertBefore(dot, node);
+          }
+          if (part) parent.insertBefore(document.createTextNode(part), node);
+        });
+        parent.removeChild(node);
+      });
+      walk(item);
+      return;
+    }
     if (typeof document === "undefined" || typeof document.createElement !== "function" || typeof document.createTextNode !== "function") return;
     const text = item.textContent || "";
     if (!text.includes(INLINE_DOT)) return;
@@ -360,7 +418,7 @@
   // Empty info cells may be authored as decorative colour blocks with an
   // inline background and no .k/.v children. A text override turns that block
   // into a normal value cell while leaving the rest of the grid untouched.
-  function applyInfoCellText(el, value) {
+  function applyInfoCellText(el, value, htmlParts) {
     const next = parseInfoCellValue(value);
     if (!next.title && !next.subtitle) {
       el.innerHTML = "";
@@ -380,8 +438,18 @@
       subtitle.dataset.otraInfoSubtitle = "1";
       el.appendChild(subtitle);
     }
-    if (title && title.textContent !== next.title) title.textContent = next.title;
-    if (subtitle && subtitle.textContent !== next.subtitle) subtitle.textContent = next.subtitle;
+    if (!applyRichField(title, { html: htmlParts && htmlParts.title }, false)) {
+      if (title && (title.__otraRichKey || title.textContent !== next.title)) {
+        title.textContent = next.title;
+        title.__otraRichKey = "";
+      }
+    }
+    if (!applyRichField(subtitle, { html: htmlParts && htmlParts.subtitle }, false)) {
+      if (subtitle && (subtitle.__otraRichKey || subtitle.textContent !== next.subtitle)) {
+        subtitle.textContent = next.subtitle;
+        subtitle.__otraRichKey = "";
+      }
+    }
     if (subtitle) linkifyEmails(subtitle);
     syncInfoCellDecorativeState(el);
   }
@@ -686,5 +754,310 @@
     } else {
       pre.onload = pre.onerror = assign;
     }
+  }
+  // ---- Pencil rich text -------------------------------------------------
+  // Stored markup is only <strong> <em> <u> <br> and
+  // <span data-otra-size="N" data-otra-color="#rrggbb">. It is never set
+  // through innerHTML: the parser below builds a whitelisted tree and the
+  // page gets fresh elements from it. Sizes are percents of the element's
+  // own (responsive, clamp()) font size, applied as em, so a 75% title is
+  // 75% of the title size at every screen width. On phones a size above
+  // 100% is capped at 120% so a large word cannot push past the screen.
+
+  // Returns true when the field had rich text and it was rendered.
+  function applyRichField(el, field, paragraphs, priceAmount) {
+    if (!el || !field || typeof field.html !== "string" || !field.html) return false;
+    const nodes = parseRichText(field.html);
+    if (priceAmount) {
+      const singleLine = (list) => list.forEach((node, index) => {
+        if (typeof node === "string") list[index] = node.replace(/\s+/g, " ");
+        else if (node.tag === "br") list[index] = " ";
+        else singleLine(node.children || []);
+      });
+      singleLine(nodes);
+    }
+    if (!richTextHasFormatting(nodes)) return false;
+    // Emails become links only where plain edits link them (band, story,
+    // info text), never in titles or rate names.
+    const linkify = !!paragraphs || el.id === "evBandText" ||
+      !!(el.classList && el.classList.contains("v") && el.closest && el.closest(".ev-info-cell"));
+    renderRichText(el, nodes, { paragraphs, linkify });
+    return true;
+  }
+
+  function ensureRichTextStyle(doc) {
+    const d = doc || (typeof document !== "undefined" ? document : null);
+    if (!d || typeof d.createElement !== "function" || typeof d.getElementById !== "function") return;
+    if (d.getElementById("otra-rich-text-style")) return;
+    const style = d.createElement("style");
+    style.id = "otra-rich-text-style";
+    style.textContent =
+      "[data-otra-rich]{overflow-wrap:anywhere}" +
+      "[data-otra-rich] .otra-rt{font-weight:inherit;letter-spacing:inherit;text-transform:inherit;font-style:inherit;color:inherit}" +
+      "[data-otra-rich] .otra-rt:not([data-otra-size]){font-size:inherit}" +
+      ".otra-rt[data-otra-size]{font-size:calc(1em * var(--otra-fs, 1) / var(--otra-parent-fs, 1))}" +
+      "@media (max-width: 620px){.otra-rt[data-otra-size]{font-size:calc(1em * min(var(--otra-fs, 1), 1.2) / min(var(--otra-parent-fs, 1), 1.2))}}";
+    (d.head || d.documentElement).appendChild(style);
+  }
+
+  // nodesOrHtml: a parsed tree or stored html. options.paragraphs splits the
+  // text into <p> at blank lines (the story body), like plain edits do.
+  function renderRichText(el, nodesOrHtml, options) {
+    if (!el) return false;
+    const nodes = typeof nodesOrHtml === "string" ? parseRichText(nodesOrHtml) : (nodesOrHtml || []);
+    const key = serializeRichText(nodes) + (options && options.paragraphs ? "|p" : "");
+    // Compare before set: a second pass with the same edit leaves the DOM alone.
+    if (el.__otraRichKey === key && el.firstChild && el.firstChild === el.__otraRichFirst) return false;
+    const doc = el.ownerDocument || document;
+    const linkify = !(options && options.linkify === false);
+    ensureRichTextStyle(doc);
+    el.setAttribute("data-otra-rich", "1");
+    while (el.firstChild) el.removeChild(el.firstChild);
+    if (options && options.paragraphs) {
+      splitRichParagraphs(nodes).forEach((part) => {
+        const p = doc.createElement("p");
+        appendRichNodes(doc, p, part);
+        el.appendChild(p);
+        if (linkify) linkifyEmails(p);
+      });
+    } else {
+      appendRichNodes(doc, el, nodes);
+      if (linkify) linkifyEmails(el);
+    }
+    if (el.style && el.style.whiteSpace === "pre-line") el.style.whiteSpace = "";
+    el.__otraRichKey = key;
+    el.__otraRichFirst = el.firstChild;
+    return true;
+  }
+
+  function appendRichNodes(doc, parent, nodes, parentSize = 100) {
+    (nodes || []).forEach((node) => {
+      if (typeof node === "string") { parent.appendChild(doc.createTextNode(node)); return; }
+      if (node.tag === "br") { parent.appendChild(doc.createElement("br")); return; }
+      const tag = node.tag === "span" ? "span" : node.tag === "strong" ? "strong" : node.tag === "em" ? "em" : node.tag === "u" ? "u" : "";
+      if (!tag) return;
+      const child = doc.createElement(tag);
+      if (tag === "span") {
+        child.className = "otra-rt";
+        if (node.size) {
+          child.setAttribute("data-otra-size", String(node.size));
+          child.style.setProperty("--otra-fs", String(node.size / 100));
+          child.style.setProperty("--otra-parent-fs", String(parentSize / 100));
+        }
+        if (node.color) {
+          child.setAttribute("data-otra-color", node.color);
+          child.style.color = node.color;
+        }
+      }
+      appendRichNodes(doc, child, node.children, node.size || parentSize);
+      parent.appendChild(child);
+    });
+  }
+
+  // Blank lines split story paragraphs even when the entire story is inside
+  // a size/color span. Carry inline ancestors into each new paragraph.
+  function splitRichParagraphs(nodes) {
+    const leaves = [];
+    const walk = (list, path) => (list || []).forEach((node) => {
+      if (typeof node === "string" || node.tag === "br") leaves.push({ node, path });
+      else walk(node.children, path.concat(node));
+    });
+    walk(nodes, []);
+    const parts = [];
+    let current = [];
+    let breaks = [];
+    const wrap = ({ node, path }) => path.reduceRight((child, parent) => ({ ...parent, children: [child] }), node);
+    const flush = () => {
+      if (current.length) parts.push(current);
+      current = [];
+    };
+    leaves.forEach((leaf) => {
+      if (leaf.node && leaf.node.tag === "br") { breaks.push(leaf); return; }
+      if (typeof leaf.node === "string" && !leaf.node.trim() && breaks.length) return;
+      if (breaks.length >= 2) flush();
+      else if (breaks.length && current.length) current.push(wrap(breaks[0]));
+      breaks = [];
+      current.push(wrap(leaf));
+    });
+    flush();
+    return parts;
+  }
+
+  function decodeRichEntities(text) {
+    return String(text).replace(/&(#x[0-9a-f]{1,6}|#[0-9]{1,7}|amp|lt|gt|quot|apos|nbsp);/gi, (match, name) => {
+      const key = name.toLowerCase();
+      if (key === "amp") return "&";
+      if (key === "lt") return "<";
+      if (key === "gt") return ">";
+      if (key === "quot") return '"';
+      if (key === "apos") return "'";
+      if (key === "nbsp") return " ";
+      const code = key[1] === "x" ? parseInt(key.slice(2), 16) : parseInt(key.slice(1), 10);
+      if (!(code > 0 && code <= 0x10ffff) || (code >= 0xd800 && code <= 0xdfff)) return "";
+      return String.fromCodePoint(code);
+    });
+  }
+
+  function richAttr(attrs, name) {
+    const match = new RegExp("\\b" + name + "\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)'|([^\\s\"'>]+))", "i").exec(attrs || "");
+    if (!match) return "";
+    const raw = match[1] != null ? match[1] : match[2] != null ? match[2] : match[3] != null ? match[3] : "";
+    return decodeRichEntities(raw).trim();
+  }
+
+  function richSize(raw) {
+    const text = String(raw == null ? "" : raw).trim();
+    if (!/^\d{2,3}$/.test(text)) return 0;
+    const size = Number(text);
+    return RICH_TEXT_SIZES.indexOf(size) >= 0 ? size : 0;
+  }
+
+  function richColor(raw) {
+    const text = String(raw == null ? "" : raw).trim().toLowerCase();
+    const short = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/.exec(text);
+    if (short) return "#" + short[1] + short[1] + short[2] + short[2] + short[3] + short[3];
+    return /^#[0-9a-f]{6}$/.test(text) ? text : "";
+  }
+
+  function richInlineSize(raw) {
+    const match = /^(\d+(?:\.\d+)?)(%|em|rem|px)$/i.exec(String(raw || "").trim());
+    if (!match) return 0;
+    const number = Number(match[1]);
+    if (!(number > 0)) return 0;
+    const percent = match[2].toLowerCase() === "%" ? number : match[2].toLowerCase() === "px" ? number / 16 * 100 : number * 100;
+    return RICH_TEXT_SIZES.reduce((best, size) => Math.abs(size - percent) < Math.abs(best - percent) ? size : best, 100);
+  }
+
+  function richInlineProperty(attrs, name) {
+    const style = richAttr(attrs, "style");
+    let result = "";
+    style.split(";").forEach((part) => {
+      const index = part.indexOf(":");
+      if (index >= 0 && part.slice(0, index).trim().toLowerCase() === name) result = part.slice(index + 1).trim();
+    });
+    return result;
+  }
+
+  function parseRichText(html) {
+    const src = String(html == null ? "" : html)
+      .slice(0, RICH_TEXT_MAX_HTML)
+      .replace(/<!--[\s\S]*?(?:-->|$)/g, "")
+      .replace(/<(script|style|template|iframe|object|embed|noscript|textarea|title|svg|math|select|button)\b[\s\S]*?(?:<\/\1\s*>|$)/gi, "");
+    const token = /<(\/?)([a-zA-Z][a-zA-Z0-9]*)\b((?:[^<>"']|"[^"]*"|'[^']*')*)>|([^<]+)|(<)/g;
+    const root = { tag: null, src: "", children: [] };
+    const stack = [root];
+    let skippedDepth = 0;
+    const top = () => stack[stack.length - 1];
+    const pushText = (text) => {
+      if (!text) return;
+      const list = top().children;
+      String(text).split(/\r\n?|\n/).forEach((line, index) => {
+        if (index) list.push({ tag: "br" });
+        if (!line) return;
+        if (typeof list[list.length - 1] === "string") list[list.length - 1] += line;
+        else list.push(line);
+      });
+    };
+    let match;
+    while ((match = token.exec(src))) {
+      if (match[4] != null || match[5] != null) {
+        pushText(decodeRichEntities(match[4] != null ? match[4] : match[5]));
+        continue;
+      }
+      const closing = match[1] === "/";
+      const name = match[2].toLowerCase();
+      if (name === "br") {
+        if (!closing) top().children.push({ tag: "br" });
+        continue;
+      }
+      if (name === "p" || name === "div" || name === "li") {
+        if (closing) {
+          top().children.push({ tag: "br" });
+          if (name === "p") top().children.push({ tag: "br" });
+        }
+        continue;
+      }
+      const isFormat = Object.prototype.hasOwnProperty.call(RICH_FORMAT_TAGS, name);
+      const isSpan = name === "span" || name === "font";
+      if (!isFormat && !isSpan) continue;
+      if (closing) {
+        if (skippedDepth) { skippedDepth -= 1; continue; }
+        for (let i = stack.length - 1; i > 0; i -= 1) {
+          if (stack[i].src === name) { stack.length = i; break; }
+        }
+        continue;
+      }
+      if (skippedDepth || stack.length > RICH_TEXT_MAX_DEPTH) { skippedDepth += 1; continue; }
+      let node;
+      if (isFormat) node = { tag: RICH_FORMAT_TAGS[name], src: name, children: [] };
+      else {
+        const attrs = match[3];
+        const fontSize = name === "font" ? { 1: 50, 2: 75, 3: 100, 4: 125, 5: 150, 6: 150, 7: 200 }[richAttr(attrs, "size")] || 0 : 0;
+        const size = richSize(richAttr(attrs, "data-otra-size")) || richInlineSize(richInlineProperty(attrs, "font-size")) || fontSize;
+        const color = richColor(richAttr(attrs, "data-otra-color")) || richColor(richInlineProperty(attrs, "color")) || (name === "font" ? richColor(richAttr(attrs, "color")) : "");
+        node = size || color ? { tag: "span", src: name, size, color, children: [] } : { tag: null, src: name, children: [] };
+      }
+      top().children.push(node);
+      stack.push(node);
+    }
+    return tidyRichNodes(root.children, true);
+  }
+
+  function tidyRichNodes(nodes, isRoot) {
+    const out = [];
+    nodes.forEach((node) => {
+      if (typeof node === "string") {
+        if (!node) return;
+        if (typeof out[out.length - 1] === "string") out[out.length - 1] += node;
+        else out.push(node);
+        return;
+      }
+      if (node.tag === "br") { out.push({ tag: "br" }); return; }
+      const children = tidyRichNodes(node.children || [], false);
+      if (!node.tag) {
+        children.forEach((child) => {
+          if (typeof child === "string" && typeof out[out.length - 1] === "string") out[out.length - 1] += child;
+          else out.push(child);
+        });
+        return;
+      }
+      if (!children.length) return;
+      const next = { tag: node.tag, children };
+      if (node.tag === "span") { next.size = node.size || 0; next.color = node.color || ""; }
+      out.push(next);
+    });
+    if (isRoot) {
+      while (out.length && out[0].tag === "br") out.shift();
+      while (out.length && out[out.length - 1].tag === "br") out.pop();
+    }
+    return out;
+  }
+
+  function serializeRichText(nodes) {
+    return (nodes || []).map((node) => {
+      if (typeof node === "string") {
+        return node.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+      }
+      if (node.tag === "br") return "<br>";
+      const inner = serializeRichText(node.children);
+      if (node.tag === "span") {
+        const size = node.size ? ' data-otra-size="' + node.size + '"' : "";
+        const color = node.color ? ' data-otra-color="' + node.color + '"' : "";
+        return "<span" + size + color + ">" + inner + "</span>";
+      }
+      return "<" + node.tag + ">" + inner + "</" + node.tag + ">";
+    }).join("");
+  }
+
+  function richTextHasFormatting(nodes) {
+    return (nodes || []).some((node) => typeof node === "object" && node.tag !== "br");
+  }
+
+  function richTextToPlain(nodes) {
+    return (nodes || []).map((node) => {
+      if (typeof node === "string") return node;
+      if (node.tag === "br") return "\n";
+      return richTextToPlain(node.children);
+    }).join("");
   }
 })();

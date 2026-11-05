@@ -154,7 +154,7 @@ test("a draft-only remove of Before You Go wins over a cell edit", () => {
 });
 
 test("both info-cell text paths in applyFieldOverrides call revealInfoSection", () => {
-  assert.match(overridesSrc, /applyInfoCellText\(el, value\);\s*revealInfoSection\(el\);/);
+  assert.match(overridesSrc, /applyInfoCellText\(el, value, field\.htmlParts\);\s*revealInfoSection\(el\);/);
   assert.match(overridesSrc, /syncInfoCellDecorativeState\(infoCell\);\s*revealInfoSection\(infoCell\);/);
 });
 
