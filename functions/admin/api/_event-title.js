@@ -1,8 +1,8 @@
 // Guide-first rename, NOT a post-save synchronization hook.
 import { otraFetch } from "./_auth.js";
-import { isOtraGuideId, guideTitleIdForPage } from "../../_lib/page-override.js";
+import { isOtraGuideId, guideTitleIdForPage, guideTitleIdsForPage, ownedTitleIdForPage } from "../../_lib/page-override.js";
 import { forgetPublicGuideTitle } from "../../_lib/public-guide-title.js";
-import { ownedGuideTitleId, withoutLocalProjectTitle, withoutTitleOverride, overrideHasDurableTitleCopy } from "../../_lib/title-ownership.js";
+import { guideTitleSsotId, ownedGuideTitleId, withoutLocalProjectTitle, withoutTitleOverride, overrideHasDurableTitleCopy } from "../../_lib/title-ownership.js";
 import { liveSlugBase, persistedFrozenSlug } from "../../_lib/event-slug.js";
 import { invalidatePublicFeed } from "../../_lib/homepage-feed.js";
 
@@ -95,10 +95,10 @@ export async function discardLinkedTitleCopies(kv, guideId, { guidePlain } = {})
     }
     cursor = page.list_complete ? undefined : page.cursor;
   } while (cursor);
-  // The canonical page can belong to a borrowed published project while an
-  // owned draft also uses the same Guide id. Do not erase that borrowed page's
-  // legitimate OT-only title when the owned draft is renamed.
-  if (await guideTitleTarget(kv, guideId)) {
+  // Clean the canonical numeric page document only when it belongs to an
+  // owned project. A borrowed canonical page keeps its local H1 as the
+  // fallback for when Guide is private or unreachable.
+  if (await ownedTitleIdForPage(kv, guideId)) {
     for (const prefix of ["event:", "override:"]) {
       const docKey = `${prefix}${guideId}`;
       const doc = await kv.get(docKey, "json");
@@ -139,9 +139,13 @@ export async function guideTitleForResponse(context, token, id, { saved = false,
 
 // Response projection only. Never pass hydrated title to a KV/cache writer.
 export async function hydrateProjectTitle(context, token, project) {
-  const id = ownedGuideTitleId(project);
+  const id = guideTitleSsotId(project);
   if (!id) return project;
   const result = await guideTitleForResponse(context, token, id);
+  // Borrowed: show the Guide title when it can be read, else its local mirror.
+  if (!ownedGuideTitleId(project)) {
+    return result.guideTitle ? { ...project, title: result.guideTitle.title, guideTitle: result.guideTitle } : project;
+  }
   const clean = withoutLocalProjectTitle(project);
   return { ...clean, title: result.guideTitle?.title || "", ...result };
 }

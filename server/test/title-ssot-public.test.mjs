@@ -131,11 +131,19 @@ test("public outages/malformed title/mismatched id fail closed and never serve l
  }
 });
 
-test("borrowed and unlinked pages retain OT local title behavior; no owned storage aliases survive sanitization",async()=>{
- for (const extra of [{usesExistingOtraGuideEvent:true},{otraGuideId:""}]) await fixture(async f=>{
+test("borrowed and checkout-bound pages use public Guide title; unlinked pages keep a local title",async()=>{
+ await fixture(async f=>{
+  const r=await f.get(event,"/api/event?id=draft-owned");assert.equal(r.status,200);assert.equal(r.data.title,title);
+  assert.equal(r.data.design.displayTitle,undefined);
+  const h=await f.get(override,"/api/override?id=draft-owned");assert.equal(h.data.override.fields["text:#evTitle"].value,title);
+ },{projects:[project({usesExistingOtraGuideEvent:true})]});
+ await fixture(async f=>{
+  const r=await f.get(event,"/api/event?id=draft-owned");assert.equal(r.status,200);assert.equal(r.data.title,title);
+ },{projects:[project({otraGuideId:"",checkoutEventId:"84"})]});
+ await fixture(async f=>{
   const r=await f.get(event,"/api/event?id=draft-owned");assert.equal(r.status,200);assert.equal(r.data.title,"OLD PROJECT");assert.equal(r.data.design.displayTitle,"OLD DESIGN DISPLAY");
   const h=await f.get(override,"/api/override?id=draft-owned");assert.equal(h.data.override.fields["text:#evTitle"].value,"OLD H1");
- },{projects:[project(extra)]});
+ },{projects:[project({otraGuideId:""})]});
  const clean=withoutLocalProjectTitle({...project(),fields:legacy.fields});
  assert.equal(clean.fields["text:main > #evTitle"],undefined);assert.equal(clean.fields["text:#evTag"].value,"Keep other edits");
 });
@@ -165,7 +173,8 @@ test("staff-only homepage cards still hydrate private owned titles without writi
 
 // Keep-selling pages (legacy HIDDEN_DETAIL_EXCEPTIONS such as 8266, or the
 // admin switch) sell while Guide is private, when no public Guide title exists.
-// They keep local title authority like borrowed pages and never 404.
+// They keep local title authority (Marília's 2026-11-05 answer did not cover
+// keep-selling) and never 404.
 test("keep-selling owned pages (legacy exception or switch) keep selling with their local title while Guide is private",async()=>{
  const cases=[
   {guideId:"8266",draft:"draft-1792794458964-79d36de9",extra:{}},
@@ -222,4 +231,33 @@ test("turning keep-selling on for an owned page seeds its local title from Guide
   assert.equal(stored.title,"Staff Guide private title");
   const pub=await f.get(event,"/api/event?id=84");assert.equal(pub.status,200);
  },{status:404,projects:[project({title:""})]});
+});
+
+// Marília 2026-11-06: no borrowed page may become a 404 because of the Guide
+// title. Without a public Guide title (private or unreachable) a borrowed or
+// checkout-bound page answers exactly as before: local title, same visibility.
+test("borrowed/checkout pages never 404 or fail for a private or unreachable Guide title; they keep their local title",async()=>{
+ for (const opts of [{status:404},{throwRead:true},{status:503}]) {
+  await fixture(async f=>{
+   const r=await f.get(event,"/api/event?id=draft-owned");
+   assert.equal(r.status,200,JSON.stringify(opts));assert.equal(r.data.title,"OLD PROJECT");
+   const h=await f.get(override,"/api/override?id=draft-owned");
+   assert.equal(h.status,200);assert.equal(h.data.override.fields["text:#evTitle"].value,"OLD H1");
+   assert.equal(h.data.guideTitleHidden,undefined);assert.equal(h.data.guideTitleUnavailable,undefined);
+   const cards=await buildPublishedSiteEvents(f.env);
+   assert.equal(cards.length,1,"card stays listed");assert.notEqual(cards[0].title,title);
+   assert.ok(f.calls.every(c=>!c.path.includes("/media/")),"no staff endpoint for visitors");
+  },{...opts,projects:[project({otraGuideId:"",checkoutEventId:"84"})]});
+ }
+ // Guide-404 numeric borrowed page: same answer as an unchanged page (main rule:
+ // a Guide 404 event shows nothing unless keep-selling), not a new title 404.
+ await fixture(async f=>{
+  const r=await f.get(event,"/api/event?id=84");assert.notEqual(r.status,502);
+ },{status:404,projects:[project({usesExistingOtraGuideEvent:true})]});
+});
+
+test("borrowed numeric page with an outage keeps serving its local title (no 502)",async()=>{
+ await fixture(async f=>{
+  const r=await f.get(event,"/api/event?id=draft-owned");assert.equal(r.status,200);assert.equal(r.data.title,"OLD PROJECT");
+ },{throwRead:true,projects:[project({usesExistingOtraGuideEvent:true})]});
 });

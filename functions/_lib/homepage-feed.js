@@ -1,5 +1,5 @@
 import { readPublicGuideTitle } from "./public-guide-title.js";
-import { ownedGuideTitleId, withoutTitleOverride } from "./title-ownership.js";
+import { guideTitleSsotId, ownedGuideTitleId, withoutTitleOverride } from "./title-ownership.js";
 // Shared homepage feed builder used by the public endpoint
 // (GET /api/homepage-events) and the staff-only admin preview
 // (GET /admin/api/homepage-events).
@@ -769,6 +769,18 @@ export async function buildPublishedSiteEvents(
         }
         currentDetailTitle = current.title;
       }
+      // Borrowed / checkout-bound card: the public Guide title wins when Guide
+      // has one; otherwise the card keeps its local title and stays listed
+      // exactly as before (never omitted for a title read).
+      const borrowedTitleId = ownedTitleId ? "" : guideTitleSsotId({
+        ...project,
+        checkoutEventId: project.checkoutEventId || (project.usesExistingOtraGuideEvent && pageOverride ? pageOverride.checkoutEventId : ""),
+      });
+      let borrowedGuideTitle = "";
+      if (borrowedTitleId) {
+        const current = await readPublicGuideTitle(publicTitleContext, borrowedTitleId, titleRead);
+        if (current.title) borrowedGuideTitle = current.title;
+      }
       // Freeze pretty URLs on the persisted first-published slug. Old
       // published rows without frozenSlug keep the pre-4fb799d base:
       // eventSlug(legacyCuratedTitle), never eventSlugFromTitle and never
@@ -777,7 +789,7 @@ export async function buildPublishedSiteEvents(
       const slugSource = frozen || legacyCuratedTitle(project);
       out.push({
         id,
-        title: pageTitle || currentDetailTitle || curatedTitle,
+        title: borrowedGuideTitle || pageTitle || currentDetailTitle || curatedTitle,
         date: startDate,
         endDate,
         isPerennial: project.isPerennial === true,
@@ -797,7 +809,7 @@ export async function buildPublishedSiteEvents(
           (project.claudeDesign && typeof project.claudeDesign.image === "string" && project.claudeDesign.image) ||
           "",
         [HAS_HERO_OVERRIDE]: Boolean(overrideImg),
-        [HAS_TITLE_OVERRIDE]: Boolean(pageTitle || ownedTitleId),
+        [HAS_TITLE_OVERRIDE]: Boolean(pageTitle || ownedTitleId || borrowedGuideTitle),
         ...(slugSource ? { [SLUG_SOURCE]: slugSource } : {}),
         ...(frozen ? { [FROZEN_SLUG]: frozen } : {}),
         [SCHEDULE_SOURCE]: { project: scheduleProject(project), localCard: localCard || null },
@@ -806,6 +818,7 @@ export async function buildPublishedSiteEvents(
         // Plain field survives JSON snapshots (Symbols do not), so stale-feed
         // hydration still knows which cards need Guide title authority.
         ...(ownedTitleId ? { otraOwnedGuideId: ownedTitleId } : {}),
+        ...(borrowedTitleId ? { otraBorrowedGuideId: borrowedTitleId } : {}),
       });
     }
     cursor = page.list_complete ? undefined : page.cursor;
@@ -1095,15 +1108,17 @@ function dateKeyInTimeZone(value, timeZone) {
 // card; an outage keeps the snapshot title, which a build only ever took from
 // Guide (an outage build is never stored). Other cards are untouched.
 export async function refreshOwnedCardTitles(events, context) {
-  const owned = events.map((ev, i) => [ev, i]).filter(([ev]) => /^\d+$/.test(String(ev && ev.otraOwnedGuideId || "")));
+  const linkedId = (ev) => String(ev && (ev.otraOwnedGuideId || ev.otraBorrowedGuideId) || "");
+  const owned = events.map((ev, i) => [ev, i]).filter(([ev]) => /^\d+$/.test(linkedId(ev)));
   if (!owned.length) return events;
   const out = events.slice();
   let cursor = 0;
   await Promise.all(Array.from({ length: Math.min(4, owned.length) }, async () => {
     while (cursor < owned.length) {
       const [ev, i] = owned[cursor++];
-      const current = await readPublicGuideTitle(context, String(ev.otraOwnedGuideId), CARD_TITLE_READ);
-      if (current.status === 404) out[i] = null;
+      const current = await readPublicGuideTitle(context, linkedId(ev), CARD_TITLE_READ);
+      // Only owned cards follow Guide privacy; a borrowed card is never dropped.
+      if (current.status === 404 && ev.otraOwnedGuideId) out[i] = null;
       else if (current.title) out[i] = { ...ev, title: current.title };
     }
   }));
@@ -1130,6 +1145,14 @@ export async function applyOverrides(events, env, titleContext = { env }, titleR
       if (!titleReader && project?.adminOnly === true) return { hide: true };
       const titleId = ownedGuideTitleId(project)
         || (/^\d+$/.test(String(ev.otraOwnedGuideId || "")) ? String(ev.otraOwnedGuideId) : "");
+      const borrowedId = !titleId && /^\d+$/.test(String(ev.otraBorrowedGuideId || "")) ? String(ev.otraBorrowedGuideId) : "";
+      if (borrowedId) {
+        // Public read only (also in the staff preview, so nothing per-user).
+        // No Guide title: the card stays as it was, local title included.
+        const current = await readPublicGuideTitle(titleContext, borrowedId, titleRead);
+        if (!current.title) return { override };
+        return { override: override ? withoutTitleOverride(override, { keepStyleMatching: current.title }) : null, current };
+      }
       if (!titleId) return { override };
       const current = titleReader
         ? await titleReader(titleId).catch(() => ({ title: "", status: 502 }))

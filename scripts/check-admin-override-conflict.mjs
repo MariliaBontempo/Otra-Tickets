@@ -261,6 +261,7 @@ try {
       updateDraftBeforeYouGoControl: () => {},
       refreshPreview: () => { calls.previews += 1; },
       applyGuideTitle: () => {},
+      announceGuideTitleSaved: () => {},
       loadPageHistory: async () => { calls.history += 1; },
       api: async (path, options) => {
         const { status, body } = await save(kv, JSON.parse(options.body));

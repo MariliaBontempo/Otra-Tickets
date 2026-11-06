@@ -9,7 +9,7 @@ import { onRequestGet as publicOverrideGet } from '../functions/api/override.js'
 import { forgetGuideStatuses } from '../functions/_lib/guide-event-hidden.js';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
-import { ownedGuideTitleId, withoutLocalProjectTitle, TITLE_FIELD, styleOnlyTitleField } from '../functions/_lib/title-ownership.js';
+import { guideTitleSsotId, ownedGuideTitleId, withoutLocalProjectTitle, TITLE_FIELD, styleOnlyTitleField } from '../functions/_lib/title-ownership.js';
 import { guideTitleIdForPage } from '../functions/_lib/page-override.js';
 
 function fixture(records = {}, options = {}) {
@@ -77,10 +77,16 @@ const titleBody = (value = '  Francis Sling Book Launch  ') => ({ fields: { [TIT
 assert.equal(normalizeGuideTitle('  New  '), 'New');
 assert.equal(normalizeGuideTitle('😀'.repeat(100)), '😀'.repeat(100));
 for (const value of [undefined, null, 123, {}, '', '   ', 'a'.repeat(101), '<b>Title</b>', 'a\u0000b']) assert.throws(() => normalizeGuideTitle(value));
-assert.equal(ownedGuideTitleId(project()), '8270');
-assert.equal(ownedGuideTitleId(project({ usesExistingOtraGuideEvent: true })), '');
-assert.equal(ownedGuideTitleId(project({ usesExistingOtraGuideEvent: 'true' })), '', 'legacy truthy borrowed flag fails closed');
-assert.equal(ownedGuideTitleId(project({ otraGuideId: '', checkoutEventId: '9999' })), '');
+assert.equal(guideTitleSsotId(project()), '8270');
+assert.equal(ownedGuideTitleId(project()), '8270', 'alias matches guideTitleSsotId');
+assert.equal(guideTitleSsotId(project({ usesExistingOtraGuideEvent: true })), '8270', 'borrowed pages are Guide SSOT');
+assert.equal(guideTitleSsotId(project({ usesExistingOtraGuideEvent: 'true' })), '8270', 'truthy borrowed flag is still SSOT');
+assert.equal(guideTitleSsotId(project({ otraGuideId: '', checkoutEventId: '9999' })), '9999', 'checkoutEventId binds title when otraGuideId is empty');
+assert.equal(guideTitleSsotId(project({ otraGuideId: '8270', checkoutEventId: '9999' })), '8270', 'otraGuideId wins over checkoutEventId');
+assert.equal(guideTitleSsotId(project({ keepSellingWhileGuidePrivate: true })), '', 'keep-selling switch stays local');
+assert.equal(guideTitleSsotId(project({ id: 'draft-1792794458964-79d36de9', otraGuideId: '8266', usesExistingOtraGuideEvent: true })), '', 'legacy 8266 keep-selling stays local even if borrowed');
+assert.equal(guideTitleSsotId(project({ otraGuideId: '', checkoutEventId: '9999', keepSellingWhileGuidePrivate: true })), '');
+assert.equal(guideTitleSsotId(project({ otraGuideId: '' })), '');
 const sanitized = withoutLocalProjectTitle(project());
 assert.equal('title' in sanitized, false); assert.equal('displayTitle' in sanitized.claudeDesign, false); assert.equal('title' in sanitized.claudeDesign, false);
 assert.equal(sanitized.claudeDesign.description, 'keep me');
@@ -151,25 +157,76 @@ f = fixture(ownedRecords, { unchanged: true });
 r = await f.run(onRequestPut, '/admin/api/overrides?id=8270', titleBody('Same title'));
 assert.equal(r.status, 200, JSON.stringify(r.data)); assert.equal(r.data.guideTitle.changed, false);
 
-// Unlinked drafts and borrowed events retain local editing without renaming Guide.
-for (const p of [project({ otraGuideId: '' }), project({ usesExistingOtraGuideEvent: true })]) {
-  f = fixture({ 'site-event:draft-test': p });
-  r = await f.run(onRequestPut, '/admin/api/overrides?id=draft-test', titleBody('Local only'));
-  assert.equal(r.status, 200); assert.equal(f.posts().length, 0);
-  assert.equal((await f.kv.get('event:draft-test', 'json')).fields[TITLE_FIELD].value, 'Local only');
-}
+// Unlinked drafts (no Guide id and no checkout id) retain local editing.
+f = fixture({ 'site-event:draft-test': project({ otraGuideId: '' }) });
+r = await f.run(onRequestPut, '/admin/api/overrides?id=draft-test', titleBody('Local only'));
+assert.equal(r.status, 200); assert.equal(f.posts().length, 0);
+assert.equal((await f.kv.get('event:draft-test', 'json')).fields[TITLE_FIELD].value, 'Local only');
+
+// Borrowed pages POST Guide title first and keep a local mirror of the
+// confirmed title (used only when Guide is private or unreachable).
+f = fixture({ 'site-event:draft-test': project({ usesExistingOtraGuideEvent: true }), 'event:draft-test': override });
+r = await f.run(onRequestPut, '/admin/api/overrides?id=draft-test', titleBody('Borrowed rename'));
+assert.equal(r.status, 200, JSON.stringify(r.data)); assert.equal(f.posts().length, 1);
+assert.ok(f.posts()[0].url.endsWith('/event-title/8270/'));
+assert.equal((await f.kv.get('event:draft-test', 'json')).fields[TITLE_FIELD].value, 'Borrowed rename');
+// A later save without a rename keeps the mirror and never POSTs.
+r = await f.run(onRequestPut, '/admin/api/overrides?id=draft-test', { fields: { 'text:#evTag': { type: 'text', value: 'tag' } }, base: { fields: { 'text:#evTag': null } } });
+assert.equal(f.posts().length, 1, 'no extra Guide POST');
+assert.equal((await f.kv.get('event:draft-test', 'json')).fields[TITLE_FIELD]?.value, 'Borrowed rename', 'mirror kept');
+
+// Checkout-bound draft (empty otraGuideId, numeric checkoutEventId) POSTs that Guide id.
+f = fixture({ 'site-event:draft-test': project({ otraGuideId: '', checkoutEventId: '8333' }), 'event:draft-test': override });
+r = await f.run(onRequestPut, '/admin/api/overrides?id=draft-test', titleBody('Checkout rename'));
+assert.equal(r.status, 200, JSON.stringify(r.data)); assert.equal(f.posts().length, 1);
+assert.ok(f.posts()[0].url.endsWith('/event-title/8333/'));
+assert.equal((await f.kv.get('event:draft-test', 'json')).fields[TITLE_FIELD].value, 'Checkout rename', 'checkout page keeps a mirror');
+
+// Checkout id may live only on the override document (Daniel draft).
+f = fixture({
+  'site-event:draft-test': project({ otraGuideId: '', checkoutEventId: undefined, usesExistingOtraGuideEvent: true }),
+  'event:draft-test': { ...override, checkoutEventId: '8333' },
+});
+r = await f.run(onRequestPut, '/admin/api/overrides?id=draft-test', titleBody('Daniel checkout'));
+assert.equal(r.status, 200, JSON.stringify(r.data)); assert.equal(f.posts().length, 1);
+assert.ok(f.posts()[0].url.endsWith('/event-title/8333/'));
+
+// An unlinked page that only sells another event's tickets must not rename that Guide event.
+f = fixture({
+  'site-event:draft-test': project({ otraGuideId: '', checkoutEventId: undefined }),
+  'event:draft-test': { checkoutEventId: '8333' },
+});
+r = await f.run(onRequestPut, '/admin/api/overrides?id=draft-test', titleBody('Ticket alias only'));
+assert.equal(r.status, 200, JSON.stringify(r.data)); assert.equal(f.posts().length, 0);
+assert.equal((await f.kv.get('event:draft-test', 'json')).fields[TITLE_FIELD].value, 'Ticket alias only');
+
+// Keep-selling never POSTs Guide, even with a borrowed flag.
+f = fixture({ 'site-event:draft-test': project({ keepSellingWhileGuidePrivate: true }) });
+r = await f.run(onRequestPut, '/admin/api/overrides?id=draft-test', titleBody('Keep selling local'));
+assert.equal(r.status, 200, JSON.stringify(r.data)); assert.equal(f.posts().length, 0);
+assert.equal((await f.kv.get('event:draft-test', 'json')).fields[TITLE_FIELD].value, 'Keep selling local');
+f = fixture({
+  'site-event:draft-1792794458964-79d36de9': project({ id: 'draft-1792794458964-79d36de9', otraGuideId: '8266', usesExistingOtraGuideEvent: true }),
+});
+r = await f.run(onRequestPut, '/admin/api/overrides?id=draft-1792794458964-79d36de9', titleBody('Legacy keep selling'));
+assert.equal(r.status, 200, JSON.stringify(r.data)); assert.equal(f.posts().length, 0);
+assert.equal((await f.kv.get('event:draft-1792794458964-79d36de9', 'json')).fields[TITLE_FIELD].value, 'Legacy keep selling');
+
 f = fixture({ 'site-event:draft-test': project({ status: 'published', usesExistingOtraGuideEvent: true }) });
-assert.equal(await guideTitleTarget(f.kv, '8270'), '', 'numeric page bound to borrowed project has no ownership');
+assert.equal(await guideTitleTarget(f.kv, '8270'), '8270', 'numeric page bound to borrowed project writes Guide');
 
 
-// Mixed ownership: renaming an owned draft must not erase a borrowed page's H1.
+// Mixed binding: owned draft and borrowed published page share one Guide title.
 f = fixture({ 'site-event:draft-test': project(),
  'site-event:draft-borrowed': project({ id:'draft-borrowed', status:'published', usesExistingOtraGuideEvent:true }),
  'event:8270': override, 'event:draft-test':override });
 r = await f.run(onRequestPut, '/admin/api/overrides?id=draft-test', titleBody('Owned rename'));
 assert.equal(r.status,200); assert.equal(f.posts().length,1);
+// The canonical page belongs to the borrowed published project: it keeps its
+// local H1 and title as the fallback for a private/unreachable Guide.
 assert.equal((await f.kv.get('event:8270','json')).fields[TITLE_FIELD].value,'Old title');
 assert.equal((await f.kv.get('event:draft-test','json')).fields[TITLE_FIELD],undefined);
+assert.equal('title' in (await f.kv.get('site-event:draft-borrowed','json')), true);
 
 // Non-title/stale full-form edits on an owned page never replay the title, but clean stale copies.
 f = fixture({ 'site-event:draft-bound': project({ id:'draft-bound', status:'published', publishedAt:'2026-11-01T00:00:00Z', otraGuideId:'8270' }), 'event:8270': override });
@@ -206,11 +263,22 @@ assert.equal('frozenSlug' in f.log.find(c => c.write && c.write.startsWith('site
 f = fixture({ 'site-event:draft-test': project() }, { status: 404 });
 r = await f.run(onRequestPost, '/admin/api/projects?action=rename&id=draft-test', { name: 'Project rename' });
 assert.equal(r.status, 502); assert.equal(f.writes().length, 0);
-for (const p of [project({ otraGuideId: '' }), project({ usesExistingOtraGuideEvent: true })]) {
-  f = fixture({ 'site-event:draft-test': p });
-  r = await f.run(onRequestPost, '/admin/api/projects?action=rename&id=draft-test', { name: 'Local rename' });
-  assert.equal(r.status, 200); assert.equal(f.posts().length, 0); assert.equal((await f.kv.get('site-event:draft-test', 'json')).title, 'Local rename');
-}
+f = fixture({ 'site-event:draft-test': project({ otraGuideId: '' }) });
+r = await f.run(onRequestPost, '/admin/api/projects?action=rename&id=draft-test', { name: 'Local rename' });
+assert.equal(r.status, 200); assert.equal(f.posts().length, 0); assert.equal((await f.kv.get('site-event:draft-test', 'json')).title, 'Local rename');
+f = fixture({ 'site-event:draft-test': project({ usesExistingOtraGuideEvent: true }) });
+r = await f.run(onRequestPost, '/admin/api/projects?action=rename&id=draft-test', { name: 'Borrowed project rename' });
+assert.equal(r.status, 200, JSON.stringify(r.data)); assert.equal(f.posts().length, 1);
+assert.ok(f.posts()[0].url.endsWith('/event-title/8270/'));
+assert.equal((await f.kv.get('site-event:draft-test', 'json')).title, 'Borrowed project rename', 'borrowed keeps a local mirror');
+f = fixture({ 'site-event:draft-test': project({ otraGuideId: '', checkoutEventId: '8333' }) });
+r = await f.run(onRequestPost, '/admin/api/projects?action=rename&id=draft-test', { name: 'Checkout project rename' });
+assert.equal(r.status, 200, JSON.stringify(r.data)); assert.equal(f.posts().length, 1);
+assert.ok(f.posts()[0].url.endsWith('/event-title/8333/'));
+f = fixture({ 'site-event:draft-test': project({ keepSellingWhileGuidePrivate: true }) });
+r = await f.run(onRequestPost, '/admin/api/projects?action=rename&id=draft-test', { name: 'Keep selling rename' });
+assert.equal(r.status, 200); assert.equal(f.posts().length, 0);
+assert.equal((await f.kv.get('site-event:draft-test', 'json')).title, 'Keep selling rename');
 // Binding and all project metadata writers use the title-safe storage boundary.
 f = fixture({ 'event:draft-test': override });
 await putTitleSafeProject(f.kv, project({ frozenSlug: '', status: 'published' }));
@@ -285,12 +353,14 @@ r=await f.run(onRequestPost,'/admin/api/projects?action=update-content&id=draft-
 assert.equal(r.status,200);assert.equal((await f.kv.get('site-event:draft-test','json')).claudeDesign.bandText,'Updated private content');
 assert.equal('title' in await f.kv.get('site-event:draft-test','json'),false);
 assert.equal('guideTitle' in await f.kv.get('site-event:draft-test','json'),false);
-// Borrowed and unlinked pages never trigger the new GET title dependency.
-for(const p of [project({otraGuideId:''}),project({usesExistingOtraGuideEvent:true})]){
- f=fixture({'site-event:draft-test':p});r=await f.run(projectsGet,'/admin/api/projects');
- assert.equal(r.data.projects[0].title,'Old local');
- assert.equal(f.log.filter(c=>c.url?.includes('/event-slug/')).length,0);
-}
+// Unlinked pages never trigger the Guide title GET; borrowed pages hydrate from Guide.
+f=fixture({'site-event:draft-test':project({otraGuideId:''})});r=await f.run(projectsGet,'/admin/api/projects');
+assert.equal(r.data.projects[0].title,'Old local');
+assert.equal(f.log.filter(c=>c.url?.includes('/event-slug/')).length,0);
+f=fixture({'site-event:draft-test':project({usesExistingOtraGuideEvent:true})},{guideTitle:'Borrowed Guide title'});
+r=await f.run(projectsGet,'/admin/api/projects');
+assert.equal(r.data.projects[0].title,'Borrowed Guide title');
+assert.ok(f.log.some(c=>c.url?.includes('/event-slug/8270/')));
 // UI helper changes only the selected label; it never writes into override fields.
 const html=readFileSync(new URL('../admin/index.html',import.meta.url),'utf8');
 const helper=html.slice(html.indexOf('  function applyGuideTitle('),html.indexOf('  function fillForm('));
@@ -311,7 +381,7 @@ assert.ok(html.includes('if (selected !== submittedPage) return;'),'late save ca
   await f.kv.put('site-event:draft-owned', JSON.stringify(project({ id:'draft-owned', otraGuideId:'8270', usesExistingOtraGuideEvent:false, status:'published' })));
   assert.equal(await guideTitleIdForPage(f.kv, '8270'), '8270');
   await f.kv.put('site-event:draft-borrowed', JSON.stringify(project({ id:'draft-borrowed', otraGuideId:'6113', usesExistingOtraGuideEvent:true, status:'published' })));
-  assert.equal(await guideTitleIdForPage(f.kv, '6113'), '');
+  assert.equal(await guideTitleIdForPage(f.kv, '6113'), '6113');
 }
 {
   const draft = project({ status:'draft', publishedAt:undefined, frozenSlug:undefined, title:'Draft Name' });

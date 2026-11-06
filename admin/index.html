@@ -2535,6 +2535,7 @@
         clearUnsavedEdit(selected);
         closeModal();
         applyGuideTitle(data.project, selected);
+        announceGuideTitleSaved(data.guideTitle || data.project.guideTitle);
         setStatus(data.warning || data.project.warning || `Draft renamed to "${data.project.title}".`, data.warning || data.project.warning ? "error" : "ok");
         await loadPages(selected.id);
       } catch (err) {
@@ -2699,6 +2700,7 @@
     if (selected !== savingPage) return data;
     fillForm(data.override);
     applyGuideTitle(data, savingPage);
+    announceGuideTitleSaved(data.guideTitle);
     await loadPageHistory();
     return data;
   }
@@ -4353,6 +4355,33 @@
       setStatus(err.message, "error");
     } finally {
       $("adminOnlyToggle").disabled = false;
+    }
+  }
+
+  // Studio embeds this editor. After Guide confirms a title, tell that page so
+  // its Otra Guide preview and Title field refresh without a reload. Only Studio
+  // origins receive it: postMessage drops a message whose target origin does
+  // not match the embedding page, so nothing reaches any other site.
+  const STUDIO_ORIGINS = ["https://www.otraguide.com", "https://otraguide.com", "https://dev.otraguide.com"];
+  function isStudioOrigin(origin) {
+    return STUDIO_ORIGINS.includes(origin) || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+  }
+  function studioTargetOrigins() {
+    let parentOrigin = "";
+    try {
+      // Studio opens this editor through a no-referrer redirect, so the
+      // embedding origin comes from ancestorOrigins where the browser has it.
+      if (location.ancestorOrigins && location.ancestorOrigins.length) parentOrigin = location.ancestorOrigins[0];
+    } catch (_) { parentOrigin = ""; }
+    if (parentOrigin) return isStudioOrigin(parentOrigin) ? [parentOrigin] : [];
+    return STUDIO_ORIGINS;
+  }
+  function announceGuideTitleSaved(guideTitle) {
+    if (!guideTitle || typeof guideTitle.title !== "string" || !guideTitle.title) return;
+    if (window.parent === window) return;
+    const message = { type: "otra-tickets:guide-title-saved", eventId: Number(guideTitle.eventId) || null, title: guideTitle.title };
+    for (const origin of studioTargetOrigins()) {
+      try { window.parent.postMessage(message, origin); } catch (_) { /* parent gone */ }
     }
   }
 

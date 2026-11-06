@@ -50,7 +50,14 @@ assert.ok(loginFormHandler && /staffLogin\(/.test(loginFormHandler[0]) && /boot\
 assert.match(bannerHandler[0], /afterTokenRenewed\(\)/, 'banner sign in retries the blocked save');
 const hashHandler = html.match(/window\.addEventListener\("hashchange", \(\) => \{[\s\S]*?\n  \}\);/);
 assert.ok(hashHandler && /afterTokenRenewed\(\)/.test(hashHandler[0]), 'hash token refresh shares afterTokenRenewed');
-assert.ok(!/addEventListener\("message"|postMessage\(|otra_admin_token_|STUDIO_TOKEN_/.test(html), 'no postMessage token path in this ship (hash only)');
+assert.ok(!/addEventListener\("message"|otra_admin_token_|STUDIO_TOKEN_/.test(html), 'no postMessage token path in this ship (hash only)');
+// The only postMessage is the outgoing Guide title notice to Studio: it never carries a token.
+for (const line of html.split('\n').filter((l) => l.includes('postMessage('))) {
+  assert.ok(!/token|authorization|bearer/i.test(line), 'postMessage never carries a token: ' + line.trim());
+}
+const notice = html.slice(html.indexOf('function announceGuideTitleSaved'), html.indexOf('function applyGuideTitle'));
+assert.ok(/type: "otra-tickets:guide-title-saved", eventId: [^,]+, title: guideTitle\.title \}/.test(notice), 'title notice carries only type, eventId and title');
+assert.ok(!/postMessage\([^)]*"\*"/.test(html), 'never posts to "*"');
 assert.ok(!/logout\(|boot\(|closeModal\(|reload\(/.test(hashHandler[0] + extractFunction('afterTokenRenewed')), 'token refresh never wipes the editor');
 const submitHandler = html.match(/\$\("editForm"\)\.addEventListener\("submit", async \(e\) => \{[\s\S]*?\n  \}\);/)[0];
 assert.equal((submitHandler.match(/if \(err\.sessionExpired\) noteBlockedSave\(submittedValues, submittedTarget\);/g) || []).length, 1, 'rename remembers a save refused by expiry');

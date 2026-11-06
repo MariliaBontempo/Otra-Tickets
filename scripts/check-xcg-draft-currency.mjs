@@ -51,6 +51,9 @@ try {
       calls.push(call);
       if (call.path === '/api/users/user-role/') return Response.json({ is_staff_or_admin: true });
       if (call.path === '/api/events/details/8088/') return Response.json(detail);
+      if (call.path === '/api/otra-tickets/media/event-slug/8088/') {
+        return Response.json({ id: 8088, title: detail.title, slug: detail.slug });
+      }
       if (call.path === '/api/events/admin-ticketed-search/?id=8088') {
         return fallback ? new Response('{}', { status: 404 }) : Response.json({
           events: [{ ...detail, startDate: detail.start_date, endDate: detail.end_date,

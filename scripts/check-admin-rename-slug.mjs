@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Local-title authoring fixtures explicitly borrow Guide events; owned SSOT coverage: server/test/title-ssot-public.test.mjs.
+// Local-title authoring fixtures use keep-selling (borrowed pages are Guide title SSOT). Borrowed/owned SSOT: scripts/check-guide-title-ssot-b.mjs and server/test/title-ssot-public.test.mjs.
 // Oracle: admin rename updates the card/name; the live pretty URL stays frozen.
 // A draft renamed before first publish may mint from the new title.
 // Run: node scripts/check-admin-rename-slug.mjs
@@ -147,9 +147,9 @@ function publishedDraft(overrides = {}) {
     title: seedTitle,
     status: "published",
     publishedAt: "2026-08-01T12:00:00.000Z",
-    otraGuideId: "6831", usesExistingOtraGuideEvent: true,
+    otraGuideId: "6831", keepSellingWhileGuidePrivate: true,
     otraGuideSlug: "6831",
-    usesExistingOtraGuideEvent: true,
+    keepSellingWhileGuidePrivate: true,
     startDate: "2999-03-02T12:00:00-04:00",
     image: seedImg,
     ...overrides,
@@ -324,7 +324,7 @@ function publishedDraft(overrides = {}) {
   const kv = makeKv({
     "site-event:draft-night": {
       id: "draft-night",
-      otraGuideId: 6831, usesExistingOtraGuideEvent: true,
+      otraGuideId: 6831, keepSellingWhileGuidePrivate: true,
       title: nightSeed,
       status: "published",
       isPerennial: true,
@@ -334,7 +334,7 @@ function publishedDraft(overrides = {}) {
     },
     "site-event:draft-sunset": {
       id: "draft-sunset",
-      otraGuideId: 6832, usesExistingOtraGuideEvent: true,
+      otraGuideId: 6832, keepSellingWhileGuidePrivate: true,
       title: sunsetSeed,
       status: "published",
       isPerennial: true,
@@ -401,7 +401,7 @@ function publishedDraft(overrides = {}) {
   const kv = makeKv({
     "site-event:draft-old": {
       id: "draft-old",
-      otraGuideId: 100, usesExistingOtraGuideEvent: true,
+      otraGuideId: 100, keepSellingWhileGuidePrivate: true,
       title: "Sunday Social",
       status: "published",
       startDate: "2026-08-23T17:00:00-04:00",
@@ -409,7 +409,7 @@ function publishedDraft(overrides = {}) {
     },
     "site-event:draft-clone": {
       id: "draft-clone",
-      otraGuideId: 200, usesExistingOtraGuideEvent: true,
+      otraGuideId: 200, keepSellingWhileGuidePrivate: true,
       title: "Sunday Social (clone)",
       frozenSlug: "sunday-social",
       status: "published",
@@ -450,7 +450,7 @@ function publishedDraft(overrides = {}) {
   const kv = makeKv({
     "site-event:draft-legacy": {
       id: "draft-legacy",
-      otraGuideId: 6831, usesExistingOtraGuideEvent: true,
+      otraGuideId: 6831, keepSellingWhileGuidePrivate: true,
       title: seedTitle,
       status: "published",
       isPerennial: true,
@@ -494,7 +494,7 @@ function publishedDraft(overrides = {}) {
   const kv = makeKv({
     "site-event:draft-clone-legacy": {
       id: "draft-clone-legacy",
-      otraGuideId: 201, usesExistingOtraGuideEvent: true,
+      otraGuideId: 201, keepSellingWhileGuidePrivate: true,
       title: "Sunday Social (clone)",
       status: "published",
       startDate: "2026-09-13T17:00:00-04:00",
@@ -519,7 +519,7 @@ function publishedDraft(overrides = {}) {
   const kv = makeKv({
     "site-event:draft-brand": {
       id: "draft-brand",
-      otraGuideId: 8801, usesExistingOtraGuideEvent: true,
+      otraGuideId: 8801, keepSellingWhileGuidePrivate: true,
       title: "Brand - Night Tour",
       status: "published",
       startDate: "2999-04-01T12:00:00-04:00",
@@ -555,9 +555,9 @@ function publishedDraft(overrides = {}) {
       title: "Sunday Social (clone)",
       status: "published",
       publishedAt: "2026-08-01T12:00:00.000Z",
-      otraGuideId: "202", usesExistingOtraGuideEvent: true,
+      otraGuideId: "202", keepSellingWhileGuidePrivate: true,
       otraGuideSlug: "202",
-      usesExistingOtraGuideEvent: true,
+      keepSellingWhileGuidePrivate: true,
       startDate: "2026-09-13T17:00:00-04:00",
       image: seedImg,
     },
@@ -584,9 +584,9 @@ function publishedDraft(overrides = {}) {
       title: "Brand - Night Tour",
       status: "published",
       publishedAt: "2026-08-01T12:00:00.000Z",
-      otraGuideId: "8802", usesExistingOtraGuideEvent: true,
+      otraGuideId: "8802", keepSellingWhileGuidePrivate: true,
       otraGuideSlug: "8802",
-      usesExistingOtraGuideEvent: true,
+      keepSellingWhileGuidePrivate: true,
       startDate: "2999-04-02T12:00:00-04:00",
       image: seedImg,
       claudeDesign: { displayTitle: "Brand", subtitle: "Night Tour" },
@@ -607,9 +607,9 @@ function publishedDraft(overrides = {}) {
       title: "Sunday Social (clone)",
       status: "published",
       publishedAt: "2026-08-01T12:00:00.000Z",
-      otraGuideId: "203", usesExistingOtraGuideEvent: true,
+      otraGuideId: "203", keepSellingWhileGuidePrivate: true,
       otraGuideSlug: "203",
-      usesExistingOtraGuideEvent: true,
+      keepSellingWhileGuidePrivate: true,
       startDate: "2026-09-13T17:00:00-04:00",
       image: seedImg,
     },
@@ -634,9 +634,9 @@ function publishedDraft(overrides = {}) {
       title: "Brand - Night Tour",
       status: "published",
       publishedAt: "2026-08-01T12:00:00.000Z",
-      otraGuideId: "8803", usesExistingOtraGuideEvent: true,
+      otraGuideId: "8803", keepSellingWhileGuidePrivate: true,
       otraGuideSlug: "8803",
-      usesExistingOtraGuideEvent: true,
+      keepSellingWhileGuidePrivate: true,
       startDate: "2999-04-03T12:00:00-04:00",
       image: seedImg,
       claudeDesign: { displayTitle: "Brand", subtitle: "Night Tour" },
@@ -662,9 +662,9 @@ function publishedDraft(overrides = {}) {
       title: "Sunday Social (clone)",
       status: "published",
       publishedAt: "",
-      otraGuideId: "204", usesExistingOtraGuideEvent: true,
+      otraGuideId: "204", keepSellingWhileGuidePrivate: true,
       otraGuideSlug: "204",
-      usesExistingOtraGuideEvent: true,
+      keepSellingWhileGuidePrivate: true,
       startDate: "2026-09-20T17:00:00-04:00",
       image: seedImg,
     },
@@ -729,7 +729,7 @@ function publishedDraft(overrides = {}) {
   const stored = await kv.get(`site-event:${cloneId}`, "json");
   stored.otraGuideId = "9099";
   stored.otraGuideSlug = "9099";
-  stored.usesExistingOtraGuideEvent = true;
+  stored.keepSellingWhileGuidePrivate = true;
   stored.frozenSlug = "";
   await kv.put(`site-event:${cloneId}`, JSON.stringify(stored));
   const published = await publishProject(kv, cloneId);
