@@ -111,6 +111,6 @@ test("every event page loads the overrides build with the band sync", () => {
   assert.match(overridesSrc, /function syncBandLayout\(/);
   for (const page of ["event.html", "rnb.html", "clearboat.html"]) {
     const srcs = read(page).match(/site-overrides\.js\?v=\d+"/g) || [];
-    assert.deepEqual(srcs, ['site-overrides.js?v=14"'], `${page} loads site-overrides.js?v=14 once`);
+    assert.deepEqual(srcs, ['site-overrides.js?v=15"'], `${page} loads site-overrides.js?v=15 once`);
   }
 });

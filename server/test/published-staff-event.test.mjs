@@ -24,7 +24,7 @@ test("a published site project can render its staff-only Guide checkout without 
   const originalCaches = globalThis.caches;
   const project = {
     id: "draft-1791253678425-26c548a5",
-    otraGuideId: "8088",
+    otraGuideId: "8088", usesExistingOtraGuideEvent: true,
     status: "published",
     adminOnly: false,
     title: "Finish Line Party",

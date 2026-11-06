@@ -1,3 +1,6 @@
+import { putTitleSafeProject } from "./_event-title.js";
+import { guideTitleIdForPage } from "../../_lib/page-override.js";
+import { withoutTitleOverride } from "../../_lib/title-ownership.js";
 // Cloudflare Pages Function: GET /admin/api/events
 //
 // Staff-only proxy used by the Claude Design draft modal to find an existing
@@ -499,7 +502,7 @@ export async function runPageCleanup(kv, pending) {
         // Save the row read now before the draft loses the type, so a retry
         // after a lost write still knows it.
         await save();
-        await kv.put(siteKey, JSON.stringify(next));
+        await putTitleSafeProject(kv, { ...next, id: next.id || siteKey.slice("site-event:".length) });
         pagesUpdated += 1;
       }
     }
@@ -735,7 +738,7 @@ export async function shiftRateOverrides(kv, { eventId, ticketTypeId, guideRow, 
       const version = nextVersion(doc.updatedAt, liveStamps);
       if (version) next.updatedAt = version;
     }
-    await kv.put(key, JSON.stringify(next));
+    await kv.put(key, JSON.stringify(await guideTitleIdForPage(kv, id) ? withoutTitleOverride(next) : next));
     if (typeof onDone === "function") await onDone(key);
     moved += 1;
   }
@@ -1045,7 +1048,7 @@ export async function syncSiteEventDates(kv, { draftId, eventId, newStartIso, ne
     const project = await kv.get(key, "json");
     if (!project) return;
     if (String(project.otraGuideId || "") !== String(eventId)) return;
-    await kv.put(key, JSON.stringify(rewriteProjectDate(project, newStartIso, newEndIso)));
+    await putTitleSafeProject(kv, { ...rewriteProjectDate(project, newStartIso, newEndIso), id: project.id || key.slice("site-event:".length) });
     touched.add(key);
   };
 
@@ -1132,7 +1135,7 @@ async function syncDraftTickets(env, draftId, eventId, tickets) {
     ticketQuantities: tickets.map((ticket) => ticket.quantity),
     ticketTypeIds: tickets.map((ticket) => ticket.id),
   };
-  await kv.put(key, JSON.stringify(next));
+  await putTitleSafeProject(kv, { ...next, id: next.id || key.slice("site-event:".length) });
 }
 
 // A positive whole id given as a number or a digits-only string, else null.

@@ -126,7 +126,7 @@ function installFetch() {
     const detail = url.match(/\/events\/details\/(\d+)\//);
     if (detail) {
       if (detail[1] === "7640") return new Response("{}", { status: 404 });
-      return ok({ id: Number(detail[1]), title: "Event " + detail[1], start_date: "2999-02-01T20:00:00-04:00", end_date: "2999-02-02T02:00:00-04:00" });
+      return ok({ id: Number(detail[1]), title: UPSTREAM.find(e=>String(e.id)===detail[1])?.title || "Event " + detail[1], start_date: "2999-02-01T20:00:00-04:00", end_date: "2999-02-02T02:00:00-04:00" });
     }
     return ok({});
   };
@@ -246,7 +246,7 @@ try {
     const secret = await get("7600");
     assert(secret.unlisted === true && secret.slug === "strange-bird-gala-secret", "a live unlisted page rewrites to its short link: " + JSON.stringify({ u: secret.unlisted, s: secret.slug }));
     const draft = await get("7610");
-    assert(!draft.unlisted && !draft.slug, "an unpublished unlisted page is not noindex yet and never rewrites to a link that 404s: " + JSON.stringify({ u: draft.unlisted, s: draft.slug }));
+    assert(!draft.unlisted && draft.slug === "event-7610", "an unpublished project does not shape the public Guide event or its URL: " + JSON.stringify({ u: draft.unlisted, s: draft.slug }));
     const archived = await get("7630");
     assert(archived.unlisted === true && !archived.slug, "an archived unlisted page never rewrites to a link that 404s");
     const listed = await get("7999");
@@ -307,7 +307,7 @@ try {
     assert(kv.store.get("site-event:draft-new").unlisted === true, "unlisted is stored");
 
     const typedTaken = await post(kv, "action=set-unlisted&id=draft-new&value=true&slug=strange-bird-gala-secret");
-    assert(typedTaken.status === 409 && /Strange Bird Gala Secret/.test(typedTaken.body.error), "typing another unlisted page's link is refused");
+    assert(typedTaken.status === 409 && /strange-bird-gala-secret/.test(typedTaken.body.error), "typing another unlisted page's link is refused");
     const typedListed = await post(kv, "action=set-unlisted&id=draft-new&value=true&slug=listed-party");
     assert(typedListed.status === 409, "typing a listed page's link is refused");
     const typedBad = await post(kv, "action=set-unlisted&id=draft-new&value=true&slug=admin");
@@ -405,7 +405,7 @@ try {
 
   // ── 8. Unlisting takes the page off the feed on the next request ──
   {
-    const stale = { events: [{ id: 7600, title: "Strange Bird Gala Secret", slug: "strange-bird-gala-secret" }, { id: 7999, title: "Listed Party", slug: "listed-party" }], rows: [], hasSiteEvents: true, generatedAt: Date.now() };
+    const stale = { events: [{ id: 7600, title: "Strange Bird Gala Secret", slug: "strange-bird-gala-secret" }, { id: 7999, title: "Listed Party", slug: "listed-party" }], rows: [], hasSiteEvents: true, generatedAt: Date.now(), titleModel: "guide-title-b1" };
     const records = baseProjects();
     records[SNAP_KEY] = JSON.parse(JSON.stringify(stale));
     const kv = makeKv(records);
@@ -456,7 +456,7 @@ try {
     assert(listed.headers.get("cache-control") === "public, max-age=0, must-revalidate", "a listed page revalidates on every load: " + listed.headers.get("cache-control"));
     const api = async (id) => (await eventRoute(ctx(kv, "/api/event?id=" + id))).headers.get("cache-control");
     assert((await api("7600")) === "no-store", "/api/event for a live unlisted page is no-store");
-    assert((await api("7610")) === "no-store", "/api/event for an event with an unlisted draft is no-store");
+    assert((await api("7610")) === "public, max-age=0, must-revalidate", "an unpublished project does not shape the public Guide response or cache policy");
     assert((await api("7630")) === "no-store", "/api/event for a hidden unlisted page is no-store");
     assert((await api("7999")) === "public, max-age=0, must-revalidate", "/api/event for a listed page revalidates on every load");
 

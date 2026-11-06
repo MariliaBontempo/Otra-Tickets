@@ -17,10 +17,14 @@ function setup({ staffToken = "staff-jwt", withAddons = true } = {}) {
   globalThis.caches = { default: { async match() { return null; }, async put(...a) { puts.push(a); } } };
   globalThis.fetch = async (input, init = {}) => {
     const u = new URL(input);
-    const auth = (init.headers && (init.headers.authorization || init.headers.Authorization)) || null;
+    const auth = new Headers(init.headers).get('authorization');
     calls.push({ path: u.pathname, search: u.search, auth, cf: init.cf });
     if (u.pathname === "/api/users/user-role/") {
       return auth === `Bearer ${staffToken}` ? Response.json({ is_staff_or_admin: true }) : Response.json({ is_staff_or_admin: false });
+    }
+    if (u.pathname.startsWith("/api/otra-tickets/media/event-slug/")) {
+      const id=Number(u.pathname.match(/event-slug\/(\d+)/)[1]);
+      return auth === `Bearer ${staffToken}` ? Response.json({id,title:id===8257?"Cascada NYE":"Guide 8088",slug:"stable-link"}) : Response.json({error:"unauthorized"},{status:403});
     }
     if (u.pathname === "/api/events/details/8257/") {
       return auth === `Bearer ${staffToken}`

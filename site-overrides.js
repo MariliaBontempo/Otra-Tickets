@@ -62,6 +62,7 @@
   if (!id) return;
   // Set from the server answer: true only on an unpublished draft page.
   let draftOnlyRemovalsOk = false;
+  let guideTitle = "";
 
   // Staff sessions (the admin editor preview) send the admin token so pages of
   // events hidden on Otra Guide still show their edits there.
@@ -71,13 +72,21 @@
     "/api/override?id=" + encodeURIComponent(id),
     adminToken ? { cache: "no-store", headers: { authorization: "Bearer " + adminToken } } : { cache: "no-store" }
   )
-    .then((resp) => (resp.ok ? resp.json() : null))
+    .then((resp) => resp.json().catch(() => ({}))
+      .then((data) => resp.ok ? data : { ...data, _httpError: true }))
     .then((data) => {
       const override = data && data.override;
-      if (!override) return;
+      // Only blank the page when the server says the Guide-owned title is gone
+      // or unavailable. Generic HTTP errors keep static/local manual pages visible.
+      if (data && data.guideTitleHidden) { hideUnavailableManualTitle(); return; }
+      if (data && data.guideTitleUnavailable) { hideUnavailableManualTitle(); return; }
+      if (data && data._httpError) { showAvailableManualTitle(); return; }
+      if (!override) { showAvailableManualTitle(); return; }
+      guideTitle = typeof override.guideTitle === "string" ? override.guideTitle : "";
       draftOnlyRemovalsOk = override.draftOnlyRemovals === true && /^draft-(?!prod-)/.test(id);
       applyLegacyOverride(override);
       applyFieldOverrides(override.fields || {});
+      showAvailableManualTitle();
       if (typeof document.addEventListener === "function") {
         document.addEventListener("otra:event-rendered", () => {
           applyLegacyOverride(override);
@@ -85,7 +94,43 @@
         });
       }
     })
-    .catch(() => {});
+    // A network failure or a render error is not a Guide answer: keep the page
+    // visible (non-owned manual pages are local content). An owned page that
+    // already received its Guide title re-applies it so no static H1 remains.
+    .catch(() => {
+      try { applyGuideTitle(); } catch { /* keep page visible */ }
+      showAvailableManualTitle();
+    });
+
+  function showAvailableManualTitle() {
+    const main = document.querySelector("main[data-otra-guide-title-page]");
+    if (main) main.hidden = false;
+  }
+
+  function hideUnavailableManualTitle() {
+    // Generic event.html has its own API error/not-found state. Hand-built
+    // pages must not leave static/legacy titles visible when Guide has none.
+    const main = document.querySelector("main[data-otra-guide-title-page]");
+    if (!main) return;
+    main.hidden = true;
+    document.title = "Event unavailable | Otra Tickets";
+  }
+
+  function applyGuideTitle() {
+    if (!guideTitle) return;
+    const h1 = document.querySelector("#evTitle");
+    if (h1) {
+      const plain = String(h1.textContent || "").replace(/\s+/g, " ").trim();
+      // Keep an already-applied style-only rich title whose plain text matches.
+      if (h1.__otraRichKey && plain === String(guideTitle).trim()) {
+        /* keep rich markup */
+      } else if (h1.textContent !== guideTitle) {
+        h1.textContent = guideTitle;
+        h1.__otraRichKey = "";
+      }
+    }
+    document.title = "Otra Tickets — " + guideTitle;
+  }
 
   function inferOverrideId() {
     const explicit = document.currentScript && document.currentScript.dataset.overrideId;
@@ -155,6 +200,21 @@
         continue;
       }
       if (!el) continue;
+      const canonicalH1 = guideTitle ? document.querySelector("#evTitle") : null;
+      // Legacy structural selectors can target H1 or its wrapper without
+      // mentioning #evTitle. They cannot delete/replace a Guide-owned title.
+      // Style-only rich html on the H1 itself is allowed when plain text still
+      // equals the Guide title (Model B SSOT + #115 formatting layer).
+      if (canonicalH1 && (type === "text" || type === "remove") &&
+          (el === canonicalH1 || (typeof el.contains === "function" && el.contains(canonicalH1)))) {
+        if (type === "text" && el === canonicalH1 && field && field.html) {
+          const plain = (window.otraRichText && typeof window.otraRichText.toPlain === "function")
+            ? String(window.otraRichText.toPlain(window.otraRichText.parse(field.html)) || "").trim()
+            : String(field.value || "").trim();
+          if (plain === String(guideTitle).trim()) applyRichField(el, field, false);
+        }
+        applied.add(key); continue;
+      }
 
       if (type === "remove" && field.type === "remove") {
         // Before You Go is hidden only on an unpublished draft page; a live
@@ -244,6 +304,7 @@
     if (typeof syncBandLayout === "function") syncBandLayout();
     if (typeof linkifyContentEmails === "function") linkifyContentEmails();
     tidyMetaLine();
+    applyGuideTitle();
     const remaining = Object.keys(fields).filter((k) => !applied.has(k));
     if (remaining.length > 0 && attempt < 30) {
       setTimeout(() => applyFieldOverrides(fields, attempt + 1, applied), 250);

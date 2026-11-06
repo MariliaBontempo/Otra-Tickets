@@ -203,7 +203,7 @@ assert(/INLINE_DOT = " · "/.test(SOURCE), "site-overrides.js uses the same sepa
 // item reachable so it can be edited back.
 assert(/renderMeta[\s\S]*otraTidyMetaLine\(host\)/.test(EVENT_HTML), "event.html renderMeta calls the tidy helper");
 assert(/\.ev-hero-meta\[hidden\], \.ev-hero-meta > \[hidden\] \{ display: none !important; \}/.test(EVENT_HTML), "event.html hides hidden hero line nodes even with author display rules");
-assert(/tidyMetaLine\(\);\s*\n\s*const remaining = Object\.keys\(fields\)/.test(SOURCE), "site-overrides.js tidies after every pass of page edits");
+assert(/tidyMetaLine\(\);\s*applyGuideTitle\(\);\s*const remaining = Object\.keys\(fields\)/.test(SOURCE), "site-overrides.js tidies after every pass of page edits");
 assert(/addEventListener\("otra:event-rendered", \(\) => tidyMetaLine\(\)\)/.test(SOURCE), "site-overrides.js tidies again when the page re-renders");
 assert(/\.ev-hero-meta > span\[data-otra-meta-empty\]:not\(\.dot\) \{ display: inline-block !important;/.test(ADMIN_HTML), "admin preview keeps a blank item reachable");
 

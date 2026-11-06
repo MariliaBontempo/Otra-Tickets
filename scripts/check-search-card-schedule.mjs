@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Local-title authoring fixtures explicitly borrow Guide events; owned SSOT coverage: server/test/title-ssot-public.test.mjs.
 // Oracle: the homepage/search card schedule line follows the event page hero
 // line (#evMeta) after page editor edits, a recurring tour never shows a
 // single date, a dated event keeps its real date, and missing or empty edits
@@ -28,7 +29,7 @@ const text = (value) => ({ type: "text", value });
 // Water Bikes (Otra Guide 7175): recurring tour with a first start date.
 const waterBikes = {
   id: "draft-water-bikes",
-  otraGuideId: "7175",
+  otraGuideId: "7175", usesExistingOtraGuideEvent: true,
   title: "Water Bikes Curaçao Ocean Adventure",
   status: "published",
   isPerennial: true,
@@ -241,7 +242,7 @@ const projects = {
   "site-event:draft-water-bikes": waterBikes,
   "site-event:draft-clearboat": {
     id: "draft-clearboat",
-    otraGuideId: "6113",
+    otraGuideId: "6113", usesExistingOtraGuideEvent: true,
     title: "Clearboat",
     status: "published",
     isPerennial: true,
@@ -250,7 +251,7 @@ const projects = {
   },
   "site-event:draft-local-plain": {
     id: "draft-local-plain",
-    otraGuideId: "7176",
+    otraGuideId: "7176", usesExistingOtraGuideEvent: true,
     title: "Barber",
     status: "published",
     isPerennial: true,
@@ -276,7 +277,10 @@ const makeKv = (extra = {}) => ({
   async get(key) { return projects[key] || extra[key] || overrides[key] || null; },
 });
 const origFetch = globalThis.fetch;
-globalThis.fetch = async () => ({ ok: false, json: async () => null });
+globalThis.fetch = async input => {
+ const m=String(input).match(/details\/(\d+)/);
+ return m ? Response.json({id:Number(m[1]),title:'Upstream'}) : Response.json({results:[]});
+};
 try {
   const env = { OVERRIDES: makeKv(), OTRA_API_URL: "https://mock.invalid/api" };
   const site = await buildPublishedSiteEvents(env);
@@ -482,7 +486,7 @@ assert(
   eq(shown && shown.fields["text:#evMeta > span:nth-of-type(3)"], text(""), "/api/override: an empty hero item stays empty");
   eq(shown && shown.fields["text:#evMeta > span:nth-of-type(5)"], text("From $60"), "/api/override: price item unchanged");
   eq(shown && shown.fields["text:main > #evMeta > span:nth-of-type(7)"], text("Sat · 9 PM"), "/api/override: legacy main > hero key too");
-  eq(shown && shown.fields["text:#evTitle"], text("Saturday: 10 PM"), "/api/override: a title colon stays");
+  eq(shown && shown.fields["text:#evTitle"], text("Saturday: 10 PM"), "/api/override: unowned/borrowed pages keep local H1");
   eq(shown && shown.fields["text:#evBody"], text("Midday departure times: 12:00 PM and 1:00 PM.\nMonday: 9 AM"), "/api/override: body text stays");
   eq(shown && shown.fields["text:#evInfoGrid > div:nth-of-type(4)"], stored.fields["text:#evInfoGrid > div:nth-of-type(4)"], "/api/override: info cells stay");
   eq(shown && shown.fields["image:#evHeroImg"], stored.fields["image:#evHeroImg"], "/api/override: images stay");
@@ -492,7 +496,7 @@ assert(
   // /api/event shows authored hero items the same way without touching the stored design.
   const { onRequestGet: eventGet } = await import("../functions/api/event.js");
   const design = { meta: ["Wednesday to Sunday: 12:00 PM & 1:00 PM", "1 hour", "From $60"], rates: [] };
-  const projectRecord = { id: "draft-days", title: "Water Bikes", status: "published", publishedAt: "2026-10-10T12:00:00.000Z", createdAt: "2026-10-01T12:00:00.000Z", otraGuideId: "7175", isPerennial: true, ticketTypeIds: [], claudeDesign: design };
+  const projectRecord = { id: "draft-days", title: "Water Bikes", status: "published", publishedAt: "2026-10-10T12:00:00.000Z", createdAt: "2026-10-01T12:00:00.000Z", otraGuideId: "7175", usesExistingOtraGuideEvent: true, isPerennial: true, ticketTypeIds: [], claudeDesign: design };
   const eventKv = {
     async get(key, type) { const v = key === "site-event:draft-days" ? projectRecord : undefined; return v === undefined ? null : type === "json" ? v : JSON.stringify(v); },
     async list({ prefix }) { return { keys: "site-event:draft-days".startsWith(prefix) ? [{ name: "site-event:draft-days" }] : [], list_complete: true }; },

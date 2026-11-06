@@ -202,11 +202,16 @@ function extractFunction(name, source) {
 
   // Public endpoint, end to end with the fake KV.
   const realFetch = globalThis.fetch;
-  globalThis.fetch = async () => new Response('{}', { status: 200 });
+  globalThis.fetch = async (input) => {
+    const url=String(input);
+    if(url.endsWith('/users/user-role/')) return Response.json({is_staff_or_admin:true});
+    const m=url.match(/(?:details|event-slug)\/(\d+)/);
+    return Response.json(m ? {id:Number(m[1]),title:'Guide current title'} : {});
+  };
   try {
     const { onRequestGet } = await import(new URL('../functions/api/override.js', import.meta.url));
     const read = async (id) => {
-      const resp = await onRequestGet({ request: new Request(`https://otratickets.com/api/override?id=${id}`), env: { OVERRIDES: kv } });
+      const resp = await onRequestGet({ request: new Request(`https://otratickets.com/api/override?id=${id}`, { headers: { authorization: 'Bearer test-staff' } }), env: { OVERRIDES: kv } });
       const data = await resp.json();
       if (data.override) { flags[id] = data.override.draftOnlyRemovals; flagObjs[id] = data.override; }
       return data.override ? data.override.fields : null;
@@ -250,7 +255,7 @@ function extractFunction(name, source) {
     };
     const run = (id, ok) => {
       hidden.length = 0;
-      const ctx = { id, draftOnlyRemovalsOk: ok, document: { querySelector: (sel) => els[sel] || null }, applyRemoval: (el) => hidden.push(el.id || 'wrapper'), setTimeout: () => {}, tidyMetaLine: () => {} };
+      const ctx = { id, guideTitle: "", applyGuideTitle: () => {}, draftOnlyRemovalsOk: ok, document: { querySelector: (sel) => els[sel] || null }, applyRemoval: (el) => hidden.push(el.id || 'wrapper'), setTimeout: () => {}, tidyMetaLine: () => {} };
       vm.createContext(ctx);
       vm.runInContext(extractFunction('hidesBeforeYouGo', overrides) + '\n' + apply, ctx);
       ctx.applyFieldOverrides(Object.fromEntries(Object.keys(els).map((sel) => ['remove:' + sel, { type: 'remove', value: '1' }])));

@@ -190,12 +190,16 @@ async function runScenario(opts) {
       pathname: '/clearboat',
       href: 'https://otratickets.com/clearboat'
     },
-    fetch: function(url, opts) {
+    fetch: function(url, requestOptions) {
+      if (opts.fetchRejects) return Promise.reject(new Error('offline'));
+      if (opts.httpStatus) return Promise.resolve({ ok: false, status: opts.httpStatus,
+        json: function() { return Promise.resolve(opts.httpBody || { error: 'could not load override' }); } });
       return Promise.resolve({
         ok: true,
         json: function() {
           return Promise.resolve({
-            override: { accentColor: accentColor || null, fields: fields || {} }
+            ...(opts.guideTitleHidden ? { guideTitleHidden: true } : {}),
+            override: opts.guideTitleHidden ? null : { guideTitle: opts.guideTitle || "", accentColor: accentColor || null, fields: fields || {} }
           });
         }
       });
@@ -238,6 +242,7 @@ async function runScenario(opts) {
   for (let i = 0; i < 3; i++) await flush();
 
   return {
+    document: sandbox.document,
     timerCount,
     setPropertyCalls,
     async dispatch(type) {
@@ -529,6 +534,42 @@ const BASE_HREF = 'https://otratickets.com/clearboat';
   });
   assert(iCell.classList.contains('otra-empty-info-cell'), '(i) two empty legacy child overrides must mark the parent empty');
   assert(iCell.style.background === '', '(i) legacy empty overrides must remove stale inline colour and use the CSS default');
+}
+
+// Guide authority wins over structural selectors and wrappers as well as #evTitle.
+{
+ const h1=makeEl('h1',{textContent:'Old static title'});
+ const wrapper=makeEl('section',{});wrapper.contains=e=>e===h1;
+ const result=await runScenario({guideTitle:'Guide <plain> title',selectors:{'#evTitle':h1,'main > section > h1':h1,'.old-wrapper':wrapper},fields:{
+  'text:main > section > h1':{type:'text',value:'OLD LEGACY H1'},
+  'text:.old-wrapper':{type:'text',value:'OLD WRAPPER'},
+  'remove:.old-wrapper':{type:'remove',value:'1'},
+ }});
+ assert(h1.textContent==='Guide <plain> title','Guide plain text wins over structural H1/wrapper legacy edits');
+ assert(!wrapper.hidden && !wrapper.counts.removed,'legacy wrapper removal cannot hide a Guide-owned H1');
+ assert(result.document.title==='Otra Tickets — Guide <plain> title','manual metadata follows Guide title');
+ h1.textContent='Stale render';await result.dispatch('otra:event-rendered');
+ assert(h1.textContent==='Guide <plain> title','event re-render keeps Guide H1 authority');
+}
+{
+ const main=makeEl('main',{});
+ const result=await runScenario({guideTitleHidden:true,fields:{},selectors:{'main[data-otra-guide-title-page]':main}});
+ assert(main.hidden===true,'private Guide cannot leave manual static event content visible');
+ assert(result.document.title==='Event unavailable | Otra Tickets','private manual page has an unavailable title, never legacy');
+}
+
+// Non-owned manual pages (clearboat/rnb) never blank on a network or HTTP error.
+for (const opts of [{fetchRejects:true},{httpStatus:500},{httpStatus:502}]) {
+ const main=makeEl('main',{});main.hidden=false;
+ const result=await runScenario({...opts,fields:{},selectors:{'main[data-otra-guide-title-page]':main}});
+ assert(main.hidden===false,'generic error keeps the manual page visible: '+JSON.stringify(opts));
+ assert(result.document.title!=='Event unavailable | Otra Tickets','generic error never marks the page unavailable: '+JSON.stringify(opts));
+}
+// An owned page whose Guide title is unavailable (server says so) is hidden.
+{
+ const main=makeEl('main',{});
+ await runScenario({httpStatus:502,httpBody:{override:null,guideTitleUnavailable:true},fields:{},selectors:{'main[data-otra-guide-title-page]':main}});
+ assert(main.hidden===true,'owned Guide title outage never leaves a static H1 visible');
 }
 
 if (failures.length) {

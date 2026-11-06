@@ -83,6 +83,7 @@ function mockGuide() {
     assert.equal(url.origin, 'https://backend.test', 'all Guide calls must be mocked');
     const path = url.pathname + url.search;
     if (path === '/api/users/user-role/') return Response.json({ is_staff_or_admin: true });
+    if (path.startsWith('/api/otra-tickets/media/event-slug/')) return Response.json({id:Number(path.match(/event-slug\/(\d+)/)[1]),title:'Sunday Social Club - Old',slug:'sunday-social-club'});
     if (path === '/api/users/profile/') return Response.json({ first_name: 'Local', last_name: 'Fixture' });
     if (path === '/api/events/details/8800/') return Response.json(detail);
     if (path === '/api/events/admin-ticketed-search/?id=8800') return Response.json({ events: [{ ...detail, tickets: [guideTicket] }] });
@@ -212,7 +213,7 @@ try {
     assert.equal(p.claudeDesign.bandTitle, 'What you get', 'default clone keeps perks');
     assert.equal(p.claudeDesign.practicalInfo[0].value, 'Old venue', 'default clone keeps Before You Go');
     assert.equal(p.claudeDesign.sponsorText, 'Old sponsor', 'default clone keeps sponsors');
-    assert.equal(p.claudeDesign.displayTitle, 'Sunday Social Club', 'default bind keeps the source displayTitle (no design sync)');
+    assert.equal(p.claudeDesign.displayTitle, undefined, 'owned source displayTitle is not retained by an unrelated clone');
     assert.equal(p.claudeDesign.description, 'Old story paragraph.', 'default bind keeps the source design description');
     assert.equal(p.claudeDesign.image, '/override-images/x/hero.jpg', 'default bind keeps the source design image');
     assert.equal(p.claudeDesign.ratesTitle, 'Tickets from Otra Guide', 'default bind keeps today\'s rates heading');

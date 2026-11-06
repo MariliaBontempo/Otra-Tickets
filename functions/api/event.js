@@ -1,3 +1,6 @@
+import { readPublicGuideTitle } from "../_lib/public-guide-title.js";
+import { readGuideTitle } from "../admin/api/_event-title.js";
+import { ownedGuideTitleId, withoutTitleOverride } from "../_lib/title-ownership.js";
 // Cloudflare Pages Function: GET /api/event?id=<eventId>
 //
 // Server-side proxy for a single event's detail + ticket types, used by the
@@ -53,7 +56,12 @@ export async function onRequestGet(context) {
   // One site event scan: the newest bound project drives the design, the
   // newest published one feeds the page edits.
   const bound = /^\d+$/.test(id) ? await findBoundProjects(context.env && context.env.OVERRIDES, id) : null;
-  const latest = bound ? bound.latest : null;
+  // A newer unpublished owned (Guide-title) draft never replaces the public
+  // live page. Other pages keep their newest-project design as before. Staff is
+  // asked only where it changes the answer, so logged-in customers do not pay
+  // a Guide role check on every page load.
+  const ownedNewerDraft = !!(bound && bound.latest && bound.latest !== bound.published && ownedGuideTitleId(bound.latest));
+  const latest = bound ? (ownedNewerDraft && !(await isStaffRequest(context)) ? bound.published : bound.latest) : null;
   const base = await getBasePayload(context, id, url, latest, bound ? bound.published : null);
   if (base === UPSTREAM_FAILED) return json({ error: "upstream unavailable" }, 502);
   if (!base) return json({ error: "not found" }, 404);
@@ -69,7 +77,7 @@ export async function onRequestGet(context) {
   delete base.adminOnly;
   // Non-sensitive marker so the page keeps its /event?id= URL (the public slug
   // route cannot resolve staff-only events). Only ever set on no-store responses.
-  const staffPreview = adminOnly || base.staffView === true;
+  let staffPreview = adminOnly || base.staffView === true;
   delete base.staffView;
 
   const override = await readOverride(context.env, id, bound && bound.published ? String(bound.published.id) : "");
@@ -81,6 +89,32 @@ export async function onRequestGet(context) {
       status: project.status === "published" ? "published" : "draft",
       design: project.claudeDesign || null,
     };
+  }
+  // An authenticated preview always reads the one staff title contract, not
+  // cached public detail, old draft.title or design.displayTitle. Never cache it.
+  const titleProject = isDraftId(id) ? base[DRAFT_RECORD] : project;
+  // Owned only when an OT project has otraGuideId and is not borrowed.
+  // Plain numeric Guide pages keep local curated titles.
+  const titleId = ownedGuideTitleId(titleProject);
+  const staff = titleId ? await isStaffRequest(context) : false;
+  if (titleId && staff) {
+    try {
+      const guideTitle = await readGuideTitle(context, requestToken(context.request), titleId);
+      payload = { ...payload, title: guideTitle.title,
+        ...(payload.design ? { design: withoutTitleOverride(payload.design) } : {}) };
+      staffPreview = true;
+    } catch (error) {
+      return json({ error: "Could not refresh Guide title. Reload to retry.", guideTitleUnavailable: true }, 502);
+    }
+  }
+  if (titleId && !staff) {
+    // A linked draft is a staff preview until explicitly published.
+    if (isDraftId(id) && titleProject?.status !== "published") return json({ error: "not found" }, 404);
+    const current = await readPublicGuideTitle(context, titleId);
+    if (current.status === 404) return json({ error: "not found" }, 404);
+    if (!current.title) return json({ error: "Guide title unavailable. Reload to retry.", guideTitleUnavailable: true }, 502);
+    payload = { ...payload, title: current.title,
+      ...(payload.design ? { design: withoutTitleOverride(payload.design) } : {}) };
   }
   // Authored hero line items read like the card: "Days · times".
   if (payload.design && typeof payload.design === "object" && Array.isArray(payload.design.meta)) {
@@ -290,6 +324,7 @@ function apiBase(env) {
 async function getDraftPagePayload(context, id) {
   const draft = await getDraftPayload(context.env, id);
   if (!draft || !draft.checkoutEventId) return draft;
+  if (ownedGuideTitleId(draft[DRAFT_RECORD]) && draft.status !== "published" && !(await isStaffRequest(context))) return null;
   const api = apiBase(context.env);
   if (!(await guideDetailMissing(api, draft.checkoutEventId))) return draft;
   if (await isStaffRequest(context)) return { ...draft, staffView: true };
@@ -305,7 +340,7 @@ async function getDraftPayload(env, id) {
   if (!kv) return null;
 
   const draft = await kv.get(`site-event:${id}`, "json");
-  if (!draft || typeof draft !== "object") return null;
+  if (!draft || typeof draft !== "object" || draft.archivedAt) return null;
 
   const rates = Array.isArray(draft.claudeDesign && draft.claudeDesign.rates) ? draft.claudeDesign.rates : [];
   return {
@@ -330,7 +365,7 @@ async function getDraftPayload(env, id) {
     design: draft.claudeDesign && typeof draft.claudeDesign === "object" ? draft.claudeDesign : null,
     adminOnly: draft.adminOnly === true,
     [DRAFT_UNLISTED]: isUnlistedProject(draft),
-    [DRAFT_RECORD]: draft,
+    [DRAFT_RECORD]: draft.id ? draft : { ...draft, id },
     [PROJECT_DATES]: {
       startDate: typeof draft.startDate === "string" ? draft.startDate : "",
       endDate: typeof draft.endDate === "string" ? draft.endDate : "",

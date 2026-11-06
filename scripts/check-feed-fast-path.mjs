@@ -47,6 +47,7 @@ function makeKv({ snapshot = true, hidden = ["202"] } = {}) {
               ],
               hasSiteEvents: true,
               generatedAt: Date.now(),
+              titleModel: "guide-title-b1",
             }
           : null;
       }
@@ -61,7 +62,13 @@ function makeKv({ snapshot = true, hidden = ["202"] } = {}) {
 // A rebuild cannot finish without the upstream fetch. Hanging it forever means
 // any foreground rebuild never resolves — so if the call below returns at all,
 // it did not rebuild in the foreground.
-const hangingFetch = () => new Promise(() => {});
+// Background category rebuild is hung; fresh public-title reconciliation is
+// deliberately foreground and must remain cheap, bounded, and credential-free.
+const hangingFetch = input => {
+ const m=String(input).match(/details\/(\d+)/);
+ if(m) return Promise.resolve(Response.json({id:Number(m[1]),title:({101:'Kept Event',303:'Also Kept'})[m[1]] || 'Guide current'}));
+ return new Promise(() => {});
+};
 
 globalThis.caches = {
   default: {

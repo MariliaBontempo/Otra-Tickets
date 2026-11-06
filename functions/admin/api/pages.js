@@ -1,3 +1,4 @@
+import { hydrateProjectTitles } from "./_event-title.js";
 // Cloudflare Pages Function: GET /admin/api/pages
 //
 // Staff-only list for the admin dropdown. It returns the hand-built pages first,
@@ -69,7 +70,7 @@ export async function onRequestGet(context) {
 
   const [hiddenIds, drafts, overrideIds] = await Promise.all([
     readHiddenPageIds(context.env),
-    buildDraftPages(context.env),
+    buildDraftPages(context, auth),
     readOverrideEventIds(context.env),
   ]);
   const knownIds = knownEventIds(drafts, overrideIds);
@@ -96,6 +97,7 @@ export async function onRequestGet(context) {
         synthesized.push({
           id: eventId,
           title: page.title,
+          ...(page.guideTitleUnavailable ? { guideTitleUnavailable: true, warning: page.warning } : {}),
           type: "Published draft",
           startDate: page.startDate || "",
           url: `/event.html?id=${encodeURIComponent(eventId)}`,
@@ -149,7 +151,8 @@ export async function onRequestPost(context) {
   return json({ hiddenIds: [...hiddenIds] });
 }
 
-async function buildDraftPages(env) {
+async function buildDraftPages(context, token) {
+  const env = context.env;
   const kv = env && env.OVERRIDES;
   if (!kv) return [];
 
@@ -175,6 +178,7 @@ async function buildDraftPages(env) {
         publishedAt: typeof project.publishedAt === "string" ? project.publishedAt : "",
         createdAt: typeof project.createdAt === "string" ? project.createdAt : "",
         otraGuideId: project.otraGuideId ? String(project.otraGuideId) : "",
+        usesExistingOtraGuideEvent: !!project.usesExistingOtraGuideEvent,
         syncError: typeof project.syncError === "string" ? project.syncError : "",
         startDate: typeof project.startDate === "string" ? project.startDate : "",
         // Preview the exact Otra Tickets draft selected in the admin. Using
@@ -186,7 +190,7 @@ async function buildDraftPages(env) {
     cursor = page.list_complete ? undefined : page.cursor;
   } while (cursor);
 
-  return drafts.sort((a, b) => String(b.id).localeCompare(String(a.id)));
+  return (await hydrateProjectTitles(context, token, drafts)).sort((a, b) => String(b.id).localeCompare(String(a.id)));
 }
 
 // Event ids that have saved page overrides. Together with the published

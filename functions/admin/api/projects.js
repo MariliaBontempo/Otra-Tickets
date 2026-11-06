@@ -4,7 +4,7 @@
 // event record is stored in KV. Publishing the draft into the public homepage
 // can build on this record.
 
-import { apiBase, requireStaff, staffSession, json } from "./_auth.js";
+import { otraFetch, requireStaff, staffSession, json } from "./_auth.js";
 import { actorForAudit, appendAudit } from "./_audit.js";
 import { mintFrozenSlug, liveSlugBase, persistedFrozenSlug } from "../../_lib/event-slug.js";
 import { defaultUnlistedSlug, isUnlistedProject, pickUnlistedSlug, reservesUnlistedLink } from "../../_lib/unlisted.js";
@@ -14,6 +14,9 @@ import { blankOtOnlyCloneOverride, blankOtOnlyCloneProjectFields, blankOtOnlyMap
 import { rewriteProjectDate } from "./events.js";
 import { contentSnapshot, validateContentPatch } from "./_draft-content.js";
 import { isOtraGuideId, isPublishedBound, readOverrideDoc, resolvePageOverride } from "../../_lib/page-override.js";
+
+import { ownedGuideTitleId, withoutLocalProjectTitle } from "../../_lib/title-ownership.js";
+import { normalizeGuideTitle, writeGuideTitle, putTitleSafeProject, discardLinkedTitleCopies, projectForStorage, hydrateProjectTitle, hydrateProjectTitles, readGuideTitle } from "./_event-title.js";
 
 const MAX_BYTES = 50 * 1024 * 1024;
 const DRAFT_PREFIX = "site-event:";
@@ -34,16 +37,36 @@ const PRACTICAL_8088_AFTER = [
 ];
 
 export async function onRequestGet(context) {
-  if (!(await requireStaff(context.request, context.env))) return json({ error: "unauthorized" }, 401);
+  const accessToken = await requireStaff(context.request, context.env);
+  if (!accessToken) return json({ error: "unauthorized" }, 401);
 
   const kv = context.env.OVERRIDES;
   if (!kv) return json({ error: "overrides store not configured" }, 503);
 
   const projects = await listProjects(kv);
-  return json({ projects });
+  return json({ projects: await hydrateProjectTitles(context, accessToken, projects) });
 }
 
 export async function onRequestPost(context) {
+  const response = await projectPost(context);
+  // The handler has already verified staff. Project display values are hydrated
+  // only AFTER all persistence; error responses with project snapshots too.
+  if (!response.headers.get("content-type")?.includes("application/json")) return response;
+  const data = await response.json();
+  if (data.project && typeof data.project === "object") {
+    const token = context.request.headers.get("authorization")?.replace(/^Bearer /, "");
+    data.project = await hydrateProjectTitle(context, token, data.project);
+    if (data.guideTitle) {
+      const changed = data.guideTitle.changed;
+      data.guideTitle = data.project.guideTitle ? { ...data.project.guideTitle, changed } : null;
+      if (data.project.guideTitleUnavailable) data.warning = `Title saved in Guide, but refresh failed. ${data.project.warning}`;
+    }
+    delete data.guideTitleReadPending;
+  }
+  return json(data, response.status);
+}
+
+async function projectPost(context) {
   const session = await staffSession(context.request, context.env);
   if (!session) return json({ error: "unauthorized" }, 401);
   const accessToken = session.token;
@@ -64,7 +87,7 @@ export async function onRequestPost(context) {
         String(project.otraGuideId) !== "8088" || project.usesExistingOtraGuideEvent !== true) {
       return json({ error: "unexpected project state" }, 409);
     }
-    if (!body || JSON.stringify(body.expectedProject) !== JSON.stringify(normalizeProject(project, id)) ||
+    if (!body || JSON.stringify(normalizeProject(body.expectedProject || {}, id)) !== JSON.stringify(normalizeProject(project, id)) ||
         JSON.stringify(project.claudeDesign?.practicalInfo) !== JSON.stringify(PRACTICAL_8088_BEFORE)) {
       return json({ error: "project changed; reload before editing" }, 409);
     }
@@ -94,7 +117,7 @@ export async function onRequestPost(context) {
     if (project.status !== "draft" || project.adminOnly !== true || project.archivedAt || project.publishedAt) return json({ error: "only private unpublished drafts can be edited here" }, 409);
     // Reject changes to the linked event, tickets or any other known project
     // setting since the editor was opened, as well as content changes.
-    if (!body || JSON.stringify(body.expectedProject) !== JSON.stringify(normalizeProject(project, id)) || JSON.stringify(body.expected) !== JSON.stringify(contentSnapshot(project))) return json({ error: "draft changed; reopen the editor" }, 409);
+    if (!body || JSON.stringify(normalizeProject(body.expectedProject || {}, id)) !== JSON.stringify(normalizeProject(project, id)) || JSON.stringify(body.expected) !== JSON.stringify(contentSnapshot(project))) return json({ error: "draft changed; reopen the editor" }, 409);
     let patch;
     try { patch = validateContentPatch(body.patch, { ...project, id }); } catch (error) { return json({ error: error.message }, 400); }
     const next = { ...project, claudeDesign: { ...(project.claudeDesign || {}), ...patch } };
@@ -136,6 +159,10 @@ export async function onRequestPost(context) {
       source = projects.find((project) => project.otraGuideId === id) || null;
     }
     if (!source) return json({ error: "no draft found to clone" }, 404);
+    if (ownedGuideTitleId(source)) {
+      try { source = { ...source, title: (await readGuideTitle(context, accessToken, ownedGuideTitleId(source))).title }; }
+      catch (error) { return json({ error: `Could not load Guide title for clone: ${error.message}. Retry.`, retryable: true }, 502); }
+    }
 
     let body = {};
     try {
@@ -305,7 +332,20 @@ export async function onRequestPost(context) {
     try {
       body = await context.request.json();
     } catch {}
-    const name = String((body && body.name) || "").trim().slice(0, 120);
+    const linkedId = ownedGuideTitleId(project);
+    let guideTitle = null;
+    let name;
+    try {
+      name = linkedId ? normalizeGuideTitle(body?.name) : String(body?.name || "").trim().slice(0, 120);
+    } catch (error) { return json({ error: error.message }, 400); }
+    if (linkedId) {
+      try {
+        guideTitle = await writeGuideTitle(context, accessToken, linkedId, name);
+        if (guideTitle.changed) await discardLinkedTitleCopies(kv, linkedId, { guidePlain: guideTitle.title });
+      } catch (error) {
+        return json({ error: `Could not confirm Guide title and metadata: ${error.message}. Retry to confirm.`, retryable: true }, 502);
+      }
+    }
     if (!name) return json({ error: "name is required" }, 400);
     const next = { ...project, title: name };
     // Live pretty URL freezes at first publish. Renaming a published
@@ -316,11 +356,17 @@ export async function onRequestPost(context) {
     if (project.status === "published" || project.publishedAt) {
       next.frozenSlug = liveSlugBase(project);
     }
-    await putProject(kv, next);
-    // New feed epoch too, so a rebuild already in flight cannot write the
-    // pre-rename snapshot back.
-    await invalidatePublicFeed(kv);
-    return json({ project: next });
+    try {
+      await putProject(kv, next);
+      // New feed epoch too, so a rebuild already in flight cannot write the
+      // pre-rename snapshot back.
+      await invalidatePublicFeed(kv);
+    } catch (error) {
+      if (!guideTitle) throw error;
+      return json({ error: "Guide title saved, but local metadata cleanup failed. Reload and retry.", guideTitle, retryable: true }, 503);
+    }
+    return json({ project: linkedId ? { ...withoutLocalProjectTitle(next), title: guideTitle.title } : next,
+      ...(guideTitle ? { guideTitle } : {}) });
   }
 
   if (url.searchParams.get("action") === "set-admin-only") {
@@ -358,6 +404,18 @@ export async function onRequestPost(context) {
     // getProject already returns the normalized page; every other save spreads
     // it, so the switch survives edits, toggles and date moves.
     const next = { ...project, keepSellingWhileGuidePrivate: value };
+    // A keep-selling page has no public Guide title while Guide is private, so
+    // it keeps a local title (see title-ownership.js). An owned page has no
+    // local copy under Model B: seed it from the current Guide title first,
+    // and refuse rather than sell under a placeholder.
+    if (value && ownedGuideTitleId(project)) {
+      const raw = await kv.get(`site-event:${id}`, "json");
+      let seed = typeof raw?.title === "string" ? raw.title.trim() : "";
+      try { seed = (await readGuideTitle(context, accessToken, ownedGuideTitleId(project), { fresh: true })).title || seed; }
+      catch { /* fall back to a pre-Model-B KV title when present */ }
+      if (!seed) return json({ error: "Could not read the Guide title. Reload and retry." }, 502);
+      next.title = seed;
+    }
     await putProject(kv, next);
     await dropFeedSnapshot(kv);
     // This switch decides whether a private Guide event is public here, so
@@ -383,7 +441,17 @@ export async function onRequestPost(context) {
     if (!project) return json({ error: "draft not found" }, 404);
     let next;
     if (url.searchParams.get("value") === "true") {
-      const picked = await resolveUnlistedSlug(context, kv, project, url.searchParams.get("slug") || "", {
+      // Owned drafts no longer keep a durable local title. Seed the short-link
+      // picker from Guide (or any pre-Model-B KV title) without persisting it.
+      let forSlug = project;
+      if (ownedGuideTitleId(project) && !String(project.title || "").trim()) {
+        const raw = await kv.get(`site-event:${id}`, "json");
+        let seed = typeof raw?.title === "string" ? raw.title.trim() : "";
+        try { seed = (await readGuideTitle(context, accessToken, ownedGuideTitleId(project))).title || seed; }
+        catch { /* keep KV seed */ }
+        forSlug = { ...project, title: seed };
+      }
+      const picked = await resolveUnlistedSlug(context, kv, forSlug, url.searchParams.get("slug") || "", {
         fromListed: isListedLivePage(project),
       });
       if (picked.error) return json({ error: picked.error, project }, picked.status || 409);
@@ -442,13 +510,23 @@ export async function onRequestPost(context) {
       // from liveSlugBase, never mintFrozenSlug / eventSlugFromTitle.
       // First publish of a draft still mints with clone stripped.
       const alreadyPublished = project.status === "published" || Boolean(project.publishedAt);
+      let firstPublishSlugSeed = reconciled;
+      if (!alreadyPublished && ownedGuideTitleId(reconciled)) {
+        // normalizeProject blanks owned draft titles; mint from Guide title.
+        try {
+          const guide = await readGuideTitle(context, accessToken, ownedGuideTitleId(reconciled), { fresh: true });
+          firstPublishSlugSeed = { ...reconciled, title: guide.title };
+        } catch (error) {
+          return json({ error: `Could not read Guide title to freeze the URL: ${error.message}. Retry.`, project: reconciled, retryable: true }, 502);
+        }
+      }
       const next = {
         ...reconciled,
         status: "published",
         publishedAt: new Date().toISOString(),
         otraGuidePublished: publishOtraGuide || reconciled.otraGuidePublished === true,
         syncError: photoWarning,
-        frozenSlug: alreadyPublished ? liveSlugBase(reconciled) : mintFrozenSlug(reconciled),
+        frozenSlug: alreadyPublished ? liveSlugBase(reconciled) : mintFrozenSlug(firstPublishSlugSeed),
       };
       // An unlisted page goes live at its own short link. If a listed page
       // took that link meanwhile, it gets a plain counter (-2) instead.
@@ -860,30 +938,6 @@ async function fetchEventTickets(context, accessToken, eventId) {
   return Array.isArray(purchaseData && purchaseData.results) ? purchaseData.results : [];
 }
 
-async function otraFetch(context, accessToken, path, options = {}) {
-  const headers = new Headers(options.headers || {});
-  headers.set("authorization", `Bearer ${accessToken}`);
-  headers.set("accept", "application/json");
-  const timeoutMs = Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : 45000;
-  const { timeoutMs: _timeoutMs, signal: userSignal, ...fetchOpts } = options;
-  const signal = userSignal || AbortSignal.timeout(timeoutMs);
-  let response;
-  try {
-    response = await fetch(`${apiBase(context.env)}${path}`, { ...fetchOpts, headers, signal });
-  } catch (error) {
-    if (error && (error.name === "TimeoutError" || error.name === "AbortError")) {
-      throw new Error(`Otra Guide timed out (${path})`);
-    }
-    throw new Error("could not reach Otra Guide");
-  }
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const detail = data.detail || data.error || Object.values(data).flat().join(" ");
-    throw new Error(detail || `Otra Guide request failed (${response.status})`);
-  }
-  return data;
-}
-
 // Unlisting, relisting or a link change leaves the public feed at once: a new
 // feed epoch makes any older or in flight snapshot unusable.
 async function dropFeedSnapshot(kv) {
@@ -971,7 +1025,7 @@ async function resolveUnlistedSlug(context, kv, project, requested, { fromListed
 }
 
 function putProject(kv, project) {
-  return kv.put(`${DRAFT_PREFIX}${project.id}`, JSON.stringify(project));
+  return putTitleSafeProject(kv, project);
 }
 
 function cleanInteger(value) {
@@ -1020,10 +1074,10 @@ async function getProject(kv, id) {
 function normalizeProject(raw, id) {
   return {
     id,
-    title: typeof raw.title === "string" && raw.title.trim() ? raw.title.trim() : "Claude Design Event",
+    title: ownedGuideTitleId(raw) ? "" : typeof raw.title === "string" && raw.title.trim() ? raw.title.trim() : "Claude Design Event",
     description: typeof raw.description === "string" ? raw.description : "",
     image: typeof raw.image === "string" ? raw.image : "",
-    claudeDesign: raw.claudeDesign && typeof raw.claudeDesign === "object" ? raw.claudeDesign : null,
+    claudeDesign: raw.claudeDesign && typeof raw.claudeDesign === "object" ? withoutLocalProjectTitle(raw).claudeDesign : null,
     source: raw.source === "claude-design" ? raw.source : "claude-design",
     zipKey: typeof raw.zipKey === "string" ? raw.zipKey : "",
     originalName: typeof raw.originalName === "string" ? raw.originalName : "",
@@ -1048,7 +1102,12 @@ function normalizeProject(raw, id) {
     keepSellingWhileGuidePrivate: raw.keepSellingWhileGuidePrivate === true,
     otraGuidePublished: !!raw.otraGuidePublished,
     syncError: typeof raw.syncError === "string" ? raw.syncError : "",
-    frozenSlug: mintFrozenSlug({ frozenSlug: raw.frozenSlug, title: "" }),
+    frozenSlug: (() => {
+      if (!ownedGuideTitleId(raw)) {
+        return mintFrozenSlug({ frozenSlug: raw.frozenSlug, title: "" });
+      }
+      return projectForStorage(raw).frozenSlug || (raw.unlisted ? persistedFrozenSlug(raw) : "") || "";
+    })(),
   };
 }
 
