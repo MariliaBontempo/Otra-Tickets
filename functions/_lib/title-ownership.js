@@ -1,12 +1,35 @@
-// Model B: checkout aliases and borrowed Guide bindings never confer ownership.
+// Model B title rules.
+// - guideTitleSsotId: where a rename is written and which Guide title is shown
+//   when Guide has one. Owned AND borrowed/checkout-bound pages.
+// - ownedGuideTitleId: OT-created events only (not borrowed, not checkout-only).
+//   Only these drop their local title copy and follow Guide privacy (404 /
+//   card omitted). Borrowed pages keep a local mirror and their old visibility,
+//   so a private or unreachable Guide never turns them into a 404.
+// Keep-selling pages (legacy list or the admin switch) stay fully local.
 import { HIDDEN_DETAIL_EXCEPTIONS } from "./keep-selling-exceptions.js";
 export const TITLE_FIELD = "text:#evTitle";
+
+function numericGuideId(value) {
+  const id = String(value ?? "").trim();
+  return /^\d+$/.test(id) ? id : "";
+}
+
+// Guide title SSOT id for an OT project. Owned pages use otraGuideId.
+// Borrowed pages (usesExistingOtraGuideEvent) use the same id — the flag
+// no longer blocks SSOT. If otraGuideId is empty, a numeric checkoutEventId
+// is used (Daniel draft has checkoutEventId "8333"). Keep-selling stays local.
+export function guideTitleSsotId(project) {
+  if (!project || typeof project !== "object") return "";
+  const id = numericGuideId(project.otraGuideId) || numericGuideId(project.checkoutEventId);
+  if (!id) return "";
+  if (keepsSellingTitleLocally(project, id)) return "";
+  return id;
+}
+
 export function ownedGuideTitleId(project) {
-  const id = String(project?.otraGuideId || "");
-  if (!/^\d+$/.test(id) || project.usesExistingOtraGuideEvent) return "";
-  // Keep-selling pages (legacy list or the admin switch) sell while their Guide
-  // event is private, when no public Guide title exists. They keep local title
-  // authority, like borrowed pages, so they never 404 or lose their H1.
+  if (!project || typeof project !== "object") return "";
+  const id = numericGuideId(project.otraGuideId);
+  if (!id || project.usesExistingOtraGuideEvent) return "";
   if (keepsSellingTitleLocally(project, id)) return "";
   return id;
 }

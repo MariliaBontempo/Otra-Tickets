@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Local-title authoring fixtures explicitly borrow Guide events; owned SSOT coverage: server/test/title-ssot-public.test.mjs.
+// Local-title authoring fixtures use keep-selling (borrowed pages are Guide title SSOT). Borrowed/owned SSOT: scripts/check-guide-title-ssot-b.mjs and server/test/title-ssot-public.test.mjs.
 // Oracle: homepage card titles stay distinguishable; pretty URLs stay frozen.
 //   1. text:#evTitle when an admin renamed the H1
 //   2. else the live Django title for bound perennials
@@ -238,7 +238,7 @@ assert(
 const evTitleProjects = {
   "site-event:draft-prod-6830": {
     id: "draft-prod-6830",
-    otraGuideId: 6830, usesExistingOtraGuideEvent: true,
+    otraGuideId: 6830, keepSellingWhileGuidePrivate: true,
     title: seedTitle,
     status: "published",
     startDate: "2999-03-01T12:00:00-04:00",
@@ -288,7 +288,7 @@ assert(
 const displayProjects = {
   "site-event:draft-prod-6831": {
     id: "draft-prod-6831",
-    otraGuideId: 6831, usesExistingOtraGuideEvent: true,
+    otraGuideId: 6831, keepSellingWhileGuidePrivate: true,
     title: "Iguana Ride [E-Scooter] Night Tour",
     status: "published",
     startDate: "2999-03-02T12:00:00-04:00",
@@ -380,7 +380,7 @@ assert(
 const perennialProjects = {
   "site-event:draft-prod-6830-live": {
     id: "draft-prod-6830-live",
-    otraGuideId: 6830, usesExistingOtraGuideEvent: true,
+    otraGuideId: 6830, keepSellingWhileGuidePrivate: true,
     title: seedTitle,
     status: "published",
     isPerennial: true,
@@ -441,7 +441,7 @@ const prodDjangoTitle = "Iguana Scooter Ride - Punda or Otrobanda Tour";
 const prodProjects = {
   "site-event:draft-prod-6830-evtitle": {
     id: "draft-prod-6830-evtitle",
-    otraGuideId: 6830, usesExistingOtraGuideEvent: true,
+    otraGuideId: 6830, keepSellingWhileGuidePrivate: true,
     title: seedTitle,
     status: "published",
     isPerennial: true,
@@ -611,7 +611,7 @@ const nightRename = "Admin Night Rename";
 const sharedBrandProjects = {
   "site-event:draft-night-brand": {
     id: "draft-night-brand",
-    otraGuideId: 6831, usesExistingOtraGuideEvent: true,
+    otraGuideId: 6831, keepSellingWhileGuidePrivate: true,
     title: nightSeed,
     status: "published",
     isPerennial: true,
@@ -621,7 +621,7 @@ const sharedBrandProjects = {
   },
   "site-event:draft-sunset-brand": {
     id: "draft-sunset-brand",
-    otraGuideId: 6832, usesExistingOtraGuideEvent: true,
+    otraGuideId: 6832, keepSellingWhileGuidePrivate: true,
     title: sunsetSeed,
     status: "published",
     isPerennial: true,
@@ -714,7 +714,7 @@ const datedCurated = "Bingo Bengo Sep 6";
 const datedProjects = {
   "site-event:draft-bingo-dated": {
     id: "draft-bingo-dated",
-    otraGuideId: 7522, usesExistingOtraGuideEvent: true,
+    otraGuideId: 7522, keepSellingWhileGuidePrivate: true,
     title: datedCurated,
     status: "published",
     isPerennial: false,
@@ -785,7 +785,7 @@ const pundaEvTitle = "OTROBANDA OR PUNDA RIDE";
 const iguanaFourProjects = {
   "site-event:draft-6827": {
     id: "draft-6827",
-    otraGuideId: 6827, usesExistingOtraGuideEvent: true,
+    otraGuideId: 6827, keepSellingWhileGuidePrivate: true,
     title: citySeed,
     status: "published",
     isPerennial: true,
@@ -795,7 +795,7 @@ const iguanaFourProjects = {
   },
   "site-event:draft-6830": {
     id: "draft-6830",
-    otraGuideId: 6830, usesExistingOtraGuideEvent: true,
+    otraGuideId: 6830, keepSellingWhileGuidePrivate: true,
     title: pundaSeed,
     status: "published",
     isPerennial: true,
@@ -805,7 +805,7 @@ const iguanaFourProjects = {
   },
   "site-event:draft-6831-four": {
     id: "draft-6831-four",
-    otraGuideId: 6831, usesExistingOtraGuideEvent: true,
+    otraGuideId: 6831, keepSellingWhileGuidePrivate: true,
     title: nightSeed,
     status: "published",
     isPerennial: true,
@@ -815,7 +815,7 @@ const iguanaFourProjects = {
   },
   "site-event:draft-6832-four": {
     id: "draft-6832-four",
-    otraGuideId: 6832, usesExistingOtraGuideEvent: true,
+    otraGuideId: 6832, keepSellingWhileGuidePrivate: true,
     title: sunsetSeed,
     status: "published",
     isPerennial: true,
@@ -890,7 +890,7 @@ assert(homepageEventSlugBase(fourById.get("6832")) === eventSlug(sunsetSeed), "6
   const frozenProjects = {
     "site-event:draft-frozen-rename": {
       id: "draft-frozen-rename",
-      otraGuideId: 6833, usesExistingOtraGuideEvent: true,
+      otraGuideId: 6833, keepSellingWhileGuidePrivate: true,
       title: "Admin Renamed After Publish",
       frozenSlug: eventSlug(seedTitle),
       status: "published",
@@ -929,7 +929,7 @@ assert(homepageEventSlugBase(fourById.get("6832")) === eventSlug(sunsetSeed), "6
   const legacyProjects = {
     "site-event:draft-legacy-iguana": {
       id: "draft-legacy-iguana",
-      otraGuideId: 6831, usesExistingOtraGuideEvent: true,
+      otraGuideId: 6831, keepSellingWhileGuidePrivate: true,
       title: nightSeed,
       status: "published",
       isPerennial: true,

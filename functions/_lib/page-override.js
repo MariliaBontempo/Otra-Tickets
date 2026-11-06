@@ -1,4 +1,4 @@
-import { ownedGuideTitleId } from "./title-ownership.js";
+import { guideTitleSsotId, ownedGuideTitleId } from "./title-ownership.js";
 
 // One resolver for the page edits of an event.
 //
@@ -161,15 +161,37 @@ export async function resolvePageOverride(kv, id, options = {}) {
   return { override: mergeOverrideDocs(draftDoc, eventDoc), draftId, fromDraft: true };
 }
 
-// Ownership never follows checkoutEventId. A borrowed project keeps its own
-// OT copy, not authority to rename the Guide event whose tickets it uses.
-// Plain numeric Guide pages with no owned OT project keep local curated titles
-// and never POST a Guide rename.
-export async function guideTitleIdForPage(kv, id) {
+// Owned and borrowed/checkout-bound OT projects take title from Guide.
+// Plain numeric Guide pages with no bound OT project keep local curated titles
+// and never POST a Guide rename. A borrowed draft with no otraGuideId may
+// resolve through its override checkoutEventId (Daniel: checkoutEventId "8333").
+// An OT-only page that merely sells another event's tickets via checkoutEventId
+// does not gain title authority over that event.
+// { ssot, owned }: ssot is the Guide id a rename writes to and whose title is
+// shown when Guide has one; owned is set only for OT-created events (see
+// title-ownership.js), which alone lose local title copies and follow Guide
+// privacy.
+export async function guideTitleIdsForPage(kv, id) {
   if (isOtraGuideId(id)) {
     const bound = await findBoundProjects(kv, id);
-    return ownedGuideTitleId(bound.published || bound.latest);
+    const project = bound.published || bound.latest;
+    return { ssot: guideTitleSsotId(project), owned: ownedGuideTitleId(project) };
   }
   const project = kv ? await kv.get(`site-event:${id}`, "json") : null;
-  return project && typeof project === "object" ? ownedGuideTitleId({ ...project, id: project.id || id }) : "";
+  if (!project || typeof project !== "object") return { ssot: "", owned: "" };
+  const merged = { ...project, id: project.id || id };
+  if (!guideTitleSsotId(merged) && merged.usesExistingOtraGuideEvent) {
+    const doc = await readOverrideDoc(kv, id);
+    const checkout = doc ? String(doc.checkoutEventId || "").trim() : "";
+    if (/^\d+$/.test(checkout)) merged.checkoutEventId = checkout;
+  }
+  return { ssot: guideTitleSsotId(merged), owned: ownedGuideTitleId(merged) };
+}
+
+export async function guideTitleIdForPage(kv, id) {
+  return (await guideTitleIdsForPage(kv, id)).ssot;
+}
+
+export async function ownedTitleIdForPage(kv, id) {
+  return (await guideTitleIdsForPage(kv, id)).owned;
 }

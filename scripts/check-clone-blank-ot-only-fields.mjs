@@ -83,7 +83,11 @@ function mockGuide() {
     assert.equal(url.origin, 'https://backend.test', 'all Guide calls must be mocked');
     const path = url.pathname + url.search;
     if (path === '/api/users/user-role/') return Response.json({ is_staff_or_admin: true });
-    if (path.startsWith('/api/otra-tickets/media/event-slug/')) return Response.json({id:Number(path.match(/event-slug\/(\d+)/)[1]),title:'Sunday Social Club - Old',slug:'sunday-social-club'});
+    if (path.startsWith('/api/otra-tickets/media/event-slug/')) {
+      const id = Number(path.match(/event-slug\/(\d+)/)[1]);
+      if (id === 8800) return Response.json({ id, title: detail.title, slug: detail.slug });
+      return Response.json({ id, title: 'Sunday Social Club - Old', slug: 'sunday-social-club' });
+    }
     if (path === '/api/users/profile/') return Response.json({ first_name: 'Local', last_name: 'Fixture' });
     if (path === '/api/events/details/8800/') return Response.json(detail);
     if (path === '/api/events/admin-ticketed-search/?id=8800') return Response.json({ events: [{ ...detail, tickets: [guideTicket] }] });

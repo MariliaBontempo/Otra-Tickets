@@ -1,5 +1,5 @@
 import { putTitleSafeProject } from "./_event-title.js";
-import { guideTitleIdForPage } from "../../_lib/page-override.js";
+import { ownedTitleIdForPage } from "../../_lib/page-override.js";
 import { withoutTitleOverride } from "../../_lib/title-ownership.js";
 // Cloudflare Pages Function: GET /admin/api/events
 //
@@ -738,7 +738,7 @@ export async function shiftRateOverrides(kv, { eventId, ticketTypeId, guideRow, 
       const version = nextVersion(doc.updatedAt, liveStamps);
       if (version) next.updatedAt = version;
     }
-    await kv.put(key, JSON.stringify(await guideTitleIdForPage(kv, id) ? withoutTitleOverride(next) : next));
+    await kv.put(key, JSON.stringify(await ownedTitleIdForPage(kv, id) ? withoutTitleOverride(next) : next));
     if (typeof onDone === "function") await onDone(key);
     moved += 1;
   }

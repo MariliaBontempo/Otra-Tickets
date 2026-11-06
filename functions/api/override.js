@@ -1,6 +1,6 @@
 import { readPublicGuideTitle } from "../_lib/public-guide-title.js";
-import { guideTitleIdForPage } from "../_lib/page-override.js";
-import { ownedGuideTitleId, withoutTitleOverride, TITLE_FIELD } from "../_lib/title-ownership.js";
+import { guideTitleIdsForPage } from "../_lib/page-override.js";
+import { guideTitleSsotId, ownedGuideTitleId, withoutTitleOverride, TITLE_FIELD } from "../_lib/title-ownership.js";
 import { readGuideTitle } from "../admin/api/_event-title.js";
 // Cloudflare Pages Function: GET /api/override?id=<eventId>
 //
@@ -40,9 +40,13 @@ export async function onRequestGet(context) {
       numeric ? guideDetailMissing(api, id) : false,
       numeric ? findBoundProjects(context.env.OVERRIDES, id) : null,
     ]);
-    titleId = numeric
-      ? ownedGuideTitleId(bound.published || bound.latest)
-      : await guideTitleIdForPage(context.env.OVERRIDES, id);
+    // titleId: owned (OT-created) pages, Guide title only. borrowedTitleId:
+    // borrowed/checkout pages, Guide title when public, else their local H1.
+    const ids = numeric
+      ? { owned: ownedGuideTitleId(bound.published || bound.latest), ssot: guideTitleSsotId(bound.published || bound.latest) }
+      : await guideTitleIdsForPage(context.env.OVERRIDES, id);
+    titleId = ids.owned;
+    const borrowedTitleId = titleId ? "" : ids.ssot;
     // Staff is asked once (memoized) and only by the gates below.
     let staffPromise = null;
     const staffCheck = () => (staffPromise ||= isStaffRequest(context));
@@ -95,6 +99,27 @@ export async function onRequestGet(context) {
         rawFields[TITLE_FIELD] = titleField;
       } catch (error) {
         return json({ error: "Could not refresh Guide title. Reload to retry.", override: null, guideTitleUnavailable: true }, 502);
+      }
+    } else if (borrowedTitleId) {
+      // Never hides or fails the page: without a public Guide title the stored
+      // local H1 stays exactly as before.
+      let current = { title: "" };
+      // Admin preview only (explicit Bearer header); customers pay no role check.
+      if (/^Bearer\s/.test(context.request.headers.get("authorization") || "") && await staffCheck()) {
+        try { current = await readGuideTitle(context, requestToken(context.request), borrowedTitleId); }
+        catch { current = { title: "" }; }
+      }
+      if (!current.title) current = await readPublicGuideTitle(context, borrowedTitleId, { timeoutMs: 3000 });
+      if (current.title) {
+        const previousTitleField = rawFields[TITLE_FIELD];
+        rawFields = withoutTitleOverride({ fields: rawFields }).fields;
+        guideTitle = current.title;
+        let titleField = { type: "text", value: guideTitle };
+        if (previousTitleField && typeof previousTitleField.html === "string" && previousTitleField.html) {
+          const rich = normalizeRichTextField("", previousTitleField.html);
+          if (rich.html && rich.value.trim() === guideTitle) titleField = { type: "text", value: guideTitle, html: rich.html };
+        }
+        rawFields[TITLE_FIELD] = titleField;
       }
     }
     return json({

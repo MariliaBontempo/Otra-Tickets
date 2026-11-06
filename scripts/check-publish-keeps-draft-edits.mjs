@@ -362,7 +362,7 @@ const draftEdits = {
   });
   let cards = await applyOverrides(await buildPublishedSiteEvents({ OVERRIDES: legacy }), { OVERRIDES: legacy });
   let card = cards.find((item) => String(item.id) === '7175');
-  eq(card && card.title, 'Water Bikes Curaçao', '7: card shows the draft title merged over an older live document');
+  eq(card && card.title, 'Guide Water Bikes', '7: borrowed card title comes from Guide, not the draft H1 copy');
   eq(card && card.img, '/override-images/draft-hero.jpg', '7: card shows the draft hero merged over an older live document');
   // The editor removes the title and hero edits on the live page.
   const kv = makeKv({ [`site-event:${DRAFT}`]: project({ image: '/stock.jpg', usesExistingOtraGuideEvent: true }), [`event:${DRAFT}`]: draftDoc });
@@ -370,7 +370,7 @@ const draftEdits = {
   await adminSave(kv, '7175', editorBody(loaded, (next) => { delete next.fields['text:#evTitle']; delete next.fields['image:#evHeroImg']; }));
   cards = await applyOverrides(await buildPublishedSiteEvents({ OVERRIDES: kv }), { OVERRIDES: kv });
   card = cards.find((item) => String(item.id) === '7175');
-  eq(card && card.title, 'Water Bikes', '7: a title edit removed on the live page leaves the card');
+  eq(card && card.title, 'Guide Water Bikes', '7: removing a local H1 copy still leaves the Guide card title');
   eq(card && card.img, '/stock.jpg', '7: a hero edit removed on the live page leaves the card');
 }
 

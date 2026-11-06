@@ -2,10 +2,10 @@
 // No staff token, local title fallback, shared memo across isolates, or KV write.
 import { guideApiBase } from "./guide-event-hidden.js";
 const reads = new WeakMap();
-const TITLE_CACHE_TTL_MS = 60_000;
+const TITLE_CACHE_TTL_MS = 30_000;
 const DEFAULT_TIMEOUT_MS = 8000;
-// Process-local fallback for Node production (droplet). Cloudflare Workers can
-// also use caches.default when present. Never shares across requests via KV.
+// One process-local cache with a real expiry (a second cache layer used to
+// re-arm the TTL and keep a Studio rename stale for minutes). Never KV.
 // Failures (outage/timeout/malformed) are kept only for callers that opt in
 // (homepage cards), so a Guide slowdown is not re-awaited on every request.
 const processCache = new Map();
@@ -34,18 +34,6 @@ export async function readPublicGuideTitle(context, id, { timeoutMs = DEFAULT_TI
   if (!memo.has(String(id))) memo.set(String(id), (async () => {
     const cached = cacheGet(id, failureCacheMs > 0);
     if (cached) return cached;
-    const cacheKey = `https://title-cache.otratickets.internal/public-guide-title/${id}`;
-    try {
-      const cache = globalThis.caches && globalThis.caches.default;
-      if (cache && typeof cache.match === "function") {
-        const hit = await cache.match(cacheKey);
-        if (hit) {
-          const value = await hit.json();
-          cacheSet(id, value, TITLE_CACHE_TTL_MS);
-          return value;
-        }
-      }
-    } catch { /* ignore cache read failures */ }
     let value;
     try {
       const response = await fetch(`${guideApiBase(context.env)}/events/details/${id}/`, {
@@ -61,18 +49,10 @@ export async function readPublicGuideTitle(context, id, { timeoutMs = DEFAULT_TI
         else value = { status: 200, title: data.title };
       }
     } catch { value = { status: 502, title: "" }; }
-    // Cache definitive answers (200/404) for 60s; failures only process-local
+    // Cache definitive answers (200/404) for 30s; failures only process-local
     // and only served back to callers that opted in.
     if (value.status === 200 || value.status === 404) {
       cacheSet(id, value, TITLE_CACHE_TTL_MS);
-      try {
-        const cache = globalThis.caches && globalThis.caches.default;
-        if (cache && typeof cache.put === "function") {
-          await cache.put(cacheKey, new Response(JSON.stringify(value), {
-            headers: { "content-type": "application/json", "cache-control": `public, max-age=${TITLE_CACHE_TTL_MS / 1000}` },
-          }));
-        }
-      } catch { /* ignore cache write failures */ }
     } else if (failureCacheMs > 0) {
       cacheSet(id, value, failureCacheMs, true);
     }
@@ -85,12 +65,6 @@ export async function readPublicGuideTitle(context, id, { timeoutMs = DEFAULT_TI
 // anonymous read asks Guide again (best effort; the TTL bounds it anyway).
 export async function forgetPublicGuideTitle(id) {
   processCache.delete(String(id));
-  try {
-    const cache = globalThis.caches && globalThis.caches.default;
-    if (cache && typeof cache.delete === "function") {
-      await cache.delete(`https://title-cache.otratickets.internal/public-guide-title/${id}`);
-    }
-  } catch { /* ignore */ }
 }
 
 export function clearPublicGuideTitleCache() {

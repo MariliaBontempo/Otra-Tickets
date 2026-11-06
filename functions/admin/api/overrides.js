@@ -13,6 +13,7 @@ import { invalidatePublicFeed } from "../../_lib/homepage-feed.js";
 import { normalizeRichTextField, normalizeRichInfoField, richTextAllowedForField } from "../../_lib/rich-text.js";
 
 import { TITLE_FIELD, withoutTitleOverride, styleOnlyTitleField, overrideHasDurableTitleCopy } from "../../_lib/title-ownership.js";
+import { ownedTitleIdForPage } from "../../_lib/page-override.js";
 import { guideTitleTarget, normalizeGuideTitle, writeGuideTitle, discardLinkedTitleCopies, guideTitleForResponse, readGuideTitle } from "./_event-title.js";
 
 const KEY = (id) => `event:${id}`;
@@ -34,7 +35,16 @@ export async function onRequestGet(context) {
   // of a live page does not see or carry it either.
   if (override && !(await allowsDraftOnlyRemovals(kv, id))) override.fields = withoutDraftOnlyRemovals(override.fields);
   const guideTitleId = await guideTitleTarget(kv, id);
-  return json({ override, ...await guideTitleForResponse(context, token, guideTitleId) });
+  const titleResponse = await guideTitleForResponse(context, token, guideTitleId);
+  // Borrowed page: the editor shows the Guide title when it can be read
+  // (response only), else its local mirror.
+  const guidePlain = titleResponse.guideTitle?.title || "";
+  const local = override?.fields?.[TITLE_FIELD];
+  if (guidePlain && local && !(await ownedTitleIdForPage(kv, id))) {
+    const keep = styleOnlyTitleField(local, guidePlain);
+    override.fields = { ...override.fields, [TITLE_FIELD]: keep || { type: "text", value: guidePlain } };
+  }
+  return json({ override, ...titleResponse });
 }
 
 export async function onRequestPut(context) {
@@ -70,6 +80,9 @@ export async function onRequestPut(context) {
 
   if (!body || typeof body !== "object" || Array.isArray(body)) return json({ error: "invalid body" }, 400);
   const linkedTitleId = await guideTitleTarget(kv, id);
+  // Borrowed (linked but not owned): Guide gets the rename first, and the page
+  // keeps a local mirror of the confirmed title for when Guide is private.
+  const ownedTitleId = linkedTitleId ? await ownedTitleIdForPage(kv, id) : "";
   const titleField = body.fields?.[TITLE_FIELD];
   // Modern clients declare only changed keys in base.fields. Stale full-form
   // saves carrying their old title must NOT rename the Guide event by accident.
@@ -203,8 +216,17 @@ export async function onRequestPut(context) {
         try { guidePlain = (await readGuideTitle(context, session.token, linkedTitleId)).title; }
         catch { guidePlain = override.fields?.[TITLE_FIELD]?.value || ""; }
       }
-      // Strip durable plain title mirrors; keep style-only html when plain matches Guide.
-      override.fields = withoutTitleOverride(override, { keepStyleMatching: guidePlain }).fields;
+      if (ownedTitleId) {
+        // Strip durable plain title mirrors; keep style-only html when plain matches Guide.
+        override.fields = withoutTitleOverride(override, { keepStyleMatching: guidePlain }).fields;
+      } else if (guideTitle) {
+        // Borrowed: mirror exactly the title Guide confirmed (plus matching style).
+        const style = styleOnlyTitleField(override.fields?.[TITLE_FIELD], guideTitle.title);
+        override.fields = { ...override.fields, [TITLE_FIELD]: style || { type: "text", value: guideTitle.title } };
+      } else if (!override.fields?.[TITLE_FIELD] && served?.fields?.[TITLE_FIELD]) {
+        // A save that did not rename never drops the borrowed mirror.
+        override.fields = { ...override.fields, [TITLE_FIELD]: served.fields[TITLE_FIELD] };
+      }
       if (titleIntent && guideTitle && guideTitle.changed) {
         // Only sweep linked copies when Guide reports the title actually changed.
         await discardLinkedTitleCopies(kv, linkedTitleId, { guidePlain: guideTitle.title });
@@ -267,8 +289,10 @@ async function readOverride(kv, id) {
     draftId && !fromDraft && override && !coversThisDraft && (isLegacyDoc(override) || override.draftEditsHidden === draftId)
   );
   const normalized = override ? normalizeOverride(override, id) : null;
-  const linkedTitleId = await guideTitleTarget(kv, id);
-  return { override: linkedTitleId ? withoutTitleOverride(normalized, { keepAnyStyle: true }) : normalized, draftId, fromDraft, coversThisDraft, legacyAsIs };
+  // Owned pages hide any stored title copy. Borrowed pages keep their local
+  // mirror: it is what the page shows when Guide is private or unreachable.
+  const ownedTitleId = await ownedTitleIdForPage(kv, id);
+  return { override: ownedTitleId ? withoutTitleOverride(normalized, { keepAnyStyle: true }) : normalized, draftId, fromDraft, coversThisDraft, legacyAsIs };
 }
 
 function normalizeOverride(raw, id) {

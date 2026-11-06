@@ -1,6 +1,6 @@
 import { readPublicGuideTitle } from "../_lib/public-guide-title.js";
 import { readGuideTitle } from "../admin/api/_event-title.js";
-import { ownedGuideTitleId, withoutTitleOverride } from "../_lib/title-ownership.js";
+import { guideTitleSsotId, ownedGuideTitleId, withoutTitleOverride } from "../_lib/title-ownership.js";
 // Cloudflare Pages Function: GET /api/event?id=<eventId>
 //
 // Server-side proxy for a single event's detail + ticket types, used by the
@@ -10,7 +10,7 @@ import { ownedGuideTitleId, withoutTitleOverride } from "../_lib/title-ownership
 import { eventSlug } from "../_lib/event-slug.js";
 import { checkStaff } from "../admin/api/_auth.js";
 import { requestToken } from "../_lib/session.js";
-import { findBoundProjects, resolvePageOverride } from "../_lib/page-override.js";
+import { findBoundProjects, guideTitleIdForPage, resolvePageOverride } from "../_lib/page-override.js";
 import { readHiddenPageIds } from "../_lib/hidden-pages.js";
 import { isServableUnlisted, isUnlistedProject } from "../_lib/unlisted.js";
 import { isUnlistedLink } from "../_lib/homepage-feed.js";
@@ -93,10 +93,33 @@ export async function onRequestGet(context) {
   // An authenticated preview always reads the one staff title contract, not
   // cached public detail, old draft.title or design.displayTitle. Never cache it.
   const titleProject = isDraftId(id) ? base[DRAFT_RECORD] : project;
-  // Owned only when an OT project has otraGuideId and is not borrowed.
-  // Plain numeric Guide pages keep local curated titles.
+  // Owned (OT-created) pages: Guide title only, Guide privacy decides.
+  // Keep-selling and plain numeric pages stay local.
   const titleId = ownedGuideTitleId(titleProject);
   const staff = titleId ? await isStaffRequest(context) : false;
+  // Borrowed / checkout-bound pages: show the Guide title when Guide has one;
+  // otherwise keep exactly the old answer (local title, same visibility).
+  // Staff (admin preview) read it fresh with their own token, so a Studio
+  // rename shows at once; that answer is per-user and never cached.
+  const borrowedTitleId = titleId ? "" : (isDraftId(id)
+    ? await guideTitleIdForPage(context.env && context.env.OVERRIDES, id)
+    : guideTitleSsotId(titleProject));
+  // The URL slug of a borrowed page keeps following its local title, as before.
+  const slugTitle = payload.title;
+  if (borrowedTitleId) {
+    let current = { title: "" };
+    // Only the admin preview (explicit Bearer header) is asked about staff, so
+    // logged-in customers (session cookie) pay no extra Guide role check.
+    if (/^Bearer\s/.test(context.request.headers.get("authorization") || "") && await isStaffRequest(context)) {
+      try { current = await readGuideTitle(context, requestToken(context.request), borrowedTitleId); staffPreview = true; }
+      catch { current = { title: "" }; }
+    }
+    if (!current.title) current = await readPublicGuideTitle(context, borrowedTitleId, { timeoutMs: 3000 });
+    if (current.title) {
+      payload = { ...payload, title: current.title,
+        ...(payload.design ? { design: withoutTitleOverride(payload.design) } : {}) };
+    }
+  }
   if (titleId && staff) {
     try {
       const guideTitle = await readGuideTitle(context, requestToken(context.request), titleId);
@@ -157,7 +180,7 @@ export async function onRequestGet(context) {
     : windowed ? ticketSaleState(payload.tickets)
     : { state: Array.isArray(payload.tickets) && payload.tickets.length ? "on_sale" : "none", opensAt: null };
   delete payload.ticketsUnknown;
-  payload.slug = project && project.frozenSlug ? project.frozenSlug : eventSlug(payload.title);
+  payload.slug = project && project.frozenSlug ? project.frozenSlug : eventSlug(borrowedTitleId ? slugTitle : payload.title);
   // Unlisted (link only): the live page decides, the same way the homepage
   // feed does. A page is unlisted only when its newest published page is
   // unlisted and no listed page for the same event is published. The page

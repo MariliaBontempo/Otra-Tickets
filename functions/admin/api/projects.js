@@ -13,7 +13,7 @@ import { normalizeCloneSaleWindows, shiftCloneEventDay, toDay } from "../../_lib
 import { blankOtOnlyCloneOverride, blankOtOnlyCloneProjectFields, blankOtOnlyMappedDesignFromGuide, wantsBlankOtOnlyFields } from "../../_lib/clone-blank-ot-only.js";
 import { rewriteProjectDate } from "./events.js";
 import { contentSnapshot, validateContentPatch } from "./_draft-content.js";
-import { isOtraGuideId, isPublishedBound, readOverrideDoc, resolvePageOverride } from "../../_lib/page-override.js";
+import { isOtraGuideId, isPublishedBound, readOverrideDoc, resolvePageOverride, guideTitleIdForPage } from "../../_lib/page-override.js";
 
 import { ownedGuideTitleId, withoutLocalProjectTitle } from "../../_lib/title-ownership.js";
 import { normalizeGuideTitle, writeGuideTitle, putTitleSafeProject, discardLinkedTitleCopies, projectForStorage, hydrateProjectTitle, hydrateProjectTitles, readGuideTitle } from "./_event-title.js";
@@ -332,7 +332,7 @@ async function projectPost(context) {
     try {
       body = await context.request.json();
     } catch {}
-    const linkedId = ownedGuideTitleId(project);
+    const linkedId = await guideTitleIdForPage(kv, id) || ownedGuideTitleId(project);
     let guideTitle = null;
     let name;
     try {
@@ -1097,6 +1097,7 @@ function normalizeProject(raw, id) {
     ticketQuantities: Array.isArray(raw.ticketQuantities) ? raw.ticketQuantities : [],
     ticketTypeIds: Array.isArray(raw.ticketTypeIds) ? raw.ticketTypeIds : [],
     usesExistingOtraGuideEvent: !!raw.usesExistingOtraGuideEvent,
+    ...(/^\d+$/.test(String(raw.checkoutEventId || "")) ? { checkoutEventId: String(raw.checkoutEventId) } : {}),
     adminOnly: !!raw.adminOnly,
     unlisted: !!raw.unlisted,
     keepSellingWhileGuidePrivate: raw.keepSellingWhileGuidePrivate === true,
