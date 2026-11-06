@@ -123,6 +123,9 @@ async function runPublish({ failPhotoEndpoint = false } = {}) {
     if (url.endsWith('/users/user-role/')) {
       return { ok: true, json: async () => ({ is_staff_or_admin: true }) };
     }
+    if (url.includes('/otra-tickets/media/event-slug/')) {
+      return { ok: true, json: async () => ({ id: 9001, title: 'Photo Sync Event', slug: 'photo-sync-event' }) };
+    }
     if (url.includes('/otra-tickets/media/event-images/')) {
       if (failPhotoEndpoint) return { ok: false, status: 502, json: async () => ({ error: 'boom' }) };
       return { ok: true, json: async () => ({ count: 5 }) };

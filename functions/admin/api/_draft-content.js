@@ -1,6 +1,8 @@
+import { withoutLocalProjectTitle } from "../../_lib/title-ownership.js";
 // Plain content only. Commercial configuration remains outside this editor.
 export function contentSnapshot(project) {
-  return { description: project.description || "", claudeDesign: project.claudeDesign || null };
+  const clean = withoutLocalProjectTitle(project);
+  return { description: clean.description || "", claudeDesign: clean.claudeDesign || null };
 }
 
 export function validateContentPatch(patch, project) {

@@ -97,3 +97,27 @@ export function json(obj, status = 200) {
     headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
   });
 }
+
+export async function otraFetch(context, accessToken, path, options = {}) {
+  const headers = new Headers(options.headers || {});
+  headers.set("authorization", `Bearer ${accessToken}`);
+  headers.set("accept", "application/json");
+  const timeoutMs = Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : 45000;
+  const { timeoutMs: _timeoutMs, signal: userSignal, ...fetchOpts } = options;
+  const signal = userSignal || AbortSignal.timeout(timeoutMs);
+  let response;
+  try {
+    response = await fetch(`${apiBase(context.env)}${path}`, { ...fetchOpts, headers, signal });
+  } catch (error) {
+    if (error && (error.name === "TimeoutError" || error.name === "AbortError")) {
+      throw new Error(`Otra Guide timed out (${path})`);
+    }
+    throw new Error("could not reach Otra Guide");
+  }
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const detail = data.detail || data.error || Object.values(data).flat().join(" ");
+    throw new Error(detail || `Otra Guide request failed (${response.status})`);
+  }
+  return data;
+}

@@ -1,3 +1,5 @@
+import { readPublicGuideTitle } from "./public-guide-title.js";
+import { ownedGuideTitleId, withoutTitleOverride } from "./title-ownership.js";
 // Shared homepage feed builder used by the public endpoint
 // (GET /api/homepage-events) and the staff-only admin preview
 // (GET /admin/api/homepage-events).
@@ -10,7 +12,7 @@
 import { eventSlug, legacyCuratedTitle, persistedFrozenSlug } from "./event-slug.js";
 import { readHiddenPageIds } from "./hidden-pages.js";
 import { cardScheduleLabel, scheduleEdited, validDateValue } from "./schedule-line.js";
-import { isOtraGuideId, readOverrideDoc, resolvePageOverride } from "./page-override.js";
+import { findBoundProjects, guideTitleIdForPage, isOtraGuideId, readOverrideDoc, resolvePageOverride } from "./page-override.js";
 import { isHiddenGuideEvent } from "./guide-event-hidden.js";
 import { isServableUnlisted, isUnlistedProject, reservesUnlistedLink } from "./unlisted.js";
 
@@ -74,6 +76,16 @@ const SNAPSHOT_KEY = "__homepage_feed_snapshot__";
 // current when its build started, so a rebuild that began before the change
 // can never put the page back on the homepage, even for one request.
 const FEED_EPOCH_KEY = "__homepage_feed_epoch__";
+// Snapshots written before Guide title SSOT may carry local titles for owned
+// pages and lack otraOwnedGuideId; they are never served (one origin rebuild).
+const SNAPSHOT_TITLE_MODEL = "guide-title-b1";
+// Homepage/search cards never wait long on Guide: a short bounded read, and a
+// recent failure is reused for 20s instead of re-awaiting a slow Guide.
+const CARD_TITLE_READ = Object.freeze({ timeoutMs: 1500, failureCacheMs: 20_000 });
+// Set on a build result when an owned card's Guide title could not be read:
+// that build is served but never stored as the snapshot, so the last good
+// snapshot (with its Guide-sourced titles) keeps the card.
+const TITLE_OUTAGE = Symbol("titleOutage");
 const HOMEPAGE_TIME_ZONE = "America/Curacao";
 // Internal-only marker. Symbols are omitted from the JSON response, while
 // allowing dedupeEvents to distinguish a deliberately edited hero from the
@@ -106,15 +118,17 @@ const SITE_PROJECT = Symbol("siteProject");
 //   includeAdminOnly — include KV site events flagged adminOnly (staff preview)
 //   authToken        — forward a staff Bearer token upstream so Django also
 //                      returns staff_only events; cached under a separate key
-export async function buildHomepageFeed(context, { includeAdminOnly = false, authToken = "", forceFresh = false } = {}) {
+export async function buildHomepageFeed(context, { includeAdminOnly = false, authToken = "", forceFresh = false, titleReader = null } = {}) {
   const now = Date.now();
+  const titleStatus = { outage: false };
+  const titleRead = CARD_TITLE_READ;
   // Unlisted (link only) pages never reach any feed, the staff preview
   // included. Their ids and links are collected here so the same Guide event
   // cannot come back through the upstream feed, and no public page takes
   // their link.
   const unlisted = { ids: new Set(), slugs: new Set() };
   let [siteEvents, upstreamEvents, hiddenIds] = await Promise.all([
-    buildPublishedSiteEvents(context.env, { includeAdminOnly, unlisted }),
+    buildPublishedSiteEvents(context.env, { includeAdminOnly, unlisted, titleContext: context, titleReader, titleRead, titleStatus }),
     authToken
       ? getUpstreamEvents(context, now, forceFresh, authToken, ADMIN_UPSTREAM_CACHE_PATH)
       : getUpstreamEvents(context, now, forceFresh),
@@ -146,13 +160,13 @@ export async function buildHomepageFeed(context, { includeAdminOnly = false, aut
     // A listed page for the same Guide event keeps it on the feed.
     return !(unlisted.ids.has(id) && !listedSiteIds.has(id));
   });
-  const events = await applyOverrides(visibleEvents, context.env);
+  const events = await applyOverrides(visibleEvents, context.env, context, titleReader, { titleRead, titleStatus });
   assignUniqueSlugs(events);
   avoidReservedSlugs(events, unlisted.slugs);
   const rows = await buildRows(events, context.env);
   // Unlisted pages count as site events: a feed that hides one must never be
   // served with a public max-age (see /api/homepage-events).
-  return { events, rows, hasSiteEvents: siteEvents.length > 0 || unlisted.ids.size > 0 };
+  return { events, rows, hasSiteEvents: siteEvents.length > 0 || unlisted.ids.size > 0, [TITLE_OUTAGE]: titleStatus.outage };
 }
 
 // Published site events bound to an Otra Guide event that the public listing
@@ -407,6 +421,7 @@ async function readSnapshot(env) {
   try {
     const raw = await env.OVERRIDES.get(SNAPSHOT_KEY, "json");
     if (!raw || !Array.isArray(raw.events) || !Array.isArray(raw.rows) || raw.events.length === 0) return null;
+    if (raw.titleModel !== SNAPSHOT_TITLE_MODEL) return null;
     return raw;
   } catch {
     return null;
@@ -429,11 +444,13 @@ function isSnapshotUsable(snapshot) {
 // (never overwrite a good snapshot with a failed/empty build).
 // `epoch` is the feed epoch read before the build started; a build that
 // raced an admin change (new epoch) is not written.
-async function writeSnapshot(env, { events, rows, hasSiteEvents }, epoch = "") {
+async function writeSnapshot(env, result, epoch = "") {
+  const { events, rows, hasSiteEvents } = result;
   if (!env || !env.OVERRIDES || !events.length || epoch === null) return;
+  if (result[TITLE_OUTAGE]) return;
   const current = await readFeedEpoch(env);
   if (current === null || current !== epoch) return;
-  const snapshot = { events, rows, hasSiteEvents, generatedAt: Date.now() };
+  const snapshot = { events, rows, hasSiteEvents, generatedAt: Date.now(), titleModel: SNAPSHOT_TITLE_MODEL };
   if (epoch) snapshot.epoch = epoch;
   await env.OVERRIDES.put(SNAPSHOT_KEY, JSON.stringify(snapshot));
 }
@@ -531,9 +548,11 @@ async function getPublicHomepageFeedRaw(context, { forceFresh = false } = {}) {
     context.waitUntil(
       buildHomepageFeed(context, {}).then((fresh) => writeSnapshot(context.env, fresh, epoch))
     );
-    const events = snapshot.events.filter(
+    // Only owned cards need a fresh Guide title; everything else serves the
+    // snapshot as before (no per-card KV reads on the fast path).
+    const events = await refreshOwnedCardTitles(snapshot.events.filter(
       (event) => !hiddenIds.has(String(event && event.id))
-    );
+    ), context);
     return {
       events,
       // Reuse the layout normaliser so a row can never advertise an event that
@@ -634,12 +653,13 @@ function normalizeRows(raw, existing) {
 //                  `slug` limiting the scan to one link
 export async function buildPublishedSiteEvents(
   env,
-  { includeAdminOnly = false, unlisted = null, unlistedOnly = false, slug = "" } = {}
+  { includeAdminOnly = false, unlisted = null, unlistedOnly = false, slug = "", titleContext = null, titleReader = null, titleRead = {}, titleStatus = null } = {}
 ) {
   const kv = env && env.OVERRIDES;
   if (!kv) return [];
 
   const out = [];
+  const publicTitleContext = titleContext || { env };
   let cursor;
   do {
     let page;
@@ -707,7 +727,12 @@ export async function buildPublishedSiteEvents(
         overrideImg = "";
         overrideTitle = "";
       }
-      const curatedTitle = projectCardTitle(project);
+      const ownedTitleId = ownedGuideTitleId(project);
+      if (ownedTitleId) {
+        overrideTitle = "";
+        if (pageOverride) pageOverride = withoutTitleOverride(pageOverride);
+      }
+      const curatedTitle = ownedTitleId ? "" : projectCardTitle(project);
       // Card title is text:#evTitle only — not design.displayTitle. That
       // field is a shared brand line (e.g. "Iguana Ride Curaçao") reused
       // across sibling events; projectCardTitle already keeps hero copy
@@ -724,12 +749,25 @@ export async function buildPublishedSiteEvents(
       let currentDetailImg = "";
       let currentDetailTitle = "";
       const fetchForImg = !overrideImg && project.isPerennial === true && isBound;
-      const fetchForTitle = isBound && project.isPerennial === true;
+      const fetchForTitle = !ownedTitleId && isBound && project.isPerennial === true;
       if (fetchForImg || fetchForTitle) {
         const detail = await fetchJson(`${apiBase(env)}/events/details/${id}/`);
         if (fetchForImg) currentDetailImg = eventCardImage(detail);
         const liveTitle = detail && typeof detail.title === "string" ? detail.title.trim() : "";
         if (liveTitle) currentDetailTitle = liveTitle;
+      }
+      if (ownedTitleId) {
+        const current = titleReader
+          ? await titleReader(ownedTitleId).catch(() => ({ title: "", status: 502 }))
+          : await readPublicGuideTitle(publicTitleContext, ownedTitleId, titleRead);
+        // Private Guide: omit owned card. Outage: omit from this build (never a
+        // local copy); the build is flagged so it never replaces the last good
+        // snapshot, which keeps serving the card's Guide title.
+        if (!current.title) {
+          if (current.status !== 404 && titleStatus) titleStatus.outage = true;
+          continue;
+        }
+        currentDetailTitle = current.title;
       }
       // Freeze pretty URLs on the persisted first-published slug. Old
       // published rows without frozenSlug keep the pre-4fb799d base:
@@ -759,12 +797,15 @@ export async function buildPublishedSiteEvents(
           (project.claudeDesign && typeof project.claudeDesign.image === "string" && project.claudeDesign.image) ||
           "",
         [HAS_HERO_OVERRIDE]: Boolean(overrideImg),
-        [HAS_TITLE_OVERRIDE]: Boolean(pageTitle),
+        [HAS_TITLE_OVERRIDE]: Boolean(pageTitle || ownedTitleId),
         ...(slugSource ? { [SLUG_SOURCE]: slugSource } : {}),
         ...(frozen ? { [FROZEN_SLUG]: frozen } : {}),
         [SCHEDULE_SOURCE]: { project: scheduleProject(project), localCard: localCard || null },
         [DRAFT_ID]: draftId,
         [SITE_PROJECT]: project,
+        // Plain field survives JSON snapshots (Symbols do not), so stale-feed
+        // hydration still knows which cards need Guide title authority.
+        ...(ownedTitleId ? { otraOwnedGuideId: ownedTitleId } : {}),
       });
     }
     cursor = page.list_complete ? undefined : page.cursor;
@@ -784,7 +825,7 @@ export async function findUnlistedSiteEvent(context, slug) {
   // servable unlisted links instead of a full site event scan each time.
   if (!(await servableUnlistedSlugs(env.OVERRIDES)).has(wanted)) return null;
   const [cards, hiddenIds] = await Promise.all([
-    buildPublishedSiteEvents(env, { unlistedOnly: true, slug: wanted }),
+    buildPublishedSiteEvents(env, { unlistedOnly: true, slug: wanted, titleContext: context }),
     readHiddenPageIds(env),
   ]);
   const matches = cards.filter(
@@ -793,7 +834,7 @@ export async function findUnlistedSiteEvent(context, slug) {
   if (!matches.length) return null;
   const visible = await dropHiddenGuideEvents(matches, [], env);
   if (!visible.length) return null;
-  const [event] = await applyOverrides([visible[0]], env);
+  const [event] = await applyOverrides([visible[0]], env, context);
   return { ...event, slug: wanted, unlisted: true };
 }
 
@@ -1049,29 +1090,79 @@ function dateKeyInTimeZone(value, timeZone) {
   return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
+// Snapshot fast path: owned cards (otraOwnedGuideId survives JSON) re-read
+// their public Guide title with the short card read. Private (404) drops the
+// card; an outage keeps the snapshot title, which a build only ever took from
+// Guide (an outage build is never stored). Other cards are untouched.
+export async function refreshOwnedCardTitles(events, context) {
+  const owned = events.map((ev, i) => [ev, i]).filter(([ev]) => /^\d+$/.test(String(ev && ev.otraOwnedGuideId || "")));
+  if (!owned.length) return events;
+  const out = events.slice();
+  let cursor = 0;
+  await Promise.all(Array.from({ length: Math.min(4, owned.length) }, async () => {
+    while (cursor < owned.length) {
+      const [ev, i] = owned[cursor++];
+      const current = await readPublicGuideTitle(context, String(ev.otraOwnedGuideId), CARD_TITLE_READ);
+      if (current.status === 404) out[i] = null;
+      else if (current.title) out[i] = { ...ev, title: current.title };
+    }
+  }));
+  return out.filter(Boolean);
+}
+
 // Apply the same KV field overrides the detail page uses so homepage cards
 // stay in sync: hero image (image:#evHeroImg / legacy image), display title
 // (text:#evTitle) and, for site event cards, the schedule line (#evMeta hero
 // line edits, from the same event:<id> / override:<id> document the page
 // reads first). Exported for oracle scripts.
-export async function applyOverrides(events, env) {
+export async function applyOverrides(events, env, titleContext = { env }, titleReader = null, { titleRead = {}, titleStatus = null } = {}) {
   if (!env || !env.OVERRIDES || !events.length) return events;
-  const overrides = await Promise.all(
-    events.map(async (ev) => {
-      try {
-        // Same edits the event page shows: draft edits with the edits saved
-        // after publishing on top.
-        const { override } = await resolvePageOverride(env.OVERRIDES, String(ev.id), {
-          draftId: ev[DRAFT_ID] || "",
-        });
-        return override;
-      } catch {
-        return null;
+  // Cap concurrency. Prefer category-feed/snapshot titles for upstream cards;
+  // extra Guide reads only for owned site-event cards already on the row.
+  const results = new Array(events.length);
+  let cursor = 0;
+  async function loadOne(ev) {
+    try {
+      const { override } = await resolvePageOverride(env.OVERRIDES, String(ev.id), {
+        draftId: ev[DRAFT_ID] || "",
+      });
+      const project = ev[SITE_PROJECT] || null;
+      if (!titleReader && project?.adminOnly === true) return { hide: true };
+      const titleId = ownedGuideTitleId(project)
+        || (/^\d+$/.test(String(ev.otraOwnedGuideId || "")) ? String(ev.otraOwnedGuideId) : "");
+      if (!titleId) return { override };
+      const current = titleReader
+        ? await titleReader(titleId).catch(() => ({ title: "", status: 502 }))
+        : await readPublicGuideTitle(titleContext, titleId, titleRead);
+      if (!current?.title) {
+        // Owned + Guide private/404: omit. Outage/malformed: omit (never a
+        // local copy) and keep the last good snapshot from being replaced.
+        if (current && current.status === 404) return { hide: true };
+        if (titleStatus) titleStatus.outage = true;
+        return { hide: true };
       }
-    })
-  );
+      return {
+        override: override ? withoutTitleOverride(override, { keepStyleMatching: current.title }) : null,
+        current,
+      };
+    } catch {
+      return { fallback: true };
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(4, events.length) }, async () => {
+    while (cursor < events.length) {
+      const index = cursor++;
+      results[index] = await loadOne(events[index]);
+    }
+  }));
   return events.map((ev, i) => {
-    const override = overrides[i];
+    const row = results[i] || {};
+    if (row.hide) return null;
+    const { override, current } = row;
+    // Guide outage: never empty the homepage — keep snapshot/category-feed title.
+    // Includes old snapshots/upstream duplicates: no local title can bypass
+    // the public authority simply because the builder omitted a private card.
+    if (current) ev = { ...ev, title: current.title, [HAS_TITLE_OVERRIDE]: true };
     const image = homepageOverrideImage(override);
     const title = homepageOverrideTitle(override);
     // Same merged page edits the event page applies (draft edits with the
@@ -1097,7 +1188,7 @@ export async function applyOverrides(events, env) {
       next[HAS_TITLE_OVERRIDE] = true;
     }
     return next;
-  });
+  }).filter(Boolean);
 }
 
 export function homepageEventSlugBase(event) {

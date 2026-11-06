@@ -1,3 +1,5 @@
+import { ownedGuideTitleId } from "./title-ownership.js";
+
 // One resolver for the page edits of an event.
 //
 // A draft keeps its edits under event:<draftId>. Once the draft is published
@@ -157,4 +159,17 @@ export async function resolvePageOverride(kv, id, options = {}) {
   if (!draftDoc) return asIs(draftId);
   if (coversDraft(eventDoc, draftId, draftDoc)) return asIs(draftId);
   return { override: mergeOverrideDocs(draftDoc, eventDoc), draftId, fromDraft: true };
+}
+
+// Ownership never follows checkoutEventId. A borrowed project keeps its own
+// OT copy, not authority to rename the Guide event whose tickets it uses.
+// Plain numeric Guide pages with no owned OT project keep local curated titles
+// and never POST a Guide rename.
+export async function guideTitleIdForPage(kv, id) {
+  if (isOtraGuideId(id)) {
+    const bound = await findBoundProjects(kv, id);
+    return ownedGuideTitleId(bound.published || bound.latest);
+  }
+  const project = kv ? await kv.get(`site-event:${id}`, "json") : null;
+  return project && typeof project === "object" ? ownedGuideTitleId({ ...project, id: project.id || id }) : "";
 }

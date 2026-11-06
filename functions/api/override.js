@@ -1,9 +1,13 @@
+import { readPublicGuideTitle } from "../_lib/public-guide-title.js";
+import { guideTitleIdForPage } from "../_lib/page-override.js";
+import { ownedGuideTitleId, withoutTitleOverride, TITLE_FIELD } from "../_lib/title-ownership.js";
+import { readGuideTitle } from "../admin/api/_event-title.js";
 // Cloudflare Pages Function: GET /api/override?id=<eventId>
 //
 // Public read-only override endpoint for hand-built pages that do not render
 // through /api/event. Admin writes stay behind /admin/api/overrides.
 
-import { resolvePageOverride } from "../_lib/page-override.js";
+import { findBoundProjects, resolvePageOverride } from "../_lib/page-override.js";
 import { allowsDraftOnlyRemovals, withoutDraftOnlyRemovals } from "../_lib/draft-only-sections.js";
 import { isHeroMetaTextKey } from "../_lib/schedule-line.js";
 import { heroMetaItemText } from "../_lib/hero-meta-text.js";
@@ -17,29 +21,85 @@ export async function onRequestGet(context) {
   const id = (url.searchParams.get("id") || "").trim();
   if (!/^(?:\d+|draft-[a-zA-Z0-9-]+)$/.test(id)) return json({ error: "invalid id" }, 400);
 
+  // No KV binding: no page edits and no known ownership. Hand-built pages keep
+  // their static content (never blanked for a config/outage problem).
   if (!context.env.OVERRIDES) return json({ override: null });
 
+  // Known once resolved, so a later failure on an owned page still says the
+  // Guide title is unavailable instead of leaving a static/legacy H1 visible.
+  let titleId = "";
   try {
     // A page whose Otra Guide event answers 404 shows nothing, edits included.
     // The Guide check runs alongside the KV read so pages don't wait longer.
     const api = guideApiBase(context.env);
     const numeric = /^\d+$/.test(id);
-    const [{ override, draftId }, missing] = await Promise.all([
+    // One bound-project scan serves both title ownership and the admin-only
+    // gate for numeric pages.
+    const [{ override: storedOverride, draftId }, missing, bound] = await Promise.all([
       resolvePageOverride(context.env.OVERRIDES, id),
       numeric ? guideDetailMissing(api, id) : false,
+      numeric ? findBoundProjects(context.env.OVERRIDES, id) : null,
     ]);
-    if (!override || typeof override !== "object") return json({ override: null });
+    titleId = numeric
+      ? ownedGuideTitleId(bound.published || bound.latest)
+      : await guideTitleIdForPage(context.env.OVERRIDES, id);
+    // Staff is asked once (memoized) and only by the gates below.
+    let staffPromise = null;
+    const staffCheck = () => (staffPromise ||= isStaffRequest(context));
+    // Even a manual page with no prior overrides needs a response-only title
+    // projection in staff preview; an absent KV document is not a title source.
+    const override = storedOverride && typeof storedOverride === "object" ? storedOverride
+      : titleId ? { fields: {} } : null;
+    if (!override) return json({ override: null });
     const hidden = numeric
       ? missing && !(await keepsSellingWhileHidden(api, id, draftId, undefined, { kv: context.env.OVERRIDES }))
       : await draftFollowsHiddenEvent(context.env, id);
-    if (hidden && !(await isStaffRequest(context))) return json({ override: null });
+    if (hidden && !(await staffCheck())) return json({ override: null, ...(titleId ? { guideTitleHidden: true } : {}) });
+    // Private/unpublished owned projects must not leak edits via this parallel API.
+    if (numeric && bound.published?.adminOnly === true && !(await staffCheck())) {
+      return json({ override: null, ...(titleId ? { guideTitleHidden: true } : {}) });
+    }
+    if (!numeric) {
+      const project = await context.env.OVERRIDES.get(`site-event:${id}`, "json");
+      if ((project?.adminOnly === true || (titleId && project?.status !== "published")) && !(await staffCheck())) {
+        return json({ override: null, ...(titleId ? { guideTitleHidden: true } : {}) });
+      }
+    }
+    const staff = titleId ? await staffCheck() : false;
     const rawAccent = typeof override.accentColor === "string" ? override.accentColor.trim() : "";
     // Before You Go can be hidden only on an unpublished draft: a live page
     // (Otra Guide id or published draft) always keeps it.
     const draftOnlyOk = await allowsDraftOnlyRemovals(context.env.OVERRIDES, id);
-    const rawFields = draftOnlyOk ? override.fields : withoutDraftOnlyRemovals(override.fields);
+    let rawFields = (draftOnlyOk ? override.fields : withoutDraftOnlyRemovals(override.fields)) || {};
+    // A staff preview's public field projection must not overwrite the fresh
+    // API title with a legacy H1. This is response-only, never a KV title copy.
+    let guideTitle = "";
+    if (titleId) {
+      const previousTitleField = rawFields[TITLE_FIELD];
+      rawFields = withoutTitleOverride({ fields: rawFields }).fields;
+      try {
+        const current = staff
+          ? await readGuideTitle(context, requestToken(context.request), titleId)
+          : await readPublicGuideTitle(context, titleId);
+        if (!staff && current.status === 404) return json({ override: null, guideTitleHidden: true });
+        if (!current.title) throw new Error("public Guide title unavailable");
+        guideTitle = current.title;
+        // Response-only: plain Guide title, plus style-only html when it still matches.
+        let titleField = { type: "text", value: guideTitle };
+        if (previousTitleField && typeof previousTitleField.html === "string" && previousTitleField.html) {
+          const rich = normalizeRichTextField("", previousTitleField.html);
+          if (rich.html && rich.value.trim() === guideTitle) {
+            titleField = { type: "text", value: guideTitle, html: rich.html };
+          }
+        }
+        rawFields[TITLE_FIELD] = titleField;
+      } catch (error) {
+        return json({ error: "Could not refresh Guide title. Reload to retry.", override: null, guideTitleUnavailable: true }, 502);
+      }
+    }
     return json({
       override: {
+        ...(guideTitle ? { guideTitle } : {}),
         description: typeof override.description === "string" ? override.description : "",
         image: typeof override.image === "string" ? override.image : "",
         checkoutEventId: typeof override.checkoutEventId === "string" && /^\d+$/.test(override.checkoutEventId) ? override.checkoutEventId : "",
@@ -51,7 +111,7 @@ export async function onRequestGet(context) {
       },
     });
   } catch {
-    return json({ error: "could not load override" }, 500);
+    return json({ error: "could not load override", ...(titleId ? { guideTitleUnavailable: true } : {}) }, 500);
   }
 }
 

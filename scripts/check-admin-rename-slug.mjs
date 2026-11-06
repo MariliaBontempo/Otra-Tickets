@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Local-title authoring fixtures explicitly borrow Guide events; owned SSOT coverage: server/test/title-ssot-public.test.mjs.
 // Oracle: admin rename updates the card/name; the live pretty URL stays frozen.
 // A draft renamed before first publish may mint from the new title.
 // Run: node scripts/check-admin-rename-slug.mjs
@@ -146,7 +147,7 @@ function publishedDraft(overrides = {}) {
     title: seedTitle,
     status: "published",
     publishedAt: "2026-08-01T12:00:00.000Z",
-    otraGuideId: "6831",
+    otraGuideId: "6831", usesExistingOtraGuideEvent: true,
     otraGuideSlug: "6831",
     usesExistingOtraGuideEvent: true,
     startDate: "2999-03-02T12:00:00-04:00",
@@ -159,7 +160,7 @@ function publishedDraft(overrides = {}) {
 {
   const kv = makeKv({
     "site-event:draft-night": publishedDraft(),
-    [SNAP_KEY]: { events: [{ id: 6831 }], rows: [], generatedAt: Date.now() },
+    [SNAP_KEY]: { events: [{ id: 6831 }], rows: [], generatedAt: Date.now(), titleModel: "guide-title-b1" },
   });
   const { response, body } = await renameProject(kv, "draft-night", "Night Ride Renamed");
   assert(response.status === 200, `published rename must succeed (got ${response.status})`);
@@ -323,7 +324,7 @@ function publishedDraft(overrides = {}) {
   const kv = makeKv({
     "site-event:draft-night": {
       id: "draft-night",
-      otraGuideId: 6831,
+      otraGuideId: 6831, usesExistingOtraGuideEvent: true,
       title: nightSeed,
       status: "published",
       isPerennial: true,
@@ -333,7 +334,7 @@ function publishedDraft(overrides = {}) {
     },
     "site-event:draft-sunset": {
       id: "draft-sunset",
-      otraGuideId: 6832,
+      otraGuideId: 6832, usesExistingOtraGuideEvent: true,
       title: sunsetSeed,
       status: "published",
       isPerennial: true,
@@ -400,7 +401,7 @@ function publishedDraft(overrides = {}) {
   const kv = makeKv({
     "site-event:draft-old": {
       id: "draft-old",
-      otraGuideId: 100,
+      otraGuideId: 100, usesExistingOtraGuideEvent: true,
       title: "Sunday Social",
       status: "published",
       startDate: "2026-08-23T17:00:00-04:00",
@@ -408,7 +409,7 @@ function publishedDraft(overrides = {}) {
     },
     "site-event:draft-clone": {
       id: "draft-clone",
-      otraGuideId: 200,
+      otraGuideId: 200, usesExistingOtraGuideEvent: true,
       title: "Sunday Social (clone)",
       frozenSlug: "sunday-social",
       status: "published",
@@ -449,7 +450,7 @@ function publishedDraft(overrides = {}) {
   const kv = makeKv({
     "site-event:draft-legacy": {
       id: "draft-legacy",
-      otraGuideId: 6831,
+      otraGuideId: 6831, usesExistingOtraGuideEvent: true,
       title: seedTitle,
       status: "published",
       isPerennial: true,
@@ -493,7 +494,7 @@ function publishedDraft(overrides = {}) {
   const kv = makeKv({
     "site-event:draft-clone-legacy": {
       id: "draft-clone-legacy",
-      otraGuideId: 201,
+      otraGuideId: 201, usesExistingOtraGuideEvent: true,
       title: "Sunday Social (clone)",
       status: "published",
       startDate: "2026-09-13T17:00:00-04:00",
@@ -518,7 +519,7 @@ function publishedDraft(overrides = {}) {
   const kv = makeKv({
     "site-event:draft-brand": {
       id: "draft-brand",
-      otraGuideId: 8801,
+      otraGuideId: 8801, usesExistingOtraGuideEvent: true,
       title: "Brand - Night Tour",
       status: "published",
       startDate: "2999-04-01T12:00:00-04:00",
@@ -554,7 +555,7 @@ function publishedDraft(overrides = {}) {
       title: "Sunday Social (clone)",
       status: "published",
       publishedAt: "2026-08-01T12:00:00.000Z",
-      otraGuideId: "202",
+      otraGuideId: "202", usesExistingOtraGuideEvent: true,
       otraGuideSlug: "202",
       usesExistingOtraGuideEvent: true,
       startDate: "2026-09-13T17:00:00-04:00",
@@ -583,7 +584,7 @@ function publishedDraft(overrides = {}) {
       title: "Brand - Night Tour",
       status: "published",
       publishedAt: "2026-08-01T12:00:00.000Z",
-      otraGuideId: "8802",
+      otraGuideId: "8802", usesExistingOtraGuideEvent: true,
       otraGuideSlug: "8802",
       usesExistingOtraGuideEvent: true,
       startDate: "2999-04-02T12:00:00-04:00",
@@ -606,7 +607,7 @@ function publishedDraft(overrides = {}) {
       title: "Sunday Social (clone)",
       status: "published",
       publishedAt: "2026-08-01T12:00:00.000Z",
-      otraGuideId: "203",
+      otraGuideId: "203", usesExistingOtraGuideEvent: true,
       otraGuideSlug: "203",
       usesExistingOtraGuideEvent: true,
       startDate: "2026-09-13T17:00:00-04:00",
@@ -633,7 +634,7 @@ function publishedDraft(overrides = {}) {
       title: "Brand - Night Tour",
       status: "published",
       publishedAt: "2026-08-01T12:00:00.000Z",
-      otraGuideId: "8803",
+      otraGuideId: "8803", usesExistingOtraGuideEvent: true,
       otraGuideSlug: "8803",
       usesExistingOtraGuideEvent: true,
       startDate: "2999-04-03T12:00:00-04:00",
@@ -661,7 +662,7 @@ function publishedDraft(overrides = {}) {
       title: "Sunday Social (clone)",
       status: "published",
       publishedAt: "",
-      otraGuideId: "204",
+      otraGuideId: "204", usesExistingOtraGuideEvent: true,
       otraGuideSlug: "204",
       usesExistingOtraGuideEvent: true,
       startDate: "2026-09-20T17:00:00-04:00",

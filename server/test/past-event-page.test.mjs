@@ -27,7 +27,7 @@ const kaya = {
 };
 
 function project(overrides) {
-  return { ...kaya, ...overrides };
+  return { ...kaya, usesExistingOtraGuideEvent: true, ...overrides };
 }
 
 function kvWith(projects, docs = {}) {

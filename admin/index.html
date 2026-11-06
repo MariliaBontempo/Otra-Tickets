@@ -2517,6 +2517,7 @@
     syncRichEditor();
     const submittedValues = dialogValues();
     const submittedTarget = editTarget();
+    const submittedPage = selected;
     if (modalMode === "rename") {
       const name = $("description").value.trim();
       if (!name) return setStatus("Name is required.", "error");
@@ -2529,10 +2530,12 @@
           headers: authHeaders({ "content-type": "application/json" }),
           body: JSON.stringify({ name }),
         });
+        if (selected !== submittedPage) return;
         clearBlockedSave();
         clearUnsavedEdit(selected);
         closeModal();
-        setStatus(`Draft renamed to "${data.project.title}".`, "ok");
+        applyGuideTitle(data.project, selected);
+        setStatus(data.warning || data.project.warning || `Draft renamed to "${data.project.title}".`, data.warning || data.project.warning ? "error" : "ok");
         await loadPages(selected.id);
       } catch (err) {
         if (err.sessionExpired) noteBlockedSave(submittedValues, submittedTarget);
@@ -2556,13 +2559,14 @@
     const styleOnly = isStyleOnlyEdit(editorOriginalValue, savedValue, editorOriginalFormatting, editorFormattingValue());
     let overrideSaved = false;
     try {
-      await persistCurrentOverride();
+      const saveResult = await persistCurrentOverride();
       overrideSaved = true;
+      if (selected !== submittedPage) return;
       clearBlockedSave();
       clearUnsavedEdit(selected);
       closeModal();
       refreshPreview();
-      setStatus("Saved.", "ok");
+      setStatus(saveResult.warning || "Saved.", saveResult.warning ? "error" : "ok");
       if (!styleOnly) {
         await maybeSyncTicketPrice(savedField, savedValue);
         await maybeSyncEventDate(savedField, savedValue);
@@ -2678,20 +2682,23 @@
   }
 
   async function putOverride(next) {
+    const savingPage = selected;
     let data;
     try {
-      data = await api("/admin/api/overrides?id=" + encodeURIComponent(overrideIdForPage(selected)), {
+      data = await api("/admin/api/overrides?id=" + encodeURIComponent(overrideIdForPage(savingPage)), {
         method: "PUT",
         headers: authHeaders({ "content-type": "application/json" }),
         body: JSON.stringify(Object.assign({}, next, { base: overrideSaveBase(next) })),
       });
     } catch (err) {
-      if (err.data && err.data.conflict === true && "override" in err.data) {
+      if (selected === savingPage && err.data && err.data.conflict === true && "override" in err.data) {
         applyConflictOverride(err.data.override);
       }
       throw err;
     }
+    if (selected !== savingPage) return data;
     fillForm(data.override);
+    applyGuideTitle(data, savingPage);
     await loadPageHistory();
     return data;
   }
@@ -3197,16 +3204,20 @@
     $("imageUrl").value = "";
     showImage("");
     setStatus("Loading override...");
+    const loadingPage = selected;
     try {
-      const data = await api("/admin/api/overrides?id=" + encodeURIComponent(overrideIdForPage(selected)), {
+      const data = await api("/admin/api/overrides?id=" + encodeURIComponent(overrideIdForPage(loadingPage)), {
         headers: authHeaders(),
       });
+      if (selected !== loadingPage) return;
       fillForm(data.override);
-      setStatus(readUnsavedEdit(selected)
+      applyGuideTitle(data, loadingPage);
+      setStatus(data.warning || (readUnsavedEdit(selected)
         ? "You have edits on this page you had not saved. Open the same spot to get them back."
-        : data.override ? "Override loaded." : "No override yet.");
+        : data.override ? "Override loaded." : "No override yet."), data.warning ? "error" : "");
       await loadPageHistory();
     } catch (err) {
+      if (selected !== loadingPage) return;
       setStatus(err.message, "error");
       renderHistory([], err.message);
     }
@@ -4343,6 +4354,13 @@
     } finally {
       $("adminOnlyToggle").disabled = false;
     }
+  }
+
+  function applyGuideTitle(data, page) {
+    if (!page || (!data.guideTitle && !data.guideTitleUnavailable)) return;
+    page.title = data.guideTitle ? data.guideTitle.title : "Guide title unavailable";
+    page.guideTitleUnavailable = !!data.guideTitleUnavailable;
+    renderPageSelectOptions(page.id);
   }
 
   function fillForm(override) {

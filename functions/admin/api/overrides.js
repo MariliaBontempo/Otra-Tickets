@@ -12,12 +12,16 @@ import { OVERRIDE_CONFLICT_MESSAGE, mergeOverrideSave } from "../../_lib/overrid
 import { invalidatePublicFeed } from "../../_lib/homepage-feed.js";
 import { normalizeRichTextField, normalizeRichInfoField, richTextAllowedForField } from "../../_lib/rich-text.js";
 
+import { TITLE_FIELD, withoutTitleOverride, styleOnlyTitleField, overrideHasDurableTitleCopy } from "../../_lib/title-ownership.js";
+import { guideTitleTarget, normalizeGuideTitle, writeGuideTitle, discardLinkedTitleCopies, guideTitleForResponse, readGuideTitle } from "./_event-title.js";
+
 const KEY = (id) => `event:${id}`;
 
 export async function onRequestGet(context) {
   const id = getId(context.request);
   if (!id) return json({ error: "invalid id" }, 400);
-  if (!(await requireStaff(context.request, context.env))) return json({ error: "unauthorized" }, 401);
+  const token = await requireStaff(context.request, context.env);
+  if (!token) return json({ error: "unauthorized" }, 401);
 
   const kv = context.env.OVERRIDES;
   if (!kv) return json({ error: "overrides store not configured" }, 503);
@@ -29,7 +33,8 @@ export async function onRequestGet(context) {
   // A live page never shows a draft-only hide (Before You Go), so the editor
   // of a live page does not see or carry it either.
   if (override && !(await allowsDraftOnlyRemovals(kv, id))) override.fields = withoutDraftOnlyRemovals(override.fields);
-  return json({ override });
+  const guideTitleId = await guideTitleTarget(kv, id);
+  return json({ override, ...await guideTitleForResponse(context, token, guideTitleId) });
 }
 
 export async function onRequestPut(context) {
@@ -63,12 +68,59 @@ export async function onRequestPut(context) {
     return json({ error: "invalid body" }, 400);
   }
 
+  if (!body || typeof body !== "object" || Array.isArray(body)) return json({ error: "invalid body" }, 400);
+  const linkedTitleId = await guideTitleTarget(kv, id);
+  const titleField = body.fields?.[TITLE_FIELD];
+  // Modern clients declare only changed keys in base.fields. Stale full-form
+  // saves carrying their old title must NOT rename the Guide event by accident.
+  const legacyTitle = linkedTitleId && !body.base
+    ? (await resolvePageOverride(kv, id)).override?.fields?.[TITLE_FIELD] : null;
+  const unchangedLegacyTitle = legacyTitle?.type === "text" && typeof legacyTitle.value === "string" &&
+    typeof titleField?.value === "string" && legacyTitle.value.trim() === titleField.value.trim();
+  const titleFieldTouched = linkedTitleId && titleField?.type === "text" &&
+    (body.base ? Object.prototype.hasOwnProperty.call(body.base.fields || {}, TITLE_FIELD) : !unchangedLegacyTitle);
+  let requestedTitle = "";
+  let formatOnlyTitle = false;
+  if (titleFieldTouched) {
+    try {
+      const rich = typeof titleField.html === "string" && titleField.html
+        ? normalizeRichTextField(typeof titleField.value === "string" ? titleField.value : "", titleField.html)
+        : { value: "", html: "" };
+      // Plain renames validate the raw value (rejects non-strings). Style layers
+      // validate the plain text rebuilt from html.
+      requestedTitle = normalizeGuideTitle(rich.html ? rich.value : titleField.value);
+      // Only prefetch Guide title when html is present (format-only candidate).
+      // Plain renames must stay upstream-first: POST before any event-slug GET.
+      if (rich.html) {
+        let currentGuidePlain = "";
+        try { currentGuidePlain = (await readGuideTitle(context, session.token, linkedTitleId)).title; }
+        catch {
+          const baseBefore = body.base?.fields?.[TITLE_FIELD];
+          currentGuidePlain = typeof baseBefore?.value === "string" ? baseBefore.value.trim()
+            : (typeof legacyTitle?.value === "string" ? legacyTitle.value.trim() : "");
+        }
+        formatOnlyTitle = Boolean(currentGuidePlain && requestedTitle === currentGuidePlain);
+      }
+    } catch (error) { return json({ error: error.message }, 400); }
+  }
+  const titleIntent = titleFieldTouched && !formatOnlyTitle;
+
   const description = normalizeTopValue("description", body.description);
   const image = normalizeTopValue("image", body.image);
   const rawCheckoutEventId = String(body.checkoutEventId ?? "").trim();
   const checkoutEventId = normalizeTopValue("checkoutEventId", body.checkoutEventId);
   const accentColor = normalizeTopValue("accentColor", body.accentColor);
-  const fields = normalizeFields(body.fields);
+  let fields = normalizeFields(linkedTitleId ? withoutTitleOverride({ fields: body.fields }).fields : body.fields);
+  if (linkedTitleId && titleFieldTouched) {
+    const rich = typeof titleField.html === "string" && titleField.html
+      ? normalizeRichTextField(titleField.value, titleField.html)
+      : { value: requestedTitle, html: "" };
+    const style = styleOnlyTitleField(
+      { type: "text", value: rich.value || requestedTitle, html: rich.html },
+      requestedTitle
+    );
+    if (style) fields[TITLE_FIELD] = style;
+  }
   if (description.length > 20000) return json({ error: "description is too long" }, 400);
   if (image && !isAllowedImageUrl(image)) return json({ error: "invalid image url" }, 400);
   if (rawCheckoutEventId && !checkoutEventId) return json({ error: "invalid checkout event id" }, 400);
@@ -86,7 +138,9 @@ export async function onRequestPut(context) {
   // Compare against what the editor GET served, so a hide the editor never
   // saw does not count as a change made by someone else.
   const served = previous && !draftOnlyRemovalsOk ? { ...previous, fields: withoutDraftOnlyRemovals(previous.fields) } : previous;
-  const saved = mergeOverrideSave(served, { description, image, checkoutEventId, accentColor, fields }, normalizeBase(body.base));
+  const base = normalizeBase(body.base);
+  if (linkedTitleId && base) delete base.fields[TITLE_FIELD];
+  const saved = mergeOverrideSave(served, { description, image, checkoutEventId, accentColor, fields }, base);
   if (saved.conflictKeys) {
     // Same shape as the GET, so the editor can load it as its new base.
     const current = served && draftId ? { ...served, draftEditsFrom: draftId } : served;
@@ -120,12 +174,53 @@ export async function onRequestPut(context) {
   if (draftId && (fromDraft || coversThisDraft)) override.draftEditsFrom = draftId;
   else if (legacyAsIs) override.draftEditsHidden = draftId;
   if (isOtraGuideId(id)) override.pageEditsVersion = PAGE_EDITS_VERSION;
-  await kv.put(KEY(id), JSON.stringify(override));
+  // base.fields drops TITLE_FIELD for owned conflict avoidance; re-apply the
+  // style-only layer after merge so format-only html is not lost.
+  if (linkedTitleId && titleFieldTouched && titleField) {
+    const rich = typeof titleField.html === "string" && titleField.html
+      ? normalizeRichTextField(typeof titleField.value === "string" ? titleField.value : "", titleField.html)
+      : { value: requestedTitle, html: "" };
+    const style = styleOnlyTitleField(
+      { type: "text", value: rich.value || requestedTitle, html: rich.html },
+      requestedTitle
+    );
+    if (style) override.fields = { ...override.fields, [TITLE_FIELD]: style };
+  }
+  let guideTitle = null;
+  if (titleIntent) {
+    try {
+      guideTitle = await writeGuideTitle(context, session.token, linkedTitleId, requestedTitle);
+    } catch (error) {
+      // Keep the modal/input open for retry. Do not save a divergent title or
+      // claim a local save succeeded while Guide refused the rename.
+      return json({ error: `Could not confirm Guide title: ${error.message}. Retry.`, warning: "No local title was saved.", retryable: true }, 502);
+    }
+  }
+  try {
+    if (linkedTitleId) {
+      let guidePlain = guideTitle?.title || (formatOnlyTitle ? requestedTitle : "");
+      if (!guidePlain) {
+        try { guidePlain = (await readGuideTitle(context, session.token, linkedTitleId)).title; }
+        catch { guidePlain = override.fields?.[TITLE_FIELD]?.value || ""; }
+      }
+      // Strip durable plain title mirrors; keep style-only html when plain matches Guide.
+      override.fields = withoutTitleOverride(override, { keepStyleMatching: guidePlain }).fields;
+      if (titleIntent && guideTitle && guideTitle.changed) {
+        // Only sweep linked copies when Guide reports the title actually changed.
+        await discardLinkedTitleCopies(kv, linkedTitleId, { guidePlain: guideTitle.title });
+      }
+    }
+    await kv.put(KEY(id), JSON.stringify(override));
+  } catch (error) {
+    return json({ error: guideTitle
+      ? "Guide title saved, but local metadata cleanup failed. Reload and retry."
+      : "Local metadata could not be saved. Retry.", retryable: true, ...(guideTitle ? { guideTitle } : {}) }, 503);
+  }
   await appendAudit(kv, {
     actor: await actorForAudit(session.token, session.role, context.env),
     action: "save",
     pageId: id,
-    changedFields: changedOverrideFields(previous, override),
+    changedFields: [...changedOverrideFields(previous, override), ...(guideTitle ? ["guide:title"] : [])],
   });
   // Drop the public homepage snapshot so the next /api/homepage-events rebuild
   // picks up renamed titles and new hero photos instead of serving stale cards.
@@ -146,7 +241,11 @@ export async function onRequestPut(context) {
       photoSyncWarning = `photo sync failed: ${error.message}`;
     }
   }
-  return json(photoSyncWarning ? { override, warning: photoSyncWarning } : { override });
+  const titleRefresh = linkedTitleId && (guideTitle || formatOnlyTitle)
+    ? await guideTitleForResponse(context, session.token, linkedTitleId, { saved: !!guideTitle, fresh: true }) : {};
+  if (titleRefresh.guideTitle && guideTitle) titleRefresh.guideTitle.changed = guideTitle.changed;
+  const warnings = [photoSyncWarning, titleRefresh.warning].filter(Boolean);
+  return json({ override, ...titleRefresh, ...(warnings.length ? { warning: warnings.join(" ") } : {}) });
 }
 
 // The photo set Otra Guide cares about: the legacy top-level image plus every
@@ -167,7 +266,9 @@ async function readOverride(kv, id) {
   const legacyAsIs = Boolean(
     draftId && !fromDraft && override && !coversThisDraft && (isLegacyDoc(override) || override.draftEditsHidden === draftId)
   );
-  return { override: override ? normalizeOverride(override, id) : null, draftId, fromDraft, coversThisDraft, legacyAsIs };
+  const normalized = override ? normalizeOverride(override, id) : null;
+  const linkedTitleId = await guideTitleTarget(kv, id);
+  return { override: linkedTitleId ? withoutTitleOverride(normalized, { keepAnyStyle: true }) : normalized, draftId, fromDraft, coversThisDraft, legacyAsIs };
 }
 
 function normalizeOverride(raw, id) {

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Model B: these generic merge/audit fixtures use evTag; H1 ownership is tested in check-guide-title-ssot-b.
 // Oracle: admin override saves and media uploads append a KV audit log, and
 // the editor History view can read it. Audit failures never fail the save.
 // History who must show a human name, never a raw user id.
@@ -251,7 +252,7 @@ for (const id of ["", "nope", "../etc", "event:6113"]) {
         image: "/override-images/sunday.jpg",
         checkoutEventId: "6113",
         accentColor: "#1c9ebd",
-        fields: { "text:#evTitle": { type: "text", value: "Sunday Social" } },
+        fields: { "text:#evTag": { type: "text", value: "Sunday Social" } },
       }),
     }),
     { OVERRIDES: kv, role: { is_staff_or_admin: true, email: "tjscott@me.com", username: "tj" } }
@@ -290,7 +291,7 @@ for (const id of ["", "nope", "../etc", "event:6113"]) {
         image: "/override-images/sunday.jpg",
         checkoutEventId: "6113",
         accentColor: "#1c9ebd",
-        fields: { "text:#evTitle": { type: "text", value: "Sunday Social" } },
+        fields: { "text:#evTag": { type: "text", value: "Sunday Social" } },
       }),
     }),
     { OVERRIDES: kv, role: { is_staff_or_admin: true, email: "tjscott@me.com", username: "tj" } }
@@ -318,7 +319,7 @@ for (const id of ["", "nope", "../etc", "event:6113"]) {
         image: "/override-images/sunday.jpg",
         checkoutEventId: "6113",
         accentColor: "#1c9ebd",
-        fields: { "text:#evTitle": { type: "text", value: "Sunday Social" } },
+        fields: { "text:#evTag": { type: "text", value: "Sunday Social" } },
       }),
     }),
     { OVERRIDES: kv, role: { is_staff_or_admin: true, email: "tjscott@me.com", username: "tj" } }

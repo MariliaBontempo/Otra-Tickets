@@ -53,6 +53,9 @@ function installFetch({ emptyFeeds = new Set(), failFeeds = new Set() } = {}) {
     const url = String(input && input.url ? input.url : input);
     const ok = (body) => Response.json(body);
     if (url.endsWith("/users/user-role/")) return ok({ is_staff_or_admin: true });
+    // Staff Guide title read (works while the Guide event is private).
+    const media = url.match(/\/otra-tickets\/media\/event-slug\/(\d+)\//);
+    if (media) return ok({ id: Number(media[1]), slug: media[1], title: `Guide title ${media[1]}` });
     const detail = url.match(/\/events\/details\/(\d+)\//);
     if (detail) return new Response("{}", { status: 404 });
     const tickets = url.match(/\/ticket\/purchase\/tickets\/(\d+)\//);

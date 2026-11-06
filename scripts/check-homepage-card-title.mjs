@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Local-title authoring fixtures explicitly borrow Guide events; owned SSOT coverage: server/test/title-ssot-public.test.mjs.
 // Oracle: homepage card titles stay distinguishable; pretty URLs stay frozen.
 //   1. text:#evTitle when an admin renamed the H1
 //   2. else the live Django title for bound perennials
@@ -23,6 +24,13 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
+// Unowned public numeric pages keep local curated text:#evTitle; owned SSOT is tested separately.
+const originalPublicFetch = globalThis.fetch;
+globalThis.fetch = async input => {
+  const m=String(input).match(/\/events\/details\/(\d+)\//);
+  if(m) return Response.json({id:Number(m[1]),title:({6113:'Clearboat West',9001:'No Override Event',6114:'Guide legacy current',6115:'Guide image event current',6830:'Iguana Scooter Ride - Punda or Otrobanda Tour'})[m[1]] || `Guide event ${m[1]}`});
+  return Response.json({results:[],count:0});
+};
 const failures = [];
 const assert = (condition, message) => { if (!condition) failures.push(message); };
 
@@ -230,7 +238,7 @@ assert(
 const evTitleProjects = {
   "site-event:draft-prod-6830": {
     id: "draft-prod-6830",
-    otraGuideId: 6830,
+    otraGuideId: 6830, usesExistingOtraGuideEvent: true,
     title: seedTitle,
     status: "published",
     startDate: "2999-03-01T12:00:00-04:00",
@@ -280,7 +288,7 @@ assert(
 const displayProjects = {
   "site-event:draft-prod-6831": {
     id: "draft-prod-6831",
-    otraGuideId: 6831,
+    otraGuideId: 6831, usesExistingOtraGuideEvent: true,
     title: "Iguana Ride [E-Scooter] Night Tour",
     status: "published",
     startDate: "2999-03-02T12:00:00-04:00",
@@ -372,7 +380,7 @@ assert(
 const perennialProjects = {
   "site-event:draft-prod-6830-live": {
     id: "draft-prod-6830-live",
-    otraGuideId: 6830,
+    otraGuideId: 6830, usesExistingOtraGuideEvent: true,
     title: seedTitle,
     status: "published",
     isPerennial: true,
@@ -433,7 +441,7 @@ const prodDjangoTitle = "Iguana Scooter Ride - Punda or Otrobanda Tour";
 const prodProjects = {
   "site-event:draft-prod-6830-evtitle": {
     id: "draft-prod-6830-evtitle",
-    otraGuideId: 6830,
+    otraGuideId: 6830, usesExistingOtraGuideEvent: true,
     title: seedTitle,
     status: "published",
     isPerennial: true,
@@ -544,7 +552,7 @@ assert(
 {
   const deleted = [];
   const store = new Map([
-    [snapKey, JSON.stringify({ events: [{ id: 1 }], rows: [], generatedAt: Date.now() })],
+    [snapKey, JSON.stringify({ events: [{ id: 1 }], rows: [], generatedAt: Date.now(), titleModel: "guide-title-b1" })],
     ["event:6113", JSON.stringify({ id: "6113", image: "", fields: {} })],
   ]);
   const putKv = {
@@ -565,7 +573,8 @@ assert(
     },
   };
   const realFetch = globalThis.fetch;
-  globalThis.fetch = async (input) => {
+  globalThis.fetch = async (input, init = {}) => {
+    if (String(input).includes("/event-title/")) return Response.json({ eventId: 6113, title: JSON.parse(init.body).title, changed: true });
     if (String(input).endsWith("/users/user-role/")) {
       return { ok: true, json: async () => ({ is_staff_or_admin: true }) };
     }
@@ -602,7 +611,7 @@ const nightRename = "Admin Night Rename";
 const sharedBrandProjects = {
   "site-event:draft-night-brand": {
     id: "draft-night-brand",
-    otraGuideId: 6831,
+    otraGuideId: 6831, usesExistingOtraGuideEvent: true,
     title: nightSeed,
     status: "published",
     isPerennial: true,
@@ -612,7 +621,7 @@ const sharedBrandProjects = {
   },
   "site-event:draft-sunset-brand": {
     id: "draft-sunset-brand",
-    otraGuideId: 6832,
+    otraGuideId: 6832, usesExistingOtraGuideEvent: true,
     title: sunsetSeed,
     status: "published",
     isPerennial: true,
@@ -705,7 +714,7 @@ const datedCurated = "Bingo Bengo Sep 6";
 const datedProjects = {
   "site-event:draft-bingo-dated": {
     id: "draft-bingo-dated",
-    otraGuideId: 7522,
+    otraGuideId: 7522, usesExistingOtraGuideEvent: true,
     title: datedCurated,
     status: "published",
     isPerennial: false,
@@ -776,7 +785,7 @@ const pundaEvTitle = "OTROBANDA OR PUNDA RIDE";
 const iguanaFourProjects = {
   "site-event:draft-6827": {
     id: "draft-6827",
-    otraGuideId: 6827,
+    otraGuideId: 6827, usesExistingOtraGuideEvent: true,
     title: citySeed,
     status: "published",
     isPerennial: true,
@@ -786,7 +795,7 @@ const iguanaFourProjects = {
   },
   "site-event:draft-6830": {
     id: "draft-6830",
-    otraGuideId: 6830,
+    otraGuideId: 6830, usesExistingOtraGuideEvent: true,
     title: pundaSeed,
     status: "published",
     isPerennial: true,
@@ -796,7 +805,7 @@ const iguanaFourProjects = {
   },
   "site-event:draft-6831-four": {
     id: "draft-6831-four",
-    otraGuideId: 6831,
+    otraGuideId: 6831, usesExistingOtraGuideEvent: true,
     title: nightSeed,
     status: "published",
     isPerennial: true,
@@ -806,7 +815,7 @@ const iguanaFourProjects = {
   },
   "site-event:draft-6832-four": {
     id: "draft-6832-four",
-    otraGuideId: 6832,
+    otraGuideId: 6832, usesExistingOtraGuideEvent: true,
     title: sunsetSeed,
     status: "published",
     isPerennial: true,
@@ -881,7 +890,7 @@ assert(homepageEventSlugBase(fourById.get("6832")) === eventSlug(sunsetSeed), "6
   const frozenProjects = {
     "site-event:draft-frozen-rename": {
       id: "draft-frozen-rename",
-      otraGuideId: 6833,
+      otraGuideId: 6833, usesExistingOtraGuideEvent: true,
       title: "Admin Renamed After Publish",
       frozenSlug: eventSlug(seedTitle),
       status: "published",
@@ -920,7 +929,7 @@ assert(homepageEventSlugBase(fourById.get("6832")) === eventSlug(sunsetSeed), "6
   const legacyProjects = {
     "site-event:draft-legacy-iguana": {
       id: "draft-legacy-iguana",
-      otraGuideId: 6831,
+      otraGuideId: 6831, usesExistingOtraGuideEvent: true,
       title: nightSeed,
       status: "published",
       isPerennial: true,

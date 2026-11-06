@@ -82,7 +82,7 @@ const originalFetch = globalThis.fetch;
 globalThis.fetch = async (url) => {
   if (String(url).endsWith('/events/details/6830/')) {
     return new Response(JSON.stringify({
-      id: 6830,
+      id: 6830, title: "Current Guide hero event",
       full_web_image_url: '/images/current-first-detail-hero.jpg',
       half_web_image_url: '/images/third-photo-captured-at-bind.jpg',
     }), { status: 200, headers: { 'content-type': 'application/json' } });

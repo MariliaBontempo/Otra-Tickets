@@ -34,7 +34,7 @@ const kaya = published("draft-kaya", "7567", {
   endDate: "2026-09-26T00:00:00-04:00",
 });
 const live = published("draft-live", "7479", { title: "Bingo Bengo", frozenSlug: "bingo-bengo" });
-const p8088 = published("draft-1791253678425-26c548a5", "8088", { title: "Fund Raiser", frozenSlug: "fund-raiser" });
+const p8088 = published("draft-1791253678425-26c548a5", "8088", { usesExistingOtraGuideEvent: true, title: "Fund Raiser", frozenSlug: "fund-raiser" });
 const unbound = published("draft-unbound", "", { title: "Unbound Draft" });
 
 const docs = {
@@ -69,11 +69,15 @@ async function withUpstream(fn, { guideDown = false, staffToken = "" } = {}) {
     const url = new URL(typeof input === "string" ? input : input.url);
     const path = url.pathname;
     calls.push(path);
-    const auth = (init.headers && (init.headers.authorization || init.headers.Authorization)) || "";
+    const auth = new Headers(init.headers).get('authorization') || "";
     if (path === "/api/users/user-role/") {
       return Response.json({ is_staff_or_admin: Boolean(staffToken) && auth === `Bearer ${staffToken}` });
     }
     let m;
+    if ((m = path.match(/^\/api\/otra-tickets\/media\/event-slug\/(\d+)\/$/))) {
+      if (!auth || auth !== `Bearer ${staffToken}`) return Response.json({error:'unauthorized'},{status:403});
+      return Response.json({id:Number(m[1]),title:details[m[1]]?.title || 'Staff Guide title',slug:'stable-link'});
+    }
     if ((m = path.match(/^\/api\/events\/details\/(\d+)\/$/))) {
       if (guideDown) return new Response("upstream error", { status: guideDown === true ? 502 : guideDown });
       if (auth && staffToken && auth === `Bearer ${staffToken}` && m[1] === "7567") return Response.json({ id: 7567, title: "Kaya Kaya Festival 2026", start_date: kaya.startDate, end_date: kaya.endDate, is_ticketed: true });
@@ -139,10 +143,10 @@ test("staff still preview a hidden event's draft, never cached", async () => {
   }, { staffToken: "staff-1" });
 });
 
-test("an outage is not a 404: bound draft pages and page edits stay up while Guide errors", async () => {
+test("an outage returns retryable errors instead of serving a stale owned title", async () => {
   await withUpstream(async () => {
-    assert.equal((await event("draft-live", all)).status, 200);
-    assert.ok(await override("7479", all), "edits stay");
+    assert.equal((await event("draft-live", all)).status, 502);
+    assert.equal(await override("7479", all), null, "no stale title projection");
   }, { guideDown: true });
 });
 

@@ -45,10 +45,10 @@ const kv = {
 
 const originalFetch = globalThis.fetch;
 const originalCaches = globalThis.caches;
-globalThis.fetch = async () =>
-  new Response(JSON.stringify({ results: [] }), {
-    headers: { "content-type": "application/json" },
-  });
+globalThis.fetch = async input => {
+ const m=String(input).match(/details\/(\d+)/);
+ return Response.json(m ? {id:Number(m[1]),title:'Guide visible event'} : {results:[]});
+};
 globalThis.caches = {
   default: {
     async match() { return undefined; },

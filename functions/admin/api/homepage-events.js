@@ -1,3 +1,4 @@
+import { readGuideTitle } from "./_event-title.js";
 // Cloudflare Pages Function: GET /admin/api/homepage-events
 //
 // Staff-only preview of the public homepage feed. Same { events, rows } shape
@@ -18,6 +19,8 @@ export async function onRequestGet(context) {
   const { events, rows } = await buildHomepageFeed(context, {
     includeAdminOnly: true,
     authToken: accessToken,
+    // Only this staff-gated caller may supply authenticated title reads.
+    titleReader: id => readGuideTitle(context, accessToken, id),
     forceFresh: url.searchParams.get("fresh") === "1",
   });
   return json({ events, rows: applyFixedRows(events, rows) });
