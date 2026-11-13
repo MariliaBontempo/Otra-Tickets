@@ -61,7 +61,7 @@ const OCCURRENCE_TITLE = /^\d{2}:\d{2} - /;
 
 const MANUAL_PAGES = [
   { id: "7275", title: "We Love R&B", type: "Manual page", url: "/rnb.html" },
-  { id: "6113", title: "Clearboat", type: "Manual page", url: "/clearboat.html" },
+  { id: "6113", title: "Clear Boat", type: "Manual page", url: "/clearboat.html" },
 ];
 
 export async function onRequestGet(context) {

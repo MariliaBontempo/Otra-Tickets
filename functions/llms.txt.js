@@ -17,7 +17,7 @@ export async function onRequestGet(context) {
     "## Canonical Public Pages",
     "",
     `- Home: ${SITE_ORIGIN}/`,
-    `- Clearboat: ${SITE_ORIGIN}/clearboat`,
+    `- Clear Boat: ${SITE_ORIGIN}/clearboat`,
     `- We Love R&B: ${SITE_ORIGIN}/rnb`,
     "",
     "## Current Bookable Listings",
