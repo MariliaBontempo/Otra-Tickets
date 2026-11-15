@@ -16,7 +16,7 @@ function viewContentIds(event) {
   const source = readFileSync(new URL("../../meta-pixel.js", import.meta.url), "utf8");
   vm.runInNewContext(source, { window, document: {}, URL, URLSearchParams });
   window.OTRAMeta.viewContent(event);
-  return calls.find(args => args[2] === "ViewContent")?.[3].content_ids;
+  return calls.find(args => args[1] === "ViewContent")?.[2].content_ids;
 }
 
 test("a published site project can render its staff-only Guide checkout without exposing other events", async () => {

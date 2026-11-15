@@ -74,22 +74,28 @@ an event. It never delays checkout to improve tracking delivery.
 An organiser can have their own Meta Pixel receive the conversions for their events.
 Set `Team.meta_pixel_id` in Guide admin (numeric, 10 to 20 digits). Nothing else is configured.
 
-- Every call from this loader is `fbq("trackSingle", <pixel id>, ...)`. Plain `track`
-  broadcasts to every initialised pixel and must not be reintroduced here.
-- The organiser pixel is initialised only at the moment of a conversion that names it,
-  after `fbq("set", "autoConfig", false, <id>)`, so it sends no automatic events.
-- It receives InitiateCheckout and Purchase for that team's events, with the same value,
-  currency, contents and `eventID` as ours. It never receives PageView, ViewContent or Lead,
-  and never another team's events.
+- The organiser pixel is never initialised in `fbq`. An initialised pixel receives every plain
+  `fbq("track")` on the page (ours, `meta_lead.html`, any GTM tag), Meta's automatic PageViews
+  on history changes and back/forward restores, and it can run Automatic Advanced Matching
+  against the buyer form. Our own `fbq` calls are unchanged from before this feature.
+- Instead `notifyPartner` sends one request per conversion to `https://www.facebook.com/tr/`
+  in the noscript-pixel format: `id`, `ev`, `eid`, `ts`, `dl` and the `cd[...]` conversion
+  fields (value, currency, num_items, content_type, content_ids, contents). `dl` is the page
+  URL without its query string, because the confirmation URL carries the order reference.
+  No customer fields, no `_fbp`, no referrer parameter.
+- It receives InitiateCheckout and Purchase for that team's events only, with the same value,
+  currency, contents and `eventID` as ours.
 - Purchase: `/ticketing/meta-purchase/` adds `partnerPixelId` to a verified order.
   InitiateCheckout: `meta_checkout.html` puts it in the checkout notification.
   The loader validates the ID and does not forward the field to Meta.
-- Deduplication is per pixel (`meta:<pixel id>:<eventID>`). A failure on the organiser
-  pixel never changes what our own pixel records.
+- It is sent only together with a fresh event of our own, so our deduplication covers both
+  and a revisit of an old confirmation page sends nothing. A failure never affects our pixel.
 - Limits: the loader is off inside iframes, so the widget on an organiser's own site sends
   no InitiateCheckout to their pixel (their page can track that itself). Purchase fires on
   the Guide confirmation page, a different domain from the organiser's site, so Meta's
-  click cookie is absent and ad matching is partial. CAPI with the same `eventID` is the upgrade.
+  click cookie is absent and ad matching relies on the browser's own Facebook cookies.
+  If the organiser restricts their pixel's Traffic Permissions, they must allow
+  `otraguide.com` and `otratickets.com`. CAPI with the same `eventID` is the upgrade.
 
 ## Environment, consent and rollout
 
