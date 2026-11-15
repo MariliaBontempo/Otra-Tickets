@@ -18,13 +18,31 @@
   let pageViewed = false;
   const viewed = new Set();
   const conversions = new Set();
-  function track(name, params, eventID) {
+  // Always trackSingle: plain "track" broadcasts to every initialised pixel, which would
+  // send our events to an organiser's pixel (and theirs to ours) once one is initialised.
+  function track(name, params, eventID, pixel = PIXEL_ID) {
     if (!enabled || typeof window.fbq !== "function") return false;
     try {
-      if (eventID) window.fbq("track", name, params, { eventID });
-      else window.fbq("track", name, params);
+      if (eventID) window.fbq("trackSingle", pixel, name, params, { eventID });
+      else if (params) window.fbq("trackSingle", pixel, name, params);
+      else window.fbq("trackSingle", pixel, name);
       return true;
     } catch { return false; }
+  }
+
+  // An organiser's own pixel, named by the checkout backend for that organiser's events only.
+  // Initialised on first use, with Meta's automatic events off, and it receives nothing but
+  // the confirmed conversions below: no PageView, ViewContent or Lead.
+  const partners = new Set();
+  function partnerPixel(id) {
+    id = String(id ?? "");
+    if (!/^\d{10,20}$/.test(id) || id === PIXEL_ID || typeof window.fbq !== "function") return null;
+    if (!partners.has(id)) {
+      window.fbq("set", "autoConfig", false, id);
+      window.fbq("init", id);
+      partners.add(id);
+    }
+    return id;
   }
 
   function conversionParams(data) {
@@ -52,22 +70,32 @@
       if (!params || (name === "Purchase" && data.paymentStatus !== "paid")) return false;
       // Backend CAPI must use this exact event_id for the same order/session.
       const eventID = `otratickets:${name}:${id}`;
-      const key = `meta:${PIXEL_ID}:${eventID}`;
-      const send = () => {
+      const lock = `meta:${PIXEL_ID}:${eventID}`;
+      const deliver = pixel => {
         // Fail closed when storage is unavailable, rather than re-counting purchases.
+        const key = `meta:${pixel}:${eventID}`;
         const storage = name === "Purchase" ? window.localStorage : window.sessionStorage;
         if (conversions.has(key) || storage.getItem(key)) return false;
         storage.setItem(key, "1");
-        if (!track(name, params, eventID)) {
+        if (!track(name, params, eventID, pixel)) {
           storage.removeItem(key);
           return false;
         }
         conversions.add(key);
         return true;
       };
+      const send = () => {
+        const sent = deliver(PIXEL_ID);
+        // Deduplicated per pixel; a failure here never changes the result for our own pixel.
+        try {
+          const partner = partnerPixel(data.partnerPixelId);
+          if (partner) deliver(partner);
+        } catch { /* Organiser tracking is best-effort. */ }
+        return sent;
+      };
       // Serialize purchase notifications from multiple tabs where Web Locks is supported.
       if (name === "Purchase" && window.navigator?.locks) {
-        return await window.navigator.locks.request(key, send);
+        return await window.navigator.locks.request(lock, send);
       }
       // ponytail: without Web Locks, storage dedupes refreshes but not simultaneous tabs;
       // server-side CAPI/order deduplication is the upgrade for cross-device guarantees.

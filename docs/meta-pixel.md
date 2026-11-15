@@ -69,6 +69,28 @@ same UUID; this implementation deliberately does not alter payment requests to c
 Browser tracking is best-effort: navigation, blockers or network failure can lose
 an event. It never delays checkout to improve tracking delivery.
 
+## Organiser pixels
+
+An organiser can have their own Meta Pixel receive the conversions for their events.
+Set `Team.meta_pixel_id` in Guide admin (numeric, 10 to 20 digits). Nothing else is configured.
+
+- Every call from this loader is `fbq("trackSingle", <pixel id>, ...)`. Plain `track`
+  broadcasts to every initialised pixel and must not be reintroduced here.
+- The organiser pixel is initialised only at the moment of a conversion that names it,
+  after `fbq("set", "autoConfig", false, <id>)`, so it sends no automatic events.
+- It receives InitiateCheckout and Purchase for that team's events, with the same value,
+  currency, contents and `eventID` as ours. It never receives PageView, ViewContent or Lead,
+  and never another team's events.
+- Purchase: `/ticketing/meta-purchase/` adds `partnerPixelId` to a verified order.
+  InitiateCheckout: `meta_checkout.html` puts it in the checkout notification.
+  The loader validates the ID and does not forward the field to Meta.
+- Deduplication is per pixel (`meta:<pixel id>:<eventID>`). A failure on the organiser
+  pixel never changes what our own pixel records.
+- Limits: the loader is off inside iframes, so the widget on an organiser's own site sends
+  no InitiateCheckout to their pixel (their page can track that itself). Purchase fires on
+  the Guide confirmation page, a different domain from the organiser's site, so Meta's
+  click cookie is absent and ad matching is partial. CAPI with the same `eventID` is the upgrade.
+
 ## Environment, consent and rollout
 
 Auto-enabled only on HTTPS `otratickets.com`, `otraguide.com` and their www variants.
