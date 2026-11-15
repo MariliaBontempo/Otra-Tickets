@@ -27,6 +27,32 @@
     } catch { return false; }
   }
 
+  // An organiser's own pixel, named by the checkout backend for that organiser's events only.
+  // It is never initialised in fbq: an initialised pixel also receives every plain "track" on
+  // the page and Meta's automatic PageViews, and it could read the buyer form. Instead the two
+  // confirmed conversions go to it as a single request each, in the format of Meta's noscript
+  // pixel. The page URL is sent without its query string, which holds the order reference.
+  function notifyPartner(id, name, params, eventID) {
+    try {
+      id = String(id ?? "");
+      if (!enabled || !/^\d{10,20}$/.test(id) || id === PIXEL_ID) return false;
+      const query = new URLSearchParams({
+        id, ev: name, eid: eventID, ts: String(Date.now()),
+        dl: window.location.origin + window.location.pathname,
+        "cd[value]": String(params.value), "cd[currency]": params.currency,
+        "cd[num_items]": String(params.num_items), "cd[content_type]": params.content_type,
+        "cd[content_ids]": JSON.stringify(params.content_ids), "cd[contents]": JSON.stringify(params.contents),
+      });
+      const url = "https://www.facebook.com/tr/?" + query;
+      // keepalive lets the request finish when checkout navigates away straight after.
+      if (typeof window.fetch === "function") {
+        Promise.resolve(window.fetch(url, { mode: "no-cors", credentials: "include", keepalive: true })).catch(() => {});
+      } else if (typeof window.Image === "function") new window.Image().src = url;
+      else return false;
+      return true;
+    } catch { return false; /* Organiser tracking is best-effort and never affects ours. */ }
+  }
+
   function conversionParams(data) {
     if (!data || typeof data.value !== "number" || !Number.isFinite(data.value) || data.value < 0 ||
         typeof data.currency !== "string" || !/^[A-Z]{3}$/.test(data.currency) ||
@@ -63,6 +89,8 @@
           return false;
         }
         conversions.add(key);
+        // Only alongside a fresh event of our own, so a refresh or revisit repeats neither.
+        notifyPartner(data.partnerPixelId, name, params, eventID);
         return true;
       };
       // Serialize purchase notifications from multiple tabs where Web Locks is supported.

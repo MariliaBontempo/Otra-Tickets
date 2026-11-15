@@ -10,12 +10,13 @@ function storage() {
   const values = new Map();
   return { getItem: k => values.get(k) || null, setItem: (k, v) => values.set(k, v), removeItem: k => values.delete(k) };
 }
-function browser({ url = "https://otratickets.com/an-event", localStorage = storage(), sessionStorage = storage(), framed = false, fbq } = {}) {
-  const listeners = {}, scripts = [];
+function browser({ url = "https://otratickets.com/an-event", localStorage = storage(), sessionStorage = storage(), framed = false, fbq, fetch } = {}) {
+  const listeners = {}, scripts = [], beacons = [];
   const iframe = { contentWindow: {}, src: "https://otraguide.com/ticketing/stripe-checkout/6113/" };
   const window = {
     location: new URL(url), localStorage, sessionStorage, fbq,
     navigator: {}, addEventListener: (type, fn) => { listeners[type] = fn; },
+    fetch: fetch || ((target, options) => { beacons.push({ url: new URL(target), options }); return Promise.resolve(); }),
   };
   window.top = framed ? {} : window;
   const document = {
@@ -27,7 +28,7 @@ function browser({ url = "https://otratickets.com/an-event", localStorage = stor
   const context = vm.createContext({ window, document, URL, URLSearchParams });
   const run = () => vm.runInContext(source, context);
   run();
-  return { window, scripts, run, iframe, listeners, api: window.OTRAMeta,
+  return { window, scripts, run, iframe, listeners, beacons, api: window.OTRAMeta,
     events: () => Array.from(window.fbq?.queue || [], args => Array.from(args)) };
 }
 
@@ -107,6 +108,65 @@ guide.listeners.message({ ...message, source: {}, data: { ...message.data, data:
 assert.equal(guide.events().length, 3, "unknown frames remain rejected");
 assert.equal(await b.api.purchase({ ...order, orderId: "free-confirmed", value: 0,
   contents: [{ id: "adult", quantity: 1, item_price: 0 }] }), true);
+
+// Organiser pixel: one direct request per confirmed conversion, and our own pixel is untouched.
+const OWN = "9500041730032996", PARTNER = "4561979437392335";
+const shared = browser();
+const plain = browser();
+const partnerOrder = { ...order, orderId: "order_partner", partnerPixelId: PARTNER };
+assert.equal(await shared.api.purchase(partnerOrder), true);
+assert.equal(await plain.api.purchase({ ...order, orderId: "order_partner" }), true);
+assert.equal(JSON.stringify(shared.events()), JSON.stringify(plain.events()), "our own pixel records exactly what it does without an organiser pixel");
+assert.equal(shared.events().some(e => e.includes(PARTNER)), false, "the organiser pixel is never initialised in fbq");
+assert.equal(plain.beacons.length, 0);
+assert.equal(shared.beacons.length, 1);
+const beacon = shared.beacons[0], sent = beacon.url.searchParams;
+assert.equal(beacon.url.origin + beacon.url.pathname, "https://www.facebook.com/tr/");
+assert.equal(JSON.stringify(beacon.options), JSON.stringify({ mode: "no-cors", credentials: "include", keepalive: true }));
+assert.deepEqual([...sent.keys()].sort(), ["cd[content_ids]", "cd[content_type]", "cd[contents]", "cd[currency]",
+  "cd[num_items]", "cd[value]", "dl", "eid", "ev", "id", "ts"], "nothing beyond the conversion itself");
+assert.equal(sent.get("id"), PARTNER);
+assert.equal(sent.get("ev"), "Purchase");
+assert.equal(sent.get("eid"), "otratickets:Purchase:order_partner", "same event ID as our own pixel");
+assert.equal(sent.get("cd[value]"), "65.4");
+assert.equal(sent.get("cd[currency]"), "XCG");
+assert.equal(sent.get("cd[num_items]"), "3");
+assert.equal(sent.get("cd[contents]"), JSON.stringify(shared.events().at(-1)[2].contents));
+assert.equal(beacon.url.search.includes("example.com"), false, "no customer fields");
+assert.equal(await shared.api.purchase(partnerOrder), false);
+const revisit = browser({ localStorage: shared.window.localStorage });
+assert.equal(await revisit.api.purchase(partnerOrder), false);
+assert.equal(shared.beacons.length + revisit.beacons.length, 1, "a refresh or revisit repeats neither pixel");
+const withQuery = browser({ url: "https://otraguide.com/ticketing/stripe-checkout/8270/success/?session_id=cs_live_secret" });
+assert.equal(await withQuery.api.purchase(partnerOrder), true);
+assert.equal(withQuery.beacons[0].url.searchParams.get("dl"), "https://otraguide.com/ticketing/stripe-checkout/8270/success/");
+assert.equal(withQuery.beacons[0].url.search.includes("cs_live_secret"), false, "the order reference in the page URL is not shared");
+shared.api.viewContent({ id: 1, title: "Another organiser" });
+assert.equal(await shared.api.purchase({ ...order, orderId: "order_other" }), true);
+assert.equal(shared.beacons.length, 1, "other teams' purchases and page events never reach the organiser pixel");
+for (const partnerPixelId of ["", "abc", "123", OWN, "4561979437392335;alert(1)", "4561979437392335&ev=x", {}, null]) {
+  const invalid = browser();
+  assert.equal(await invalid.api.purchase({ ...order, partnerPixelId }), true);
+  assert.equal(invalid.beacons.length, 0, String(partnerPixelId));
+}
+for (const fetch of [() => { throw new Error("blocked"); }, () => Promise.reject(new Error("offline"))]) {
+  const failing = browser({ fetch });
+  assert.equal(await failing.api.purchase(partnerOrder), true, "an organiser failure never costs our own purchase event");
+  assert.equal(failing.events().at(-1)[1], "Purchase");
+}
+const blocked = browser({ fbq() { throw new Error("Tracker blocked"); } });
+assert.equal(await blocked.api.purchase(partnerOrder), false);
+assert.equal(blocked.beacons.length, 0, "no organiser event without our own");
+const partnerBridge = browser();
+partnerBridge.listeners.message({ ...message, source: partnerBridge.iframe.contentWindow,
+  data: { type: "OTRA_CHECKOUT_STARTED", data: { ...order, checkoutId: "attempt-9", partnerPixelId: PARTNER } } });
+partnerBridge.listeners.message({ ...message, source: partnerBridge.iframe.contentWindow,
+  data: { type: "OTRA_CHECKOUT_STARTED", data: { ...order, checkoutId: "attempt-9", partnerPixelId: PARTNER } } });
+assert.deepEqual(partnerBridge.beacons.map(b => [b.url.searchParams.get("ev"), b.url.searchParams.get("eid")]),
+  [["InitiateCheckout", "otratickets:InitiateCheckout:attempt-9"]]);
+const framedRun = browser({ framed: true });
+assert.equal(await framedRun.api.purchase(partnerOrder), false);
+assert.equal(framedRun.beacons.length, 0, "nothing is sent from inside an iframe");
 
 for (const file of ["index.html", "event.html", "clearboat.html", "rnb.html"]) {
   const html = read(file);
