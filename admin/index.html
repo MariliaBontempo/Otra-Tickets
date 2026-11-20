@@ -3196,7 +3196,8 @@
     $("editDraftContentBtn").classList.toggle("hidden", !isDraft(selected) || selected.status !== "draft" || !selected.adminOnly);
     $("editCheckoutBtn").classList.toggle("hidden", !eventIdForPage(selected));
     $("publishDraftBtn").classList.toggle("hidden", !isDraft(selected) || selected.status === "published");
-    $("adminOnlyWrap").classList.toggle("hidden", !isDraft(selected));
+    // Draft rows and published live rows (projectId) both carry the switch.
+    $("adminOnlyWrap").classList.toggle("hidden", !unlistedProjectId(selected));
     $("adminOnlyToggle").checked = !!(selected && selected.adminOnly);
     renderUnlistedControls();
     renderKeepSellingControls();
@@ -4336,22 +4337,38 @@
     await setUnlisted(true, slug);
   }
 
+  // Admin only works on drafts and on published pages (through their live
+  // draft). expected = the value this editor last saw, so a stale editor gets
+  // a 409 instead of undoing another admin's change.
   async function setAdminOnly() {
-    if (!selected || !isDraft(selected)) return;
+    const projectId = unlistedProjectId(selected);
+    if (!projectId) return;
+    const page = selected;
     const value = $("adminOnlyToggle").checked;
+    const previous = page.adminOnly === true;
     $("adminOnlyToggle").disabled = true;
     setStatus(value ? "Marking as admin only..." : "Making public...");
     try {
-      const data = await api(
-        `/admin/api/projects?action=set-admin-only&id=${encodeURIComponent(selected.id)}&value=${value}`,
-        { method: "POST", headers: authHeaders() }
-      );
-      selected.adminOnly = !!(data.project && data.project.adminOnly);
-      $("adminOnlyToggle").checked = selected.adminOnly;
-      renderKeepSellingControls();
-      setStatus(selected.adminOnly ? "Event is now admin only." : "Event is now public.", "ok");
+      const params = new URLSearchParams({
+        action: "set-admin-only", id: projectId, value: String(!!value), expected: String(previous),
+      });
+      const data = await api("/admin/api/projects?" + params.toString(), { method: "POST", headers: authHeaders() });
+      page.adminOnly = !!(data.project && data.project.adminOnly);
+      // Same draft can be listed twice (draft row and live row).
+      for (const row of pages) {
+        if (row === page || unlistedProjectId(row) !== projectId) continue;
+        row.adminOnly = page.adminOnly;
+      }
+      if (selected === page) {
+        $("adminOnlyToggle").checked = page.adminOnly;
+        renderKeepSellingControls();
+        refreshPreview();
+      }
+      setStatus(page.adminOnly
+        ? "Admin only. Hidden from the public page, API and checkout."
+        : page.unlisted ? "Unlisted again. Anyone with the link can open it." : "Public again.", "ok");
     } catch (err) {
-      $("adminOnlyToggle").checked = !value;
+      if (selected === page) $("adminOnlyToggle").checked = previous;
       setStatus(err.message, "error");
     } finally {
       $("adminOnlyToggle").disabled = false;
