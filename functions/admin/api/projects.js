@@ -369,6 +369,10 @@ async function projectPost(context) {
       ...(guideTitle ? { guideTitle } : {}) });
   }
 
+  // Admin only: hides a draft or a published page from the public page, API,
+  // feed and checkout; staff still preview it. status, frozenSlug, unlisted
+  // and keep selling stay as they are, so turning it off restores the page's
+  // previous listed or link only state exactly.
   if (url.searchParams.get("action") === "set-admin-only") {
     const kv = context.env.OVERRIDES;
     if (!kv) return json({ error: "overrides store not configured" }, 503);
@@ -376,9 +380,29 @@ async function projectPost(context) {
     if (!isDraftId(id)) return json({ error: "invalid draft id" }, 400);
     const project = await getProject(kv, id);
     if (!project) return json({ error: "draft not found" }, 404);
-    const next = { ...project, adminOnly: url.searchParams.get("value") === "true" };
+    // Strict: a typo must not silently hide (or expose) the page.
+    const rawValue = url.searchParams.get("value");
+    if (rawValue !== "true" && rawValue !== "false") return json({ error: "value must be true or false" }, 400);
+    const value = rawValue === "true";
+    const current = project.adminOnly === true;
+    // expected = the value the editor last saw. A stale editor must not undo
+    // another admin's change.
+    const expected = url.searchParams.get("expected");
+    if (expected !== null) {
+      if (expected !== "true" && expected !== "false") return json({ error: "expected must be true or false" }, 400);
+      if ((expected === "true") !== current) return json({ error: "Page changed. Reload and retry.", project }, 409);
+    }
+    if (value === current) return json({ project });
+    const next = { ...project, adminOnly: value };
     await putProject(kv, next);
-    if (isUnlistedProject(next)) await invalidatePublicFeed(kv);
+    await dropFeedSnapshot(kv);
+    // This switch decides whether the page is public at all, so record who
+    // changed it.
+    await appendAudit(kv, {
+      actor: await actorForAudit(session.token, session.role, context.env),
+      action: "save", pageId: id,
+      changedFields: [`adminOnly:${value}`],
+    });
     return json({ project: next });
   }
 
