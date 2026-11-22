@@ -185,12 +185,13 @@ export async function dropHiddenGuideEvents(siteEvents, upstreamEvents, env) {
 
 // ── Fixed storefront rows ──
 // The homepage always opens with fixed categories, mirroring the events
-// page handoff: "This Week" (whatever is actually happening during the current
-// Mon-Sun week in Curaçao time), "Upcoming Events", "Tours & Adventures", and
-// a final "Past Events" row. They are computed from the event list on EVERY
-// response - never baked into the edge cache or the KV snapshot - so date-based
-// rows keep tracking the calendar even while the feed body is served stale.
-const DAY_MS = 86400000;
+// page handoff: "This Week" (whatever is actually happening in the next 7 days,
+// today through today + 6, in Curaçao time), "Upcoming Events", "Tours &
+// Adventures", and a final "Past Events" row. They are computed from the event
+// list on EVERY response - never baked into the edge cache or the KV snapshot -
+// so date-based rows keep tracking the calendar even while the feed body is
+// served stale.
+const THIS_WEEK_DAYS = 7;
 const THIS_WEEK_ROW = { id: "this-week", title: "This Week" };
 const TOURS_ROW = { id: "tours-adventures", title: "Tours & Adventures" };
 const UPCOMING_ROW = { id: "upcoming", title: "Upcoming Events" };
@@ -341,9 +342,8 @@ function byUpcomingDate(a, b) {
 }
 
 function thisWeekEventIds(events, now) {
-  const todayKey = dateKeyInTimeZone(now, HOMEPAGE_TIME_ZONE);
-  const weekEndKey = dateKeyInTimeZone(now + daysUntilSunday(now) * DAY_MS, HOMEPAGE_TIME_ZONE);
-  const happening = events.filter((ev) => happensDuring(ev, todayKey, weekEndKey));
+  const { fromKey, toKey } = thisWeekWindow(now);
+  const happening = events.filter((ev) => happensDuring(ev, fromKey, toKey));
   // Dated events lead (soonest first); the always-running tours fill in after.
   const dated = happening
     .filter((ev) => ev.isPerennial !== true)
@@ -352,14 +352,14 @@ function thisWeekEventIds(events, now) {
   return [...dated, ...tours].map((ev) => String(ev.id));
 }
 
-// Days left until the Sunday that closes the current week in Curaçao.
-function daysUntilSunday(now) {
-  const weekday = new Intl.DateTimeFormat("en-US", {
-    timeZone: HOMEPAGE_TIME_ZONE,
-    weekday: "short",
-  }).format(new Date(now));
-  const index = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].indexOf(weekday);
-  return index < 0 ? 0 : 6 - index;
+// The rolling This Week window: today through today + 6 (inclusive) as
+// YYYY-MM-DD calendar days in Curaçao. The end day is added on the date key
+// itself (at UTC noon), so a local midnight can never slip it by a day.
+function thisWeekWindow(now) {
+  const fromKey = dateKeyInTimeZone(now, HOMEPAGE_TIME_ZONE);
+  const [year, month, day] = fromKey.split("-").map(Number);
+  const toKey = new Date(Date.UTC(year, month - 1, day + THIS_WEEK_DAYS - 1, 12)).toISOString().slice(0, 10);
+  return { fromKey, toKey };
 }
 
 // Does the event's date span touch the [fromKey..toKey] day window?
