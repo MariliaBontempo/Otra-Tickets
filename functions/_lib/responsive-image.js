@@ -117,12 +117,19 @@ export function metaImageUrl(url) {
   return variantUrl(value, { width: META_WIDTH, format: "jpeg" });
 }
 
-// A variant for a CSS background, sized to the current viewport.
+// A variant for a full width CSS background, sized to the device pixels of
+// the current viewport (CSS width x devicePixelRatio, rounded up to the next
+// allowed width): 800 on a typical phone, not the 1600 desktop file. The
+// 1600 default is only for callers without a window (server side).
 export function viewportVariantUrl(url) {
-  const viewport = typeof window === "undefined"
-    ? VARIANT_WIDTHS[VARIANT_WIDTHS.length - 1]
-    : (window.innerWidth || 0) * (window.devicePixelRatio || 1);
-  return variantUrl(url, { width: viewport });
+  return variantUrl(url, { width: viewportPixelWidth() });
+}
+
+export function viewportPixelWidth() {
+  if (typeof window === "undefined") return VARIANT_WIDTHS[VARIANT_WIDTHS.length - 1];
+  const root = typeof document !== "undefined" && document.documentElement;
+  const cssWidth = window.innerWidth || (root && root.clientWidth) || 0;
+  return Math.ceil(cssWidth * (window.devicePixelRatio || 1));
 }
 
 // Points an <img> at url with a WebP srcset. src stays the original: it is the

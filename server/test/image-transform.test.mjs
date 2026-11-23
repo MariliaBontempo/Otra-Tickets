@@ -1,12 +1,19 @@
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import sharp from "sharp";
 import { createApp } from "../app.js";
 import { buildRouteTable } from "../router.js";
-import { createImageTransform } from "../image-transform.js";
+import {
+  IMMUTABLE_CACHE_CONTROL,
+  MAX_DISK_CACHE_BYTES,
+  MAX_INPUT_PIXELS,
+  MAX_ORIGINAL_BYTES,
+  createImageTransform,
+} from "../image-transform.js";
+import { GUIDE_MEDIA_HOST } from "../../functions/_lib/responsive-image.js";
 
 // /img/<width>/<source>.<format> (functions/img/[[path]].js) served through
 // the real router with the sharp IMAGE_TRANSFORM binding: variants are WebP
@@ -31,7 +38,7 @@ function bucket(object, calls = []) {
       calls.push({ key, opts });
       if (!object) return null;
       return {
-        size: object.bytes.length,
+        size: object.size ?? object.bytes.length,
         httpEtag: '"e"',
         body: new Blob([object.bytes]).stream(),
         writeHttpMetadata(headers) { headers.set("content-type", object.type); },
@@ -204,4 +211,191 @@ test("local dev encodes production originals through the override-images fallbac
   } finally {
     globalThis.fetch = realFetch;
   }
+});
+
+// ---- production safety -------------------------------------------------------
+
+function tempDir(prefix) {
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  cacheDirs.push(dir);
+  return dir;
+}
+
+// Wraps the real sharp so a test can see the options every call received.
+function spySharp(seen) {
+  const wrapped = (input, options) => {
+    seen.push(options);
+    return sharp(input, options);
+  };
+  return () => Promise.resolve(wrapped);
+}
+
+test("the limits are exported for callers and tests", () => {
+  assert.equal(MAX_ORIGINAL_BYTES, 40 * 1024 * 1024);
+  assert.ok(Number.isInteger(MAX_INPUT_PIXELS) && MAX_INPUT_PIXELS >= 48_000_000 && MAX_INPUT_PIXELS < 268_402_689,
+    "pixel limit covers 48 MP phone photos and is tighter than the sharp default");
+  assert.ok(Number.isInteger(MAX_DISK_CACHE_BYTES) && MAX_DISK_CACHE_BYTES > 0);
+  assert.equal(IMMUTABLE_CACHE_CONTROL, "public, max-age=31536000, immutable");
+});
+
+test("an original whose content-length is over MAX_ORIGINAL_BYTES redirects without being read", async () => {
+  const seen = [];
+  const transform = createImageTransform({ loadSharp: spySharp(seen), log() {} });
+  const { get, calls } = setup({ transform, object: { bytes: fixture, type: "image/jpeg", size: MAX_ORIGINAL_BYTES + 1 } });
+  const res = await get(VARIANT);
+  assert.equal(res.status, 302);
+  assert.equal(res.headers.get("location"), `/override-images/${KEY}`);
+  assert.equal(calls.length, 1);
+  assert.equal(seen.length, 0, "sharp never sees an oversized original");
+});
+
+test("an original without a content-length stops buffering at the byte limit", async () => {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(new Blob([fixture]).stream(), { headers: { "content-type": "image/jpeg" } });
+  try {
+    const seen = [];
+    const transform = createImageTransform({ loadSharp: spySharp(seen), maxOriginalBytes: 1024, log() {} });
+    const { get } = setup({ transform, cacheDir: "" });
+    const res = await get("/img/400/guide-media/media/images/full/abc.jpg.webp");
+    assert.equal(res.status, 302);
+    assert.equal(res.headers.get("location"), `https://${GUIDE_MEDIA_HOST}/media/images/full/abc.jpg`);
+    assert.equal(seen.length, 0);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("sharp always gets an explicit limitInputPixels", async () => {
+  const seen = [];
+  const transform = createImageTransform({ loadSharp: spySharp(seen), log() {} });
+  const { get } = setup({ transform, cacheDir: "" });
+  const res = await get(VARIANT);
+  assert.equal(res.status, 200);
+  assert.ok(seen.length >= 1);
+  for (const options of seen) assert.equal(options.limitInputPixels, MAX_INPUT_PIXELS);
+});
+
+test("an original over the pixel limit redirects to the original instead of decoding", async () => {
+  const seen = [];
+  const logs = [];
+  // The fixture is 2000 x 1000 = 2 MP.
+  const transform = createImageTransform({ loadSharp: spySharp(seen), maxInputPixels: 1_000_000, log: (...args) => logs.push(args.join(" ")) });
+  const { get } = setup({ transform, cacheDir: "" });
+  const res = await get(VARIANT);
+  assert.equal(res.status, 302);
+  assert.equal(res.headers.get("location"), `/override-images/${KEY}`);
+  assert.ok(logs.some((line) => line.includes("pixel limit")), logs.join("\n"));
+  for (const options of seen) assert.equal(options.limitInputPixels, 1_000_000);
+});
+
+test("an unwritable cache dir still returns the encoded image with immutable headers", async () => {
+  const parent = tempDir("img-cache-ro-");
+  const blocker = join(parent, "not-a-dir");
+  writeFileSync(blocker, "a file where the cache dir should be");
+  const logs = [];
+  const transform = createImageTransform({ cacheDir: join(blocker, "cache"), log: (...args) => logs.push(args.join(" ")) });
+  const { get } = setup({ transform, cacheDir: "" });
+  for (let i = 0; i < 2; i++) {
+    const res = await get(VARIANT);
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get("content-type"), "image/webp");
+    assert.equal(res.headers.get("cache-control"), "public, max-age=31536000, immutable");
+    assert.equal((await sharp(Buffer.from(await res.arrayBuffer())).metadata()).width, 800);
+  }
+  assert.ok(logs.some((line) => line.includes("cache write failed")), logs.join("\n"));
+});
+
+test("the disk cache evicts the oldest files once it is over the cap", async () => {
+  // Byte sizes of the three variants, measured without a cap.
+  const sizes = {};
+  {
+    const { get } = setup({ cacheDir: "" });
+    for (const width of [400, 800, 1200]) {
+      sizes[width] = (await (await get(`/img/${width}/override-images/${KEY}.webp`)).arrayBuffer()).byteLength;
+    }
+  }
+
+  const dir = tempDir("img-cache-cap-");
+  // Left over from an earlier process: an old variant, and a file the cache
+  // does not own (never counted, never deleted).
+  const stale = join(dir, `${"a".repeat(64)}.webp`);
+  writeFileSync(stale, Buffer.alloc(4096));
+  utimesSync(stale, new Date("2020-01-01"), new Date("2020-01-01"));
+  writeFileSync(join(dir, "README"), "not a cache file");
+
+  const transform = createImageTransform({ cacheDir: dir, maxDiskBytes: sizes[800] + sizes[1200], log() {} });
+  const { get } = setup({ transform, cacheDir: "" });
+  const total = () => readdirSync(dir).filter((f) => f !== "README").reduce((sum, f) => sum + statSync(join(dir, f)).size, 0);
+
+  for (const width of [400, 800, 1200]) {
+    const res = await get(`/img/${width}/override-images/${KEY}.webp`);
+    assert.equal(res.status, 200);
+    await transform.flush();
+    assert.ok(total() <= sizes[800] + sizes[1200], `cache within the cap after the ${width} write`);
+  }
+  const files = readdirSync(dir).sort();
+  assert.ok(!files.includes(`${"a".repeat(64)}.webp`), "the stale variant was evicted first");
+  assert.ok(files.includes("README"), "files the cache does not own are left alone");
+  assert.equal(files.filter((f) => f.endsWith(".webp")).length, 2, "the oldest encoded variant (400) was evicted");
+  assert.deepEqual(
+    files.filter((f) => f.endsWith(".webp")).map((f) => statSync(join(dir, f)).size).sort((a, b) => a - b),
+    [sizes[800], sizes[1200]].sort((a, b) => a - b),
+  );
+
+  // The evicted 400 variant is encoded again on the next request (no stale
+  // index entry), and the cache stays within the cap.
+  const again = await get(`/img/400/override-images/${KEY}.webp`);
+  assert.equal(again.status, 200);
+  await transform.flush();
+  assert.ok(total() <= sizes[800] + sizes[1200]);
+});
+
+test("server/package.json pins the linux x64 sharp binary next to sharp", () => {
+  const pkg = JSON.parse(readFileSync(join(import.meta.dirname, "..", "package.json"), "utf8"));
+  const sharpVersion = pkg.dependencies.sharp;
+  assert.match(sharpVersion, /^\d+\.\d+\.\d+$/, "sharp is pinned so the binary version cannot drift");
+  const binary = (pkg.optionalDependencies || {})["@img/sharp-linux-x64"] || (pkg.dependencies || {})["@img/sharp-linux-x64"];
+  assert.equal(binary, sharpVersion, "@img/sharp-linux-x64 matches sharp");
+
+  const lock = JSON.parse(readFileSync(join(import.meta.dirname, "..", "package-lock.json"), "utf8"));
+  const root = lock.packages[""];
+  assert.equal((root.optionalDependencies || root.dependencies)["@img/sharp-linux-x64"], sharpVersion, "lockfile root lists the binary (npm ci)");
+  assert.equal(lock.packages["node_modules/sharp"].version, sharpVersion);
+  assert.equal(lock.packages["node_modules/@img/sharp-linux-x64"].version, sharpVersion);
+  assert.equal(lock.packages["node_modules/@img/sharp-linux-x64"].hasInstallScript, undefined, "the binary needs no install script");
+
+  // The deploy keeps --ignore-scripts; the declared binary is what makes that safe.
+  const deploy = readFileSync(join(import.meta.dirname, "..", "..", ".github", "workflows", "deploy.yml"), "utf8");
+  assert.match(deploy, /npm --prefix server ci --omit=dev --ignore-scripts/);
+});
+
+test("fallback redirects only ever point at the allowlisted original", async () => {
+  const transform = createImageTransform({ loadSharp: () => Promise.reject(new Error("no sharp")), log() {} });
+  const { get, calls } = setup({ transform, cacheDir: "" });
+  const expected = {
+    [`/img/800/override-images/${KEY}.webp`]: `/override-images/${KEY}`,
+    "/img/400/uploads/Otra%20Tickets%20Logo.webp.webp": "/uploads/Otra%20Tickets%20Logo.webp",
+    "/img/1600/guide-media/media/images/full/abc.jpg.webp": `https://${GUIDE_MEDIA_HOST}/media/images/full/abc.jpg`,
+    // Encoded tricks stay inside the allowlisted prefix or the Guide host.
+    "/img/800/uploads/..%2F..%2Fsecret.jpg.webp": "/uploads/..%2F..%2Fsecret.jpg",
+    "/img/800/guide-media/@evil.example/x.jpg.webp": `https://${GUIDE_MEDIA_HOST}/%40evil.example/x.jpg`,
+  };
+  for (const [path, location] of Object.entries(expected)) {
+    const res = await get(path);
+    assert.equal(res.status, 302, path);
+    assert.equal(res.headers.get("location"), location, path);
+  }
+  for (const path of [
+    "/img/800//evil.example/x.jpg.webp",
+    "/img/800/https%3A%2F%2Fevil.example%2Fx.jpg.webp",
+    "/img/800/%2F%2Fevil.example/x.jpg.webp",
+    "/img/800/guide-media/../x.jpg.webp",
+    "/img/800/uploads/variants/mosaic-hero-800.webp.webp",
+    "/img/800/override-images/8267/clip.mp4.webp",
+  ]) {
+    const res = await get(path);
+    assert.equal(res.status, 400, path);
+    assert.equal(res.headers.get("location"), null, path);
+  }
+  assert.equal(calls.length, 0);
 });

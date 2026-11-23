@@ -58,12 +58,22 @@ body {
   color: var(--fog);
   background: #000;
   min-height: 100vh;
-  /* Otra black texture, held still behind the scroll */
+  /* Otra black texture, held still behind the scroll. Sized variants (the
+     6000 px original is the fallback for browsers without image-set). */
   background-image: linear-gradient(rgba(7,8,10,0.55), rgba(7,8,10,0.78)), url("uploads/BG_Otra_Black_Texture.webp");
+  background-image: linear-gradient(rgba(7,8,10,0.55), rgba(7,8,10,0.78)), -webkit-image-set(url("uploads/variants/bg-otra-black-texture-800.webp") 1x, url("uploads/variants/bg-otra-black-texture-1600.webp") 2x);
+  background-image: linear-gradient(rgba(7,8,10,0.55), rgba(7,8,10,0.78)), image-set(url("uploads/variants/bg-otra-black-texture-800.webp") 1x, url("uploads/variants/bg-otra-black-texture-1600.webp") 2x);
   background-size: cover;
   background-position: center;
   background-attachment: fixed;
   -webkit-font-smoothing: antialiased;
+}
+/* Wide screens: never stretch the 800 px texture. */
+@media (min-width: 1000px) {
+  body {
+    background-image: linear-gradient(rgba(7,8,10,0.55), rgba(7,8,10,0.78)), -webkit-image-set(url("uploads/variants/bg-otra-black-texture-1600.webp") 1x, url("uploads/BG_Otra_Black_Texture.webp") 2x);
+    background-image: linear-gradient(rgba(7,8,10,0.55), rgba(7,8,10,0.78)), image-set(url("uploads/variants/bg-otra-black-texture-1600.webp") 1x, url("uploads/BG_Otra_Black_Texture.webp") 2x);
+  }
 }
 
 /* ============ HEADER ============ */
@@ -857,6 +867,17 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
 @media (prefers-reduced-motion: reduce) { .sk { animation: none; } }
 .sk-hero { position: absolute; inset: 0; }
 .sk-title-group { display: flex; flex-direction: column; gap: 16px; margin-bottom: 28px; }
+/* The slug route writes the hero and title into the first HTML: no shimmer
+   over the LCP image or next to a real title. The empty eyebrow keeps its
+   line so filling it does not push the title down. */
+.ev-hero-img[src] ~ .sk-hero,
+.ev-titleblock:has(#evTitle:not(:empty)) .sk-title-group { display: none; }
+.ev-titleblock:has(#evTitle:not(:empty)) #evEyebrow:empty { min-height: 1.5em; }
+/* Below the fold sections are filled late from design data. Skip their
+   rendering until they near the viewport, so a late paint there (the band
+   text, the story) can never replace the already painted hero as LCP. */
+#story, #evBandSection { content-visibility: auto; contain-intrinsic-size: auto 900px; }
+#evVideoSection, #evPhotoBandSection { content-visibility: auto; contain-intrinsic-size: auto 56.25vw; }
 .sk-eyebrow { height: 14px; width: 120px; }
 .sk-h1 { height: clamp(45px, 8.4vw, 141px); width: 80%; }
 .sk-meta { height: 16px; width: 200px; }
@@ -1356,15 +1377,20 @@ html[data-presidente-event="8088"] .btn-metal:hover { background: #4cba57; box-s
       // ----- HERO -----
       if (ev.image) {
         const hero = $("evHeroImg");
-        // Keep a preloaded override srcset; do not replace it with the Guide
-        // image from /api/event (site-overrides would only have to swap back).
-        if (!hero.getAttribute("srcset")) setImage(hero, ev.image);
-        hero.alt = ev.title;
+        // The slug route already wrote the feed card hero (src + srcset), or
+        // the preload srcset was attached above. Keep it: replacing it with
+        // the Guide image from /api/event would restart the LCP image, and
+        // site-overrides would only have to swap back.
+        if (!hero.getAttribute("srcset") && !hero.getAttribute("src")) setImage(hero, ev.image);
+        if (!hero.alt) hero.alt = ev.title;
       }
 
       // ----- TITLE BLOCK -----
-      $("evEyebrow").textContent = design.eyebrow || (ev.isPerennial ? "Experience · Curaçao" : "Event · Curaçao");
-      $("evTitle").textContent = design.displayTitle || ev.title;
+      // Unchanged text is not rewritten (the slug route may have written it):
+      // a fresh text node would be a new paint for an already painted title.
+      const setText = (el, text) => { if (el.textContent !== text) el.textContent = text; };
+      setText($("evEyebrow"), design.eyebrow || (ev.isPerennial ? "Experience · Curaçao" : "Event · Curaçao"));
+      setText($("evTitle"), design.displayTitle || ev.title);
       if (design.subtitle) {
         const sub = document.createElement("div");
         sub.className = "ev-sub";

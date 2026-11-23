@@ -3,11 +3,11 @@ import { SLUG_ALIASES } from "./_lib/slug-aliases.js";
 import { onRequestGet as getHomepageEvents } from "./api/homepage-events.js";
 import { findUnlistedSiteEvent } from "./_lib/homepage-feed.js";
 import { setNoStore } from "./_lib/no-store.js";
-import { metaImageUrl, preloadLinkHtml } from "./_lib/responsive-image.js";
+import { metaImageUrl, preloadLinkHtml, srcsetFor } from "./_lib/responsive-image.js";
 
 // Must match the sizes event.html gives #evHeroImg, so the preloaded
 // candidate is the one the hero then picks.
-const HERO_SIZES = "100vw";
+export const HERO_SIZES = "100vw";
 
 const STATIC_PATHS = new Set([
   "admin",
@@ -116,15 +116,7 @@ export async function onRequestGet(context) {
   }
 
   const html = await assetResponse.text();
-  const body = injectEventHead(
-    injectOverrideId(
-      html.replace('data-event-id=""', `data-event-id="${escapeAttribute(id)}"`),
-      id,
-    ),
-    event,
-    context.request.url,
-    { unlisted },
-  );
+  const body = renderEventPage(html, event, context.request.url, { unlisted });
   const headers = new Headers(assetResponse.headers);
   headers.set("content-type", "text/html; charset=utf-8");
   // Link only pages are never stored anywhere, so unlisting, relisting or a
@@ -141,6 +133,62 @@ export async function onRequestGet(context) {
   // Link only: keep it out of search engines too.
   if (unlisted) headers.set("x-robots-tag", "noindex, nofollow");
   return new Response(body, { status: assetResponse.status, headers });
+}
+
+// event.html as the slug route serves it for one feed card. Exported so the
+// local Lighthouse preview (qa/local-preview.mjs) serves the same markup.
+export function renderEventPage(html, event, requestUrl, { unlisted = false } = {}) {
+  const id = String(event.id || "");
+  return injectEventHead(
+    injectAboveFold(
+      injectOverrideId(html.replace('data-event-id=""', `data-event-id="${escapeAttribute(id)}"`), id),
+      event,
+    ),
+    event,
+    requestUrl,
+    { unlisted },
+  );
+}
+
+// Above the fold content in the first response, so the LCP image paints
+// without waiting for event.html's script and /api/event:
+// - #evHeroImg gets the feed card photo (the one the hero ends up showing,
+//   see homepageOverrideImage) with the same WebP srcset/sizes the head
+//   preloads. src stays the original: browsers without srcset use it, and
+//   site-overrides.js compares it to skip a same image swap.
+// - #evTitle gets the card title (and #evEyebrow an eyebrow, if the card has
+//   one). event.html keeps both unless /api/event or an override changes them.
+export function injectAboveFold(html, event) {
+  const image = heroImageUrl(event && event.img);
+  const title = cleanText(event && event.title);
+  const eyebrow = cleanText(event && event.eyebrow);
+  let out = html;
+  if (image) {
+    out = out.replace(/<img\b([^>]*\bid="evHeroImg"[^>]*?)\s*\/?>/i, (tag, attributes) => {
+      if (/\s(?:src|srcset)\s*=/i.test(attributes)) return tag;
+      const kept = attributes.replace(/\s(?:alt|sizes)\s*=\s*"[^"]*"/gi, "");
+      const srcset = srcsetFor(image);
+      const responsive = srcset
+        ? ` srcset="${escapeAttribute(srcset)}" sizes="${escapeAttribute(HERO_SIZES)}"`
+        : ` sizes="${escapeAttribute(HERO_SIZES)}"`;
+      return `<img${kept}${responsive} src="${escapeAttribute(image)}" alt="${escapeAttribute(title)}" />`;
+    });
+  }
+  if (title) {
+    out = out.replace(/(<h1\b[^>]*\bid="evTitle"[^>]*>)\s*(<\/h1>)/i, (match, open, close) => `${open}${escapeHtml(title)}${close}`);
+  }
+  if (eyebrow) {
+    out = out.replace(/(<span\b[^>]*\bid="evEyebrow"[^>]*>)\s*(<\/span>)/i, (match, open, close) => `${open}${escapeHtml(eyebrow)}${close}`);
+  }
+  return out;
+}
+
+// A feed image URL safe to write into src: https, or a same-origin path.
+function heroImageUrl(value) {
+  const url = typeof value === "string" ? value.trim() : "";
+  if (!url || /^\/\//.test(url)) return "";
+  if (/^[a-z][a-z0-9+.-]*:/i.test(url) && !/^https:\/\//i.test(url)) return "";
+  return url;
 }
 
 export function injectOverrideId(html, id) {

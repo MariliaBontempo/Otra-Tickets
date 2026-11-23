@@ -1468,5 +1468,19 @@
       "format": "webp",
       "bytes": 92808
     }
+  ],
+  "BG_Otra_Black_Texture.webp": [
+    {
+      "path": "uploads/variants/bg-otra-black-texture-800.webp",
+      "width": 800,
+      "format": "webp",
+      "bytes": 16546
+    },
+    {
+      "path": "uploads/variants/bg-otra-black-texture-1600.webp",
+      "width": 1600,
+      "format": "webp",
+      "bytes": 63398
+    }
   ]
 }

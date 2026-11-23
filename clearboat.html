@@ -69,12 +69,22 @@ body {
   color: var(--fog);
   background: #000;
   min-height: 100vh;
-  /* Otra black texture, held still behind the scroll */
+  /* Otra black texture, held still behind the scroll. Sized variants (the
+     6000 px original is the fallback for browsers without image-set). */
   background-image: linear-gradient(rgba(7,8,10,0.55), rgba(7,8,10,0.78)), url("uploads/BG_Otra_Black_Texture.webp");
+  background-image: linear-gradient(rgba(7,8,10,0.55), rgba(7,8,10,0.78)), -webkit-image-set(url("uploads/variants/bg-otra-black-texture-800.webp") 1x, url("uploads/variants/bg-otra-black-texture-1600.webp") 2x);
+  background-image: linear-gradient(rgba(7,8,10,0.55), rgba(7,8,10,0.78)), image-set(url("uploads/variants/bg-otra-black-texture-800.webp") 1x, url("uploads/variants/bg-otra-black-texture-1600.webp") 2x);
   background-size: cover;
   background-position: center;
   background-attachment: fixed;
   -webkit-font-smoothing: antialiased;
+}
+/* Wide screens: never stretch the 800 px texture. */
+@media (min-width: 1000px) {
+  body {
+    background-image: linear-gradient(rgba(7,8,10,0.55), rgba(7,8,10,0.78)), -webkit-image-set(url("uploads/variants/bg-otra-black-texture-1600.webp") 1x, url("uploads/BG_Otra_Black_Texture.webp") 2x);
+    background-image: linear-gradient(rgba(7,8,10,0.55), rgba(7,8,10,0.78)), image-set(url("uploads/variants/bg-otra-black-texture-1600.webp") 1x, url("uploads/BG_Otra_Black_Texture.webp") 2x);
+  }
 }
 
 /* ============ HEADER ============ */

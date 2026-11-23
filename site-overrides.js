@@ -754,11 +754,18 @@
       }
       return;
     }
-    const url = imageHelper ? imageHelper.viewportVariantUrl(value) : value;
-    const bg = `url("${url.replace(/"/g, "%22")}")`;
-    if (el.style.backgroundImage !== bg) {
-      el.style.backgroundImage = bg;
-    }
+    // A background slot gets a variant sized to the viewport. Wait for the
+    // helper rather than set the full original first and the variant after
+    // (two downloads, and a late repaint of the slot).
+    const applyBackground = () => {
+      const url = imageHelper ? imageHelper.viewportVariantUrl(value) : value;
+      const bg = `url("${url.replace(/"/g, "%22")}")`;
+      if (el.style.backgroundImage !== bg) {
+        el.style.backgroundImage = bg;
+      }
+    };
+    if (imageHelper) applyBackground();
+    else imageHelperReady.then(applyBackground);
   }
 
   // An override value pointing at a video file turns the slot into a real
@@ -816,6 +823,11 @@
   // the variant the slot shows instead of downloading the full original.
   function applyDecodedImage(el, value) {
     imageHelperReady.then(() => {
+      // The slot already shows this image through its WebP srcset (the slug
+      // route wrote it, or event.html attached the preloaded one). A decode
+      // and swap would only repaint the same photo and restart the LCP.
+      const current = el.getAttribute && el.getAttribute("srcset");
+      if (imageHelper && current && current === imageHelper.srcsetFor(value)) return;
       const show = (img) => {
         if (imageHelper) imageHelper.setResponsiveImage(img, value, { sizes: el.getAttribute("sizes") || undefined });
         else img.src = value;

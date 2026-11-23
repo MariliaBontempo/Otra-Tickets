@@ -54,6 +54,11 @@ const env = {
   OTRA_API_URL: process.env.OTRA_API_URL || undefined,
 };
 const app = createApp(env, buildRouteTable(listFunctionFiles(FUNCTIONS_DIR)), FUNCTIONS_DIR);
+// sharp is native (deploy installs @img/sharp-linux-x64 with --ignore-scripts).
+// Without it /img still works: every variant redirects to its original.
+env.IMAGE_TRANSFORM.ready().then((loaded) => {
+  console.log(loaded ? "image-transform: sharp loaded, /img encodes variants" : "image-transform: sharp NOT loaded, /img redirects to originals");
+});
 
 // Ensure schema exists before serving.
 await initializeSchema(pool, process.env.RUN_SCHEMA_INIT);

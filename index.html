@@ -118,12 +118,22 @@ body {
   color: var(--fog);
   background: #000;
   min-height: 100vh;
-  /* Otra black texture, held still behind the scroll */
+  /* Otra black texture, held still behind the scroll. Sized variants (the
+     6000 px original is the fallback for browsers without image-set). */
   background-image: linear-gradient(rgba(7,8,10,0.55), rgba(7,8,10,0.78)), url("uploads/BG_Otra_Black_Texture.webp");
+  background-image: linear-gradient(rgba(7,8,10,0.55), rgba(7,8,10,0.78)), -webkit-image-set(url("uploads/variants/bg-otra-black-texture-800.webp") 1x, url("uploads/variants/bg-otra-black-texture-1600.webp") 2x);
+  background-image: linear-gradient(rgba(7,8,10,0.55), rgba(7,8,10,0.78)), image-set(url("uploads/variants/bg-otra-black-texture-800.webp") 1x, url("uploads/variants/bg-otra-black-texture-1600.webp") 2x);
   background-size: cover;
   background-position: center;
   background-attachment: fixed;
   -webkit-font-smoothing: antialiased;
+}
+/* Wide screens: never stretch the 800 px texture. */
+@media (min-width: 1000px) {
+  body {
+    background-image: linear-gradient(rgba(7,8,10,0.55), rgba(7,8,10,0.78)), -webkit-image-set(url("uploads/variants/bg-otra-black-texture-1600.webp") 1x, url("uploads/BG_Otra_Black_Texture.webp") 2x);
+    background-image: linear-gradient(rgba(7,8,10,0.55), rgba(7,8,10,0.78)), image-set(url("uploads/variants/bg-otra-black-texture-1600.webp") 1x, url("uploads/BG_Otra_Black_Texture.webp") 2x);
+  }
 }
 
 /* ============ HEADER ============ */
@@ -601,8 +611,10 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
      compositor-only (opacity/transform). Filter animations, forwards-filled
      filters and main-thread repaints here churn the header's backdrop root,
      which makes Chrome drop the header's backdrop-filter for a frame — the
-     mosaic flashes through in full color. */
-  animation: wordmarkIn 1.7s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+     mosaic flashes through in full color.
+     Scale only, never opacity: the wordmark is the page's LCP image and must
+     be visible on its first paint (no fill mode, no fade from 0). */
+  animation: wordmarkIn 1.7s cubic-bezier(0.16, 1, 0.3, 1);
   isolation: isolate;
 }
 .wordmark-img {
@@ -640,9 +652,8 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
   animation: wordmarkSheen 8s ease-in-out 2.2s infinite;
 }
 @keyframes wordmarkIn {
-  0%   { opacity: 0; transform: scale(0.82) translateY(16px); }
-  55%  { opacity: 1; }
-  100% { opacity: 1; transform: scale(0.9) translateY(0); }
+  0%   { transform: scale(0.82) translateY(16px); }
+  100% { transform: scale(0.9) translateY(0); }
 }
 /* translateX endpoints mirror the old background-position sweep (180% → -80%
    at background-size 220%): -98% and +44% of the 220%-wide streak layer */
