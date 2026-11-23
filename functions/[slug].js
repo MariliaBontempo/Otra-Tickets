@@ -3,11 +3,6 @@ import { SLUG_ALIASES } from "./_lib/slug-aliases.js";
 import { onRequestGet as getHomepageEvents } from "./api/homepage-events.js";
 import { findUnlistedSiteEvent } from "./_lib/homepage-feed.js";
 import { setNoStore } from "./_lib/no-store.js";
-import { metaImageUrl, preloadLinkHtml, srcsetFor } from "./_lib/responsive-image.js";
-
-// Must match the sizes event.html gives #evHeroImg, so the preloaded
-// candidate is the one the hero then picks.
-export const HERO_SIZES = "100vw";
 
 const STATIC_PATHS = new Set([
   "admin",
@@ -116,7 +111,15 @@ export async function onRequestGet(context) {
   }
 
   const html = await assetResponse.text();
-  const body = renderEventPage(html, event, context.request.url, { unlisted });
+  const body = injectEventHead(
+    injectOverrideId(
+      html.replace('data-event-id=""', `data-event-id="${escapeAttribute(id)}"`),
+      id,
+    ),
+    event,
+    context.request.url,
+    { unlisted },
+  );
   const headers = new Headers(assetResponse.headers);
   headers.set("content-type", "text/html; charset=utf-8");
   // Link only pages are never stored anywhere, so unlisting, relisting or a
@@ -133,62 +136,6 @@ export async function onRequestGet(context) {
   // Link only: keep it out of search engines too.
   if (unlisted) headers.set("x-robots-tag", "noindex, nofollow");
   return new Response(body, { status: assetResponse.status, headers });
-}
-
-// event.html as the slug route serves it for one feed card. Exported so the
-// local Lighthouse preview (qa/local-preview.mjs) serves the same markup.
-export function renderEventPage(html, event, requestUrl, { unlisted = false } = {}) {
-  const id = String(event.id || "");
-  return injectEventHead(
-    injectAboveFold(
-      injectOverrideId(html.replace('data-event-id=""', `data-event-id="${escapeAttribute(id)}"`), id),
-      event,
-    ),
-    event,
-    requestUrl,
-    { unlisted },
-  );
-}
-
-// Above the fold content in the first response, so the LCP image paints
-// without waiting for event.html's script and /api/event:
-// - #evHeroImg gets the feed card photo (the one the hero ends up showing,
-//   see homepageOverrideImage) with the same WebP srcset/sizes the head
-//   preloads. src stays the original: browsers without srcset use it, and
-//   site-overrides.js compares it to skip a same image swap.
-// - #evTitle gets the card title (and #evEyebrow an eyebrow, if the card has
-//   one). event.html keeps both unless /api/event or an override changes them.
-export function injectAboveFold(html, event) {
-  const image = heroImageUrl(event && event.img);
-  const title = cleanText(event && event.title);
-  const eyebrow = cleanText(event && event.eyebrow);
-  let out = html;
-  if (image) {
-    out = out.replace(/<img\b([^>]*\bid="evHeroImg"[^>]*?)\s*\/?>/i, (tag, attributes) => {
-      if (/\s(?:src|srcset)\s*=/i.test(attributes)) return tag;
-      const kept = attributes.replace(/\s(?:alt|sizes)\s*=\s*"[^"]*"/gi, "");
-      const srcset = srcsetFor(image);
-      const responsive = srcset
-        ? ` srcset="${escapeAttribute(srcset)}" sizes="${escapeAttribute(HERO_SIZES)}"`
-        : ` sizes="${escapeAttribute(HERO_SIZES)}"`;
-      return `<img${kept}${responsive} src="${escapeAttribute(image)}" alt="${escapeAttribute(title)}" />`;
-    });
-  }
-  if (title) {
-    out = out.replace(/(<h1\b[^>]*\bid="evTitle"[^>]*>)\s*(<\/h1>)/i, (match, open, close) => `${open}${escapeHtml(title)}${close}`);
-  }
-  if (eyebrow) {
-    out = out.replace(/(<span\b[^>]*\bid="evEyebrow"[^>]*>)\s*(<\/span>)/i, (match, open, close) => `${open}${escapeHtml(eyebrow)}${close}`);
-  }
-  return out;
-}
-
-// A feed image URL safe to write into src: https, or a same-origin path.
-function heroImageUrl(value) {
-  const url = typeof value === "string" ? value.trim() : "";
-  if (!url || /^\/\//.test(url)) return "";
-  if (/^[a-z][a-z0-9+.-]*:/i.test(url) && !/^https:\/\//i.test(url)) return "";
-  return url;
 }
 
 export function injectOverrideId(html, id) {
@@ -250,10 +197,6 @@ function injectEventHead(html, event, requestUrl, { unlisted = false } = {}) {
     `<meta name="twitter:title" content="${escapeAttribute(seo.title)}" />`,
     `<meta name="twitter:description" content="${escapeAttribute(seo.description)}" />`,
     seo.image ? `<meta name="twitter:image" content="${escapeAttribute(seo.image)}" />` : "",
-    // The feed card image is the photo the hero ends up showing (see
-    // homepageOverrideImage), so its mobile WebP variant can start before
-    // event.html's script and /api/event have run.
-    preloadLinkHtml(event.img, { sizes: HERO_SIZES }),
     // No Event rich result for a link only page.
     unlisted ? "" : `<script type="application/ld+json">${jsonLd}</script>`,
   ].filter(Boolean).join("\n");
@@ -270,8 +213,7 @@ function eventSeo(event, requestUrl) {
   const date = cleanText(event.dateLabel || (event.isPerennial ? "Flexible dates" : ""));
   const slug = cleanText(event.slug);
   const canonical = new URL(slug ? `/${slug}` : "/", SITE_ORIGIN).href;
-  // Crawlers and mail clients need JPEG or PNG, never a WebP variant.
-  const image = event.img ? absoluteUrl(metaImageUrl(event.img), requestUrl) : "";
+  const image = event.img ? absoluteUrl(event.img, requestUrl) : "";
   const when = date ? ` on ${date}` : "";
   const where = venue ? ` at ${venue}` : " in Curaçao";
   const description = clampDescription(`Get tickets for ${eventTitle}${when}${where} through Otra Tickets, powered by Otra Guide.`);

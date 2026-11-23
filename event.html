@@ -5,7 +5,6 @@
 <script src="/meta-pixel.js"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Otra Tickets — Event</title>
-<link rel="modulepreload" href="/responsive-image.js?v=1" />
 <style>
 /* Self-hosted Inter (no render-blocking Google Fonts request) */
 @font-face { font-family: "Inter"; font-style: normal; font-weight: 400; font-display: swap; src: url("fonts/inter-400.woff2") format("woff2"); }
@@ -58,22 +57,12 @@ body {
   color: var(--fog);
   background: #000;
   min-height: 100vh;
-  /* Otra black texture, held still behind the scroll. Sized variants (the
-     6000 px original is the fallback for browsers without image-set). */
+  /* Otra black texture, held still behind the scroll */
   background-image: linear-gradient(rgba(7,8,10,0.55), rgba(7,8,10,0.78)), url("uploads/BG_Otra_Black_Texture.webp");
-  background-image: linear-gradient(rgba(7,8,10,0.55), rgba(7,8,10,0.78)), -webkit-image-set(url("uploads/variants/bg-otra-black-texture-800.webp") 1x, url("uploads/variants/bg-otra-black-texture-1600.webp") 2x);
-  background-image: linear-gradient(rgba(7,8,10,0.55), rgba(7,8,10,0.78)), image-set(url("uploads/variants/bg-otra-black-texture-800.webp") 1x, url("uploads/variants/bg-otra-black-texture-1600.webp") 2x);
   background-size: cover;
   background-position: center;
   background-attachment: fixed;
   -webkit-font-smoothing: antialiased;
-}
-/* Wide screens: never stretch the 800 px texture. */
-@media (min-width: 1000px) {
-  body {
-    background-image: linear-gradient(rgba(7,8,10,0.55), rgba(7,8,10,0.78)), -webkit-image-set(url("uploads/variants/bg-otra-black-texture-1600.webp") 1x, url("uploads/BG_Otra_Black_Texture.webp") 2x);
-    background-image: linear-gradient(rgba(7,8,10,0.55), rgba(7,8,10,0.78)), image-set(url("uploads/variants/bg-otra-black-texture-1600.webp") 1x, url("uploads/BG_Otra_Black_Texture.webp") 2x);
-  }
 }
 
 /* ============ HEADER ============ */
@@ -94,7 +83,6 @@ body {
 
 .brand { display: flex; align-items: center; gap: 20px; flex-shrink: 0; }
 .brand img { width: 84px; height: 84px; display: block; }
-.brand picture { display: block; line-height: 0; flex-shrink: 0; }
 .brand .wordmark {
   font-family: var(--font-display);
   font-weight: 800;
@@ -868,17 +856,6 @@ footer .loc { margin-top: 8px; font-size: 12px; letter-spacing: 0.28em; text-tra
 @media (prefers-reduced-motion: reduce) { .sk { animation: none; } }
 .sk-hero { position: absolute; inset: 0; }
 .sk-title-group { display: flex; flex-direction: column; gap: 16px; margin-bottom: 28px; }
-/* The slug route writes the hero and title into the first HTML: no shimmer
-   over the LCP image or next to a real title. The empty eyebrow keeps its
-   line so filling it does not push the title down. */
-.ev-hero-img[src] ~ .sk-hero,
-.ev-titleblock:has(#evTitle:not(:empty)) .sk-title-group { display: none; }
-.ev-titleblock:has(#evTitle:not(:empty)) #evEyebrow:empty { min-height: 1.5em; }
-/* Below the fold sections are filled late from design data. Skip their
-   rendering until they near the viewport, so a late paint there (the band
-   text, the story) can never replace the already painted hero as LCP. */
-#story, #evBandSection { content-visibility: auto; contain-intrinsic-size: auto 900px; }
-#evVideoSection, #evPhotoBandSection { content-visibility: auto; contain-intrinsic-size: auto 56.25vw; }
 .sk-eyebrow { height: 14px; width: 120px; }
 .sk-h1 { height: clamp(45px, 8.4vw, 141px); width: 80%; }
 .sk-meta { height: 16px; width: 200px; }
@@ -955,11 +932,7 @@ html[data-presidente-event="8088"] .btn-metal:hover { background: #4cba57; box-s
 <noscript><img height="1" width="1" style="display:none" src="/api/meta-pageview" alt="" /></noscript>
   <header class="header">
     <a class="brand" href="/" style="text-decoration:none;color:inherit">
-      <picture>
-        <source type="image/avif" srcset="uploads/variants/otra-tickets-logo-84.avif 1x, uploads/variants/otra-tickets-logo-168.avif 2x, uploads/variants/otra-tickets-logo-252.avif 3x">
-        <source type="image/webp" srcset="uploads/variants/otra-tickets-logo-84.webp 1x, uploads/variants/otra-tickets-logo-168.webp 2x, uploads/variants/otra-tickets-logo-252.webp 3x">
-        <img src="uploads/variants/otra-tickets-logo-84.webp" alt="Otra Tickets" width="84" height="84" decoding="async">
-      </picture>
+      <img src="uploads/Otra Tickets Logo.webp" alt="Otra Tickets" />
       <span class="wordmark">Otra Tickets</span>
     </a>
 
@@ -1060,9 +1033,7 @@ html[data-presidente-event="8088"] .btn-metal:hover { background: #4cba57; box-s
 
     <!-- ============ HERO (image only) ============ -->
     <section class="ev-hero" data-screen-label="Hero">
-      <!-- LCP image. sizes must match HERO_SIZES in functions/[slug].js,
-           which preloads the same WebP srcset in the head. -->
-      <img class="ev-hero-img" id="evHeroImg" alt="" sizes="100vw" width="1600" height="900" fetchpriority="high" />
+      <img class="ev-hero-img" id="evHeroImg" alt="" />
       <div data-skeleton aria-hidden="true" class="sk sk-hero"></div>
       <div class="ev-hero-veil"></div>
       <button class="scroll-cue" type="button" aria-label="Scroll down to the event details"
@@ -1095,12 +1066,12 @@ html[data-presidente-event="8088"] .btn-metal:hover { background: #4cba57; box-s
         <p class="ev-pull" id="evPullQuote" style="margin-top:22px;" hidden></p>
         <div class="ev-body" id="evBody"></div>
       </div>
-      <img class="ev-story-img" id="evStoryImg" alt="" sizes="(max-width: 900px) 100vw, 60vw" width="1600" height="900" loading="lazy" decoding="async" hidden />
+      <img class="ev-story-img" id="evStoryImg" alt="" hidden />
     </section>
 
     <!-- ============ VIDEO / FEATURE IMAGE ============ -->
     <section class="ev-video reveal" id="evVideoSection" data-screen-label="Feature image" hidden>
-      <img id="evVideoImg" alt="" sizes="100vw" width="1600" height="900" loading="lazy" decoding="async" />
+      <img id="evVideoImg" alt="" loading="lazy" />
       <div class="play"><span><svg viewBox="0 0 24 24"><polygon points="8 5 19 12 8 19"/></svg></span></div>
     </section>
 
@@ -1124,7 +1095,7 @@ html[data-presidente-event="8088"] .btn-metal:hover { background: #4cba57; box-s
 
     <!-- ============ PHOTO BAND ============ -->
     <section class="ev-photoband reveal" id="evPhotoBandSection" hidden>
-      <img id="evPhotoBandImg" alt="" sizes="100vw" width="1600" height="900" loading="lazy" decoding="async" />
+      <img id="evPhotoBandImg" alt="" loading="lazy" />
     </section>
 
     <!-- ============ PRACTICAL INFO ============ -->
@@ -1266,24 +1237,8 @@ html[data-presidente-event="8088"] .btn-metal:hover { background: #4cba57; box-s
        Function and fill the template sections, hiding the ones with no data. */
     (async function () {
       const $ = (id) => document.getElementById(id);
-      // Responsive image helper (functions/_lib/responsive-image.js, served as
-      // /responsive-image.js), loaded while /api/event is in flight. Resolves
-      // to null when it cannot load; images then keep their original URLs.
-      const imageHelper = import("/responsive-image.js?v=1").catch(() => null);
       const id = document.documentElement.dataset.eventId || new URLSearchParams(location.search).get("id");
       if (!id) { showError(); return; }
-
-      // The slug route preloads the feed-card hero (the photo the page ends
-      // up showing after overrides). Attach that srcset now so the LCP image
-      // can paint from the preload and is not first filled with the Guide
-      // original, then swapped.
-      const heroEl = $("evHeroImg");
-      const heroPreload = document.querySelector('link[rel="preload"][as="image"][imagesrcset]');
-      if (heroEl && heroPreload && !heroEl.getAttribute("srcset")) {
-        heroEl.setAttribute("srcset", heroPreload.getAttribute("imagesrcset"));
-        const preloadSizes = heroPreload.getAttribute("imagesizes");
-        if (preloadSizes) heroEl.setAttribute("sizes", preloadSizes);
-      }
 
       let ev;
       try {
@@ -1331,12 +1286,6 @@ html[data-presidente-event="8088"] .btn-metal:hover { background: #4cba57; box-s
         return;
       }
 
-      const images = await imageHelper;
-      // WebP width variants for allowlisted sources; sizes come from each
-      // <img>'s own sizes attribute. Anything else keeps its plain src.
-      const setImage = (el, url) => (images ? images.setResponsiveImage(el, url) : (el.src = url));
-      const LIKE_IMAGE_SIZES = "(max-width: 720px) 100vw, 480px";
-
       removeSkeletons();
       window.OTRAMeta?.viewContent(ev);
       const CURRENCY = { USD: "$", EUR: "€", ANG: "ƒ", AWG: "ƒ" };
@@ -1378,20 +1327,13 @@ html[data-presidente-event="8088"] .btn-metal:hover { background: #4cba57; box-s
       // ----- HERO -----
       if (ev.image) {
         const hero = $("evHeroImg");
-        // The slug route already wrote the feed card hero (src + srcset), or
-        // the preload srcset was attached above. Keep it: replacing it with
-        // the Guide image from /api/event would restart the LCP image, and
-        // site-overrides would only have to swap back.
-        if (!hero.getAttribute("srcset") && !hero.getAttribute("src")) setImage(hero, ev.image);
-        if (!hero.alt) hero.alt = ev.title;
+        hero.src = ev.image;
+        hero.alt = ev.title;
       }
 
       // ----- TITLE BLOCK -----
-      // Unchanged text is not rewritten (the slug route may have written it):
-      // a fresh text node would be a new paint for an already painted title.
-      const setText = (el, text) => { if (el.textContent !== text) el.textContent = text; };
-      setText($("evEyebrow"), design.eyebrow || (ev.isPerennial ? "Experience · Curaçao" : "Event · Curaçao"));
-      setText($("evTitle"), design.displayTitle || ev.title);
+      $("evEyebrow").textContent = design.eyebrow || (ev.isPerennial ? "Experience · Curaçao" : "Event · Curaçao");
+      $("evTitle").textContent = design.displayTitle || ev.title;
       if (design.subtitle) {
         const sub = document.createElement("div");
         sub.className = "ev-sub";
@@ -1444,7 +1386,7 @@ html[data-presidente-event="8088"] .btn-metal:hover { background: #4cba57; box-s
         });
         if (design.storyImage || ev.image) {
           const img = $("evStoryImg");
-          setImage(img, design.storyImage || ev.image);
+          img.src = design.storyImage || ev.image;
           img.alt = ev.title;
           img.hidden = false;
           if (hasPresidenteSponsor) {
@@ -1480,17 +1422,14 @@ html[data-presidente-event="8088"] .btn-metal:hover { background: #4cba57; box-s
       }
 
       if (design.videoImage) {
-        setImage($("evVideoImg"), design.videoImage);
+        $("evVideoImg").src = design.videoImage;
         $("evVideoImg").alt = ev.title;
         $("evVideoSection").classList.add("is-image");
         $("evVideoSection").hidden = false;
       }
 
       if (design.bandImage || design.bandTitle || design.bandText || (design.appreciates && design.appreciates.length)) {
-        if (design.bandImage) {
-          const bandImage = images ? images.viewportVariantUrl(design.bandImage) : design.bandImage;
-          $("evBandBg").style.backgroundImage = 'url("' + cssUrl(bandImage) + '")';
-        }
+        if (design.bandImage) $("evBandBg").style.backgroundImage = 'url("' + cssUrl(design.bandImage) + '")';
         if (design.bandEyebrow) $("evBandEyebrow").textContent = design.bandEyebrow;
         $("evBandTitle").textContent = design.bandTitle || "";
         $("evBandText").textContent = design.bandText || "";
@@ -1504,9 +1443,7 @@ html[data-presidente-event="8088"] .btn-metal:hover { background: #4cba57; box-s
             // exports; plain strings render as the classic numbered list.
             if (item && typeof item === "object") {
               const image = typeof item.image === "string" && item.image.startsWith("/override-images/")
-                ? '<img class="ev-like-image" src="' + esc(item.image) + '"' +
-                  (images ? images.srcsetAttributes(item.image, { sizes: LIKE_IMAGE_SIZES }) : "") +
-                  ' alt="' + esc(item.name || "") + '" loading="lazy" decoding="async">' : "";
+                ? '<img class="ev-like-image" src="' + esc(item.image) + '" alt="' + esc(item.name || "") + '" loading="lazy">' : "";
               if (cardLayout) {
                 const rawDescription = String(item.description || "");
                 const concept = rawDescription.match(/^Optional fundraiser perk, separate from the Entrance ticket\. Source prototype reference: (\$[\d,]+(?:\.\d{2})?); currency, availability and sale terms await approval\. This is not included in Entrance [^.]+\.\s*/);
@@ -1549,7 +1486,7 @@ html[data-presidente-event="8088"] .btn-metal:hover { background: #4cba57; box-s
       }
 
       if (design.photoBandImage) {
-        setImage($("evPhotoBandImg"), design.photoBandImage);
+        $("evPhotoBandImg").src = design.photoBandImage;
         $("evPhotoBandImg").alt = ev.title;
         $("evPhotoBandSection").hidden = false;
       }
@@ -1922,7 +1859,7 @@ html[data-presidente-event="8088"] .btn-metal:hover { background: #4cba57; box-s
       }
     })();
   </script>
-  <script src="/site-overrides.js?v=16"></script>
+  <script src="/site-overrides.js?v=15"></script>
 <script src="/account-menu.js" defer></script>
 </body>
 </html>
