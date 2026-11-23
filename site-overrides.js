@@ -8,6 +8,11 @@
   const RICH_TEXT_MAX_HTML = 40000;
   const RICH_TEXT_MAX_DEPTH = 6;
   const RICH_FORMAT_TAGS = { strong: "strong", b: "strong", em: "em", i: "em", u: "u" };
+  // Responsive image helper, the same module event.html imports. Image slots
+  // get WebP width variants through it; when it cannot load (or has not yet)
+  // they get their original URLs, as before.
+  let imageHelper = null;
+  const imageHelperReady = loadImageHelper();
   // One price fit per task, however many triggers fire (see fitPriceAmounts).
   let fitQueued = false;
   let priceCardObserver = null;
@@ -749,7 +754,8 @@
       }
       return;
     }
-    const bg = `url("${value.replace(/"/g, "%22")}")`;
+    const url = imageHelper ? imageHelper.viewportVariantUrl(value) : value;
+    const bg = `url("${url.replace(/"/g, "%22")}")`;
     if (el.style.backgroundImage !== bg) {
       el.style.backgroundImage = bg;
     }
@@ -806,14 +812,30 @@
     if (section) section.classList.add("is-live");
   }
 
+  // The decode runs on the same srcset/sizes the slot then uses, so it warms
+  // the variant the slot shows instead of downloading the full original.
   function applyDecodedImage(el, value) {
-    const pre = new Image();
-    pre.src = value;
-    function assign() { el.src = value; }
-    if (typeof pre.decode === "function") {
-      pre.decode().then(assign, assign);
-    } else {
-      pre.onload = pre.onerror = assign;
+    imageHelperReady.then(() => {
+      const show = (img) => {
+        if (imageHelper) imageHelper.setResponsiveImage(img, value, { sizes: el.getAttribute("sizes") || undefined });
+        else img.src = value;
+      };
+      const pre = new Image();
+      show(pre);
+      function assign() { show(el); }
+      if (typeof pre.decode === "function") {
+        pre.decode().then(assign, assign);
+      } else {
+        pre.onload = pre.onerror = assign;
+      }
+    });
+  }
+
+  function loadImageHelper() {
+    try {
+      return import("/responsive-image.js?v=1").then((helper) => (imageHelper = helper), () => null);
+    } catch (e) {
+      return Promise.resolve(null);
     }
   }
   // ---- Pencil rich text -------------------------------------------------

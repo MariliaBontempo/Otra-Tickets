@@ -107,10 +107,13 @@ test("detailed perks or sponsors grow the band without the text class", () => {
 
 // Cloudflare keeps /site-overrides.js?v=11 for 4h, which still lacks
 // syncBandLayout. Every event page must ask for the build that has it.
+// v=16 adds responsive image slots: an older build would set only src on an
+// <img> whose srcset (set by event.html) then keeps showing the old photo.
 test("every event page loads the overrides build with the band sync", () => {
   assert.match(overridesSrc, /function syncBandLayout\(/);
+  assert.match(overridesSrc, /setResponsiveImage\(/);
   for (const page of ["event.html", "rnb.html", "clearboat.html"]) {
     const srcs = read(page).match(/site-overrides\.js\?v=\d+"/g) || [];
-    assert.deepEqual(srcs, ['site-overrides.js?v=15"'], `${page} loads site-overrides.js?v=15 once`);
+    assert.deepEqual(srcs, ['site-overrides.js?v=16"'], `${page} loads site-overrides.js?v=16 once`);
   }
 });

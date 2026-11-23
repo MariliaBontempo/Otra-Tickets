@@ -3,6 +3,11 @@ import { SLUG_ALIASES } from "./_lib/slug-aliases.js";
 import { onRequestGet as getHomepageEvents } from "./api/homepage-events.js";
 import { findUnlistedSiteEvent } from "./_lib/homepage-feed.js";
 import { setNoStore } from "./_lib/no-store.js";
+import { metaImageUrl, preloadLinkHtml } from "./_lib/responsive-image.js";
+
+// Must match the sizes event.html gives #evHeroImg, so the preloaded
+// candidate is the one the hero then picks.
+const HERO_SIZES = "100vw";
 
 const STATIC_PATHS = new Set([
   "admin",
@@ -197,6 +202,10 @@ function injectEventHead(html, event, requestUrl, { unlisted = false } = {}) {
     `<meta name="twitter:title" content="${escapeAttribute(seo.title)}" />`,
     `<meta name="twitter:description" content="${escapeAttribute(seo.description)}" />`,
     seo.image ? `<meta name="twitter:image" content="${escapeAttribute(seo.image)}" />` : "",
+    // The feed card image is the photo the hero ends up showing (see
+    // homepageOverrideImage), so its mobile WebP variant can start before
+    // event.html's script and /api/event have run.
+    preloadLinkHtml(event.img, { sizes: HERO_SIZES }),
     // No Event rich result for a link only page.
     unlisted ? "" : `<script type="application/ld+json">${jsonLd}</script>`,
   ].filter(Boolean).join("\n");
@@ -213,7 +222,8 @@ function eventSeo(event, requestUrl) {
   const date = cleanText(event.dateLabel || (event.isPerennial ? "Flexible dates" : ""));
   const slug = cleanText(event.slug);
   const canonical = new URL(slug ? `/${slug}` : "/", SITE_ORIGIN).href;
-  const image = event.img ? absoluteUrl(event.img, requestUrl) : "";
+  // Crawlers and mail clients need JPEG or PNG, never a WebP variant.
+  const image = event.img ? absoluteUrl(metaImageUrl(event.img), requestUrl) : "";
   const when = date ? ` on ${date}` : "";
   const where = venue ? ` at ${venue}` : " in Curaçao";
   const description = clampDescription(`Get tickets for ${eventTitle}${when}${where} through Otra Tickets, powered by Otra Guide.`);
