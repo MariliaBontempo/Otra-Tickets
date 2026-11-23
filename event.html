@@ -94,6 +94,7 @@ body {
 
 .brand { display: flex; align-items: center; gap: 20px; flex-shrink: 0; }
 .brand img { width: 84px; height: 84px; display: block; }
+.brand picture { display: block; line-height: 0; flex-shrink: 0; }
 .brand .wordmark {
   font-family: var(--font-display);
   font-weight: 800;
@@ -954,7 +955,7 @@ html[data-presidente-event="8088"] .btn-metal:hover { background: #4cba57; box-s
 <noscript><img height="1" width="1" style="display:none" src="/api/meta-pageview" alt="" /></noscript>
   <header class="header">
     <a class="brand" href="/" style="text-decoration:none;color:inherit">
-      <picture style="display:contents">
+      <picture>
         <source type="image/avif" srcset="uploads/variants/otra-tickets-logo-84.avif 1x, uploads/variants/otra-tickets-logo-168.avif 2x, uploads/variants/otra-tickets-logo-252.avif 3x">
         <source type="image/webp" srcset="uploads/variants/otra-tickets-logo-84.webp 1x, uploads/variants/otra-tickets-logo-168.webp 2x, uploads/variants/otra-tickets-logo-252.webp 3x">
         <img src="uploads/variants/otra-tickets-logo-84.webp" alt="Otra Tickets" width="84" height="84" decoding="async">
