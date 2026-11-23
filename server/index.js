@@ -9,6 +9,7 @@ import { createKv } from "./kv.js";
 import { createBucket } from "./r2.js";
 import { createAssets } from "./assets.js";
 import { createApp } from "./app.js";
+import { createImageTransform } from "./image-transform.js";
 import { initializeSchema } from "./schema-init.js";
 
 const ROOT = new URL("..", import.meta.url).pathname;
@@ -47,9 +48,17 @@ const env = {
   OVERRIDES: createKv(pool),
   OVERRIDE_IMAGES: createBucket(s3, process.env.SPACES_BUCKET || "otratickets-media"),
   ASSETS: createAssets(DIST_DIR, join(ROOT, "_headers")),
+  // /img variants (functions/img/[[path]].js). The cache dir sits beside
+  // dist/ so deploys (rsync --delete of dist, functions, server) keep it.
+  IMAGE_TRANSFORM: createImageTransform({ cacheDir: process.env.IMAGE_CACHE_DIR || join(ROOT, ".image-cache") }),
   OTRA_API_URL: process.env.OTRA_API_URL || undefined,
 };
 const app = createApp(env, buildRouteTable(listFunctionFiles(FUNCTIONS_DIR)), FUNCTIONS_DIR);
+// sharp is native (deploy installs @img/sharp-linux-x64 with --ignore-scripts).
+// Without it /img still works: every variant redirects to its original.
+env.IMAGE_TRANSFORM.ready().then((loaded) => {
+  console.log(loaded ? "image-transform: sharp loaded, /img encodes variants" : "image-transform: sharp NOT loaded, /img redirects to originals");
+});
 
 // Ensure schema exists before serving.
 await initializeSchema(pool, process.env.RUN_SCHEMA_INIT);

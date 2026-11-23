@@ -64,6 +64,8 @@
 <link rel="preload" as="image" type="image/webp" fetchpriority="high"
       imagesrcset="uploads/variants/otra-ticketing-words-1200.webp 1200w, uploads/variants/otra-ticketing-words-2000.webp 2000w"
       imagesizes="100vw">
+<!-- Card image helper; tiny, and needed as soon as the feed arrives. -->
+<link rel="modulepreload" href="/responsive-image.js?v=1">
 <style>
 @font-face { font-family: "Inter"; font-style: normal; font-weight: 400; font-display: swap; src: url("fonts/inter-400.woff2") format("woff2"); }
 @font-face { font-family: "Inter"; font-style: normal; font-weight: 500; font-display: swap; src: url("fonts/inter-500.woff2") format("woff2"); }
@@ -116,12 +118,22 @@ body {
   color: var(--fog);
   background: #000;
   min-height: 100vh;
-  /* Otra black texture, held still behind the scroll */
+  /* Otra black texture, held still behind the scroll. Sized variants (the
+     6000 px original is the fallback for browsers without image-set). */
   background-image: linear-gradient(rgba(7,8,10,0.55), rgba(7,8,10,0.78)), url("uploads/BG_Otra_Black_Texture.webp");
+  background-image: linear-gradient(rgba(7,8,10,0.55), rgba(7,8,10,0.78)), -webkit-image-set(url("uploads/variants/bg-otra-black-texture-800.webp") 1x, url("uploads/variants/bg-otra-black-texture-1600.webp") 2x);
+  background-image: linear-gradient(rgba(7,8,10,0.55), rgba(7,8,10,0.78)), image-set(url("uploads/variants/bg-otra-black-texture-800.webp") 1x, url("uploads/variants/bg-otra-black-texture-1600.webp") 2x);
   background-size: cover;
   background-position: center;
   background-attachment: fixed;
   -webkit-font-smoothing: antialiased;
+}
+/* Wide screens: never stretch the 800 px texture. */
+@media (min-width: 1000px) {
+  body {
+    background-image: linear-gradient(rgba(7,8,10,0.55), rgba(7,8,10,0.78)), -webkit-image-set(url("uploads/variants/bg-otra-black-texture-1600.webp") 1x, url("uploads/BG_Otra_Black_Texture.webp") 2x);
+    background-image: linear-gradient(rgba(7,8,10,0.55), rgba(7,8,10,0.78)), image-set(url("uploads/variants/bg-otra-black-texture-1600.webp") 1x, url("uploads/BG_Otra_Black_Texture.webp") 2x);
+  }
 }
 
 /* ============ HEADER ============ */
@@ -599,8 +611,10 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
      compositor-only (opacity/transform). Filter animations, forwards-filled
      filters and main-thread repaints here churn the header's backdrop root,
      which makes Chrome drop the header's backdrop-filter for a frame — the
-     mosaic flashes through in full color. */
-  animation: wordmarkIn 1.7s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+     mosaic flashes through in full color.
+     Scale only, never opacity: the wordmark is the page's LCP image and must
+     be visible on its first paint (no fill mode, no fade from 0). */
+  animation: wordmarkIn 1.7s cubic-bezier(0.16, 1, 0.3, 1);
   isolation: isolate;
 }
 .wordmark-img {
@@ -638,9 +652,8 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
   animation: wordmarkSheen 8s ease-in-out 2.2s infinite;
 }
 @keyframes wordmarkIn {
-  0%   { opacity: 0; transform: scale(0.82) translateY(16px); }
-  55%  { opacity: 1; }
-  100% { opacity: 1; transform: scale(0.9) translateY(0); }
+  0%   { transform: scale(0.82) translateY(16px); }
+  100% { transform: scale(0.9) translateY(0); }
 }
 /* translateX endpoints mirror the old background-position sweep (180% → -80%
    at background-size 220%): -98% and +44% of the 220%-wide streak layer */
@@ -998,6 +1011,14 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
     let scrollWhenReady = false;
     let slowTimer = null, slowLine = null, badgeShown = false;
     let byId = new Map();
+    // Responsive image helper (functions/_lib/responsive-image.js, served as
+    // /responsive-image.js), loaded while the feed is in flight. null when it
+    // cannot load; cards then keep their original image URLs.
+    const imageHelper = import("/responsive-image.js?v=1").catch(() => null);
+    let images = null;
+    // Rendered card image width: .card is clamp(300px, 22.5vw, 452px) less
+    // 16px padding and 2px border per side.
+    const CARD_SIZES = "(max-width: 1333px) 264px, (max-width: 2008px) 20vw, 416px";
 
     if (enterLink) {
       enterLink.classList.add("is-loading");
@@ -1121,10 +1142,15 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
         card.className = "card";
         const img = document.createElement("img");
         img.className = "card-img";
-        img.src = ev.img; img.alt = ev.title;
+        img.width = 800; img.height = 450;
+        img.alt = ev.title;
+        // Loading hints go first: setting src on a detached <img> starts the
+        // fetch with whatever loading mode it has at that moment.
         img.loading = rowIndex === 0 ? "eager" : "lazy";
         img.decoding = "async";
         if (rowIndex === 0) img.fetchPriority = "high";
+        if (images) images.setResponsiveImage(img, ev.img, { sizes: CARD_SIZES });
+        else img.src = ev.img;
         const body = document.createElement("div");
         body.className = "card-body";
         const titleEl = document.createElement("div");
@@ -1207,7 +1233,16 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
           const link = document.createElement("link");
           link.rel = "preload";
           link.as = "image";
-          link.href = ev.img;
+          // Same srcset/sizes the card gets, so the preload is the variant
+          // the card shows (no href: it would fetch the full original).
+          const srcset = images ? images.srcsetFor(ev.img) : "";
+          if (srcset) {
+            link.type = "image/webp";
+            link.imageSrcset = srcset;
+            link.imageSizes = CARD_SIZES;
+          } else {
+            link.href = ev.img;
+          }
           document.head.append(link);
         });
     }
@@ -1219,6 +1254,7 @@ body { margin: 0; }            /* scrolls: full-bleed hero first, event rows aft
         // Reuse the fetch started in <head> on first load; fresh fetch on retry.
         feedData = await fetchFeed();
         events = (feedData && feedData.events) || [];
+        images = await imageHelper;
       } catch (err) {
         stopSlowTimer();
         skeletonEl.remove();

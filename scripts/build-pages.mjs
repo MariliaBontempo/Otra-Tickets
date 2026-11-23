@@ -34,4 +34,8 @@ for (const entry of copyEntries) {
   cpSync(source, join(dist, entry), { recursive: true });
 }
 
+// Browser copy of the responsive image helper the pages import, so the
+// functions and the pages build variant URLs from one source.
+cpSync(join(projectRoot, "functions", "_lib", "responsive-image.js"), join(dist, "responsive-image.js"));
+
 console.log(`Built static Pages output at ${dist}`);
