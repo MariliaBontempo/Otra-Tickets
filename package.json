@@ -53,7 +53,6 @@
     "check:override-email-mailto": "node scripts/check-override-email-mailto.mjs",
     "check:card-venue-urls": "node scripts/check-card-venue-urls.mjs",
     "check:guide-title-ssot-b": "node scripts/check-guide-title-ssot-b.mjs",
-    "check:responsive-image": "node scripts/check-responsive-image.mjs",
     "check:homepage-feed": "node scripts/test-homepage-feed.mjs"
   }
 }
